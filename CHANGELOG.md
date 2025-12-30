@@ -1,3 +1,11 @@
+## 1.3.5
+
+* **FIX**: All ad managers now respect `AdsEnabledManager.isDisabled` state
+  - `loadAd()` and `showAd()` check disabled state before proceeding
+  - Fixes race condition where `disableAds()` in `onComplete` was too late
+  - Affected managers: `BannerAdManager`, `InterstitialAdManager`, `RewardedAdManager`, `AppOpenAdManager`, `NativeAdManager`
+* **DOCS**: Updated copilot-instructions.md with timing warning for disabling ads
+
 ## 1.3.4
 
 * **FIX**: Applied `dart format` to all files for pub.dev static analysis compliance

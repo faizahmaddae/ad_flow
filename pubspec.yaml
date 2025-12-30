@@ -1,6 +1,6 @@
 name: ad_flow
 description: "Easy AdMob integration for Flutter with banner, interstitial, rewarded, native & app open ads, plus built-in GDPR/ATT consent management."
-version: 1.3.4
+version: 1.3.5
 homepage: https://github.com/faizahmaddae/ad_flow
 repository: https://github.com/faizahmaddae/ad_flow
 issue_tracker: https://github.com/faizahmaddae/ad_flow/issues
