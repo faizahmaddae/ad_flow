@@ -7,6 +7,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'ad_config.dart';
 import 'ad_error_handler.dart';
+import 'ads_enabled_manager.dart';
 
 /// Callback for native ad events
 typedef NativeAdCallback = void Function(NativeAd ad);
@@ -100,6 +101,12 @@ class NativeAdManager {
     NativeAdCallback? onAdLoaded,
     NativeAdErrorCallback? onAdFailedToLoad,
   }) async {
+    // Check if ads are disabled (Remove Ads feature)
+    if (AdsEnabledManager.instance.isDisabled) {
+      debugPrint('NativeAdManager: Ads disabled, skipping load');
+      return;
+    }
+
     // Check consent before loading (Google best practice)
     if (!await ConsentInformation.instance.canRequestAds()) {
       debugPrint('NativeAdManager: Cannot request ads (no consent)');

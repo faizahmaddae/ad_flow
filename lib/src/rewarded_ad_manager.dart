@@ -7,6 +7,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'ad_config.dart';
 import 'ad_error_handler.dart';
+import 'ads_enabled_manager.dart';
 
 /// Callback for rewarded ad events
 typedef RewardedAdCallback = void Function(RewardedAd ad);
@@ -104,6 +105,12 @@ class RewardedAdManager {
     RewardedAdCallback? onAdLoaded,
     RewardedAdErrorCallback? onAdFailedToLoad,
   }) async {
+    // Check if ads are disabled (Remove Ads feature)
+    if (AdsEnabledManager.instance.isDisabled) {
+      debugPrint('RewardedAdManager: Ads disabled, skipping load');
+      return;
+    }
+
     // Check consent before loading (Google best practice)
     if (!await ConsentInformation.instance.canRequestAds()) {
       debugPrint('RewardedAdManager: Cannot request ads (no consent)');
@@ -235,6 +242,13 @@ class RewardedAdManager {
     VoidCallback? onAdDismissed,
     VoidCallback? onAdFailedToShow,
   }) async {
+    // Check if ads are disabled (Remove Ads feature)
+    if (AdsEnabledManager.instance.isDisabled) {
+      debugPrint('RewardedAdManager: Ads disabled, not showing');
+      onAdFailedToShow?.call();
+      return false;
+    }
+
     if (!_isLoaded || _rewardedAd == null) {
       debugPrint('RewardedAdManager: No ad loaded to show');
       onAdFailedToShow?.call();

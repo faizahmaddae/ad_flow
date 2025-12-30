@@ -7,6 +7,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'ad_config.dart';
 import 'ad_error_handler.dart';
+import 'ads_enabled_manager.dart';
 
 /// Callback for app open ad events
 typedef AppOpenAdCallback = void Function(AppOpenAd ad);
@@ -101,6 +102,12 @@ class AppOpenAdManager {
     AppOpenAdCallback? onAdLoaded,
     AppOpenAdErrorCallback? onAdFailedToLoad,
   }) async {
+    // Check if ads are disabled (Remove Ads feature)
+    if (AdsEnabledManager.instance.isDisabled) {
+      debugPrint('AppOpenAdManager: Ads disabled, skipping load');
+      return;
+    }
+
     // Check consent before loading (Google best practice)
     if (!await ConsentInformation.instance.canRequestAds()) {
       debugPrint('AppOpenAdManager: Cannot request ads (no consent)');
@@ -281,6 +288,13 @@ class AppOpenAdManager {
     VoidCallback? onAdDismissed,
     VoidCallback? onAdFailedToShow,
   }) async {
+    // Check if ads are disabled (Remove Ads feature)
+    if (AdsEnabledManager.instance.isDisabled) {
+      debugPrint('AppOpenAdManager: Ads disabled, not showing');
+      onAdFailedToShow?.call();
+      return false;
+    }
+
     if (!isAdAvailable) {
       debugPrint('AppOpenAdManager: No ad available to show');
       // Try to load one for next time

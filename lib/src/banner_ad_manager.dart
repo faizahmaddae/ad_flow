@@ -7,6 +7,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'ad_config.dart';
 import 'ad_error_handler.dart';
+import 'ads_enabled_manager.dart';
 
 /// Callback for banner ad events
 typedef BannerAdCallback = void Function(BannerAd ad);
@@ -92,12 +93,18 @@ class BannerAdManager {
     BannerAdErrorCallback? onAdFailedToLoad,
     String? adUnitId,
   }) async {
+    // Check if ads are disabled (Remove Ads feature)
+    if (AdsEnabledManager.instance.isDisabled) {
+      debugPrint('BannerAdManager: Ads disabled, skipping load');
+      return;
+    }
+
     // Capture width before async gap to avoid use_build_context_synchronously
     final screenWidth = MediaQuery.sizeOf(context).width.truncate();
 
     // Check consent before loading (Google best practice)
     if (!await ConsentInformation.instance.canRequestAds()) {
-      debugPrint('BannerAdManager: Cannot request ads (no consent)');
+      debugPrint('BannerAdManager: Cannot request ads (no consent)');;
       return;
     }
 
@@ -156,6 +163,12 @@ class BannerAdManager {
     BannerAdErrorCallback? onAdFailedToLoad,
     String? adUnitId,
   }) async {
+    // Check if ads are disabled (Remove Ads feature)
+    if (AdsEnabledManager.instance.isDisabled) {
+      debugPrint('BannerAdManager: Ads disabled, skipping load');
+      return;
+    }
+
     // Capture width before async gap to avoid use_build_context_synchronously
     final screenWidth = MediaQuery.sizeOf(context).width.truncate();
 

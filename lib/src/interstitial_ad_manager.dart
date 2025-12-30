@@ -7,6 +7,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'ad_config.dart';
 import 'ad_error_handler.dart';
+import 'ads_enabled_manager.dart';
 
 /// Callback for interstitial ad events
 typedef InterstitialAdCallback = void Function(InterstitialAd ad);
@@ -101,6 +102,12 @@ class InterstitialAdManager {
     InterstitialAdCallback? onAdLoaded,
     InterstitialAdErrorCallback? onAdFailedToLoad,
   }) async {
+    // Check if ads are disabled (Remove Ads feature)
+    if (AdsEnabledManager.instance.isDisabled) {
+      debugPrint('InterstitialAdManager: Ads disabled, skipping load');
+      return;
+    }
+
     // Check consent before loading (Google best practice)
     if (!await ConsentInformation.instance.canRequestAds()) {
       debugPrint('InterstitialAdManager: Cannot request ads (no consent)');
@@ -237,6 +244,13 @@ class InterstitialAdManager {
     VoidCallback? onAdFailedToShow,
     bool ignoreCooldown = false,
   }) async {
+    // Check if ads are disabled (Remove Ads feature)
+    if (AdsEnabledManager.instance.isDisabled) {
+      debugPrint('InterstitialAdManager: Ads disabled, not showing');
+      onAdFailedToShow?.call();
+      return false;
+    }
+
     if (!_isLoaded || _interstitialAd == null) {
       debugPrint('InterstitialAdManager: No ad loaded to show');
       onAdFailedToShow?.call();
