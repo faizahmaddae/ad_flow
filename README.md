@@ -1074,10 +1074,22 @@ const EasyNativeAd({
   EdgeInsets padding,          // Padding around ad
   Color? backgroundColor,      // Background color
   BorderRadius? borderRadius,  // Corner radius
+  VoidCallback? onAdLoaded,    // Callback when ad loads
+  VoidCallback? onAdFailedToLoad, // Callback on load failure
 })
 ```
 
 **Collapse Behavior (v1.3.6+):** By default, `EasyNativeAd` collapses to zero height when loading or when an ad fails to load (e.g., no fill). This prevents empty white space in fixed-height layouts like `bottomNavigationBar`. Set `hideOnLoading: false` or `hideOnError: false` to show placeholder widgets instead.
+
+**Example with callbacks:**
+```dart
+EasyNativeAd(
+  factoryId: 'medium_template',
+  height: 300,
+  onAdLoaded: () => debugPrint('Native ad loaded!'),
+  onAdFailedToLoad: () => debugPrint('Native ad failed to load'),
+)
+```
 
 ### AdsEnabledManager
 
