@@ -1,3 +1,8 @@
+## 1.3.7
+
+* **FIX**: `NativeAdWidget` now respects `AdsEnabledManager.isDisabled` on initial build
+* **IMPROVED**: Added comprehensive tests for `EasyNativeAd` and `NativeAdWidget` ads-disabled behavior
+
 ## 1.3.6
 
 * **NEW**: `EasyNativeAd` now collapses when ads fail to load (no more empty white space)
