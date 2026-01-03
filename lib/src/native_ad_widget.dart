@@ -56,6 +56,11 @@ class NativeAdWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Don't show anything if ads are disabled
+    if (AdsEnabledManager.instance.isDisabled) {
+      return const SizedBox.shrink();
+    }
+
     if (!manager.isLoaded || manager.nativeAd == null) {
       return placeholder ?? const SizedBox.shrink();
     }

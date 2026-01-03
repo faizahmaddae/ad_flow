@@ -16,7 +16,7 @@ AdFlow.instance.native       // NativeAdManager
 AdFlow.instance.consent      // ConsentManager (always available)
 ```
 
-### File Map
+### Key Files
 | File | Purpose |
 |------|---------|
 | [lib/ad_flow.dart](lib/ad_flow.dart) | Barrel exports (public API surface) |
@@ -24,7 +24,6 @@ AdFlow.instance.consent      // ConsentManager (always available)
 | [lib/src/ad_config.dart](lib/src/ad_config.dart) | `AdFlowConfig` + `TestAdUnitIds` with Google test IDs |
 | [lib/src/consent_manager.dart](lib/src/consent_manager.dart) | iOS ATT → UMP consent flow (strictly sequential) |
 | [lib/src/ads_enabled_manager.dart](lib/src/ads_enabled_manager.dart) | "Remove Ads" via SharedPreferences |
-| [lib/src/ad_error_handler.dart](lib/src/ad_error_handler.dart) | `AdFlowError`, `AdFlowErrorHandler` with stream |
 | [lib/src/easy_banner_widget.dart](lib/src/easy_banner_widget.dart) | Reference for self-contained widget pattern |
 
 ### Initialization Order (critical)
@@ -56,7 +55,7 @@ setUp(() async {
 ## Code Patterns
 
 ### 1. Ad Widget Pattern
-All ad widgets must respect `AdsEnabledManager`. Reference [easy_banner_widget.dart#L48-L56](lib/src/easy_banner_widget.dart):
+All ad widgets must check `AdsEnabledManager` and return empty widget if disabled. See [easy_banner_widget.dart](lib/src/easy_banner_widget.dart):
 ```dart
 _adsEnabled = AdsEnabledManager.instance.isEnabled;
 if (!_adsEnabled) return SizedBox.shrink();
@@ -72,7 +71,7 @@ Each manager in `lib/src/*_ad_manager.dart` follows:
 - `canShowAd` → respects `minInterstitialInterval` cooldown from config
 
 ### 3. Error Handling
-Subscribe to centralized error stream:
+Subscribe to centralized error stream in [ad_error_handler.dart](lib/src/ad_error_handler.dart):
 ```dart
 AdFlow.instance.errorStream.listen((AdFlowError error) {
   // error.type (AdErrorType enum), error.code, error.message
@@ -83,48 +82,22 @@ AdFlow.instance.errorStream.listen((AdFlowError error) {
 - `gatherConsent()` → direct system prompts
 - `gatherConsentWithExplainer(context)` → shows friendly dialog first
 
-### 5. Configuration
-Use `AdFlowConfig.testMode()` during development. For production:
-```dart
-AdFlowConfig(
-  androidBannerAdUnitId: 'ca-app-pub-xxx/xxx',
-  iosBannerAdUnitId: 'ca-app-pub-xxx/xxx',
-  // Use Platform.isAndroid/isIOS for platform selection
-)
-```
-
-## Platform Setup (example/ app)
-- **Android:** App ID in [example/android/app/src/main/AndroidManifest.xml](example/android/app/src/main/AndroidManifest.xml) → `com.google.android.gms.ads.APPLICATION_ID`
-- **iOS:** [example/ios/Runner/Info.plist](example/ios/Runner/Info.plist) → `GADApplicationIdentifier`, `NSUserTrackingUsageDescription`, SKAdNetwork IDs
-
 ## Critical Rules
 1. **Never** call `AdFlow.instance.initialize()` more than once per session
 2. **Always** check `consent.canRequestAds` before loading ads
 3. Dispose managers **only if accessed** (lazy init saves memory)
 4. Keep consent flows **strictly sequential** to prevent popup stacking
 5. Add new exports to [lib/ad_flow.dart](lib/ad_flow.dart) barrel file
-6. **Disable ads BEFORE initialization** if needed—`onComplete` runs AFTER preloading:
+6. **Disable ads BEFORE initialization**—`onComplete` runs AFTER preloading:
 ```dart
-// ❌ Wrong: ads already preloaded before onComplete runs
-await AdFlow.instance.initializeWithExplainer(
-  preloadAppOpen: true,
-  onComplete: (_) => AdFlow.instance.disableAds(), // Too late!
-);
-
-// ✅ Correct: disable before init, or use flags
+// ✅ Correct: disable before init, or use conditional flags
 await AdFlow.instance.disableAds();
 await AdFlow.instance.initializeWithExplainer(preloadAppOpen: true);
-
-// ✅ Or: conditionally set preload flags
-await AdFlow.instance.initializeWithExplainer(
-  preloadAppOpen: shouldShowAds,
-  showAppOpenOnColdStart: shouldShowAds,
-);
 ```
 
-## Adding New Ad Types or Managers
-1. Create manager class following patterns in [lib/src/interstitial_ad_manager.dart](lib/src/interstitial_ad_manager.dart)
-2. Add lazy getter in [lib/src/ad_service.dart#L208-L225](lib/src/ad_service.dart)
+## Adding New Ad Types
+1. Create manager class following [interstitial_ad_manager.dart](lib/src/interstitial_ad_manager.dart)
+2. Add lazy getter in [ad_service.dart](lib/src/ad_service.dart) (lines 208-225)
 3. Export from [lib/ad_flow.dart](lib/ad_flow.dart) barrel file
-4. Include in `disposeAllAds()` and `reset()` methods in AdFlow
+4. Include in `disposeAllAds()` and `reset()` methods
 5. Write tests following [test/ad_flow_test.dart](test/ad_flow_test.dart) patterns
