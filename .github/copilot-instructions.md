@@ -56,7 +56,7 @@ setUp(() async {
 ## Code Patterns
 
 ### 1. Ad Widget Pattern
-All ad widgets must respect `AdsEnabledManager`. Reference: [easy_banner_widget.dart#L40-L52](lib/src/easy_banner_widget.dart):
+All ad widgets must respect `AdsEnabledManager`. Reference [easy_banner_widget.dart#L48-L56](lib/src/easy_banner_widget.dart):
 ```dart
 _adsEnabled = AdsEnabledManager.instance.isEnabled;
 if (!_adsEnabled) return SizedBox.shrink();
@@ -94,8 +94,8 @@ AdFlowConfig(
 ```
 
 ## Platform Setup (example/ app)
-- **Android:** App ID in `example/android/app/src/main/AndroidManifest.xml` → `com.google.android.gms.ads.APPLICATION_ID`
-- **iOS:** `example/ios/Runner/Info.plist` → `GADApplicationIdentifier`, `NSUserTrackingUsageDescription`, SKAdNetwork IDs
+- **Android:** App ID in [example/android/app/src/main/AndroidManifest.xml](example/android/app/src/main/AndroidManifest.xml) → `com.google.android.gms.ads.APPLICATION_ID`
+- **iOS:** [example/ios/Runner/Info.plist](example/ios/Runner/Info.plist) → `GADApplicationIdentifier`, `NSUserTrackingUsageDescription`, SKAdNetwork IDs
 
 ## Critical Rules
 1. **Never** call `AdFlow.instance.initialize()` more than once per session
@@ -121,3 +121,10 @@ await AdFlow.instance.initializeWithExplainer(
   showAppOpenOnColdStart: shouldShowAds,
 );
 ```
+
+## Adding New Ad Types or Managers
+1. Create manager class following patterns in [lib/src/interstitial_ad_manager.dart](lib/src/interstitial_ad_manager.dart)
+2. Add lazy getter in [lib/src/ad_service.dart#L208-L225](lib/src/ad_service.dart)
+3. Export from [lib/ad_flow.dart](lib/ad_flow.dart) barrel file
+4. Include in `disposeAllAds()` and `reset()` methods in AdFlow
+5. Write tests following [test/ad_flow_test.dart](test/ad_flow_test.dart) patterns

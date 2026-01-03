@@ -1065,10 +1065,19 @@ void dispose()                  // Clean up
 ```dart
 const EasyNativeAd({
   required String factoryId,   // Native ad factory ID
-  double? height,              // Ad height
-  Widget? placeholder,         // Loading placeholder
+  required double height,      // Ad height
+  double? width,               // Ad width (optional)
+  Widget? loadingWidget,       // Loading placeholder
+  Widget? errorWidget,         // Error placeholder
+  bool hideOnLoading = true,   // Collapse while loading
+  bool hideOnError = true,     // Collapse on error/no fill
+  EdgeInsets padding,          // Padding around ad
+  Color? backgroundColor,      // Background color
+  BorderRadius? borderRadius,  // Corner radius
 })
 ```
+
+**Collapse Behavior (v1.3.6+):** By default, `EasyNativeAd` collapses to zero height when loading or when an ad fails to load (e.g., no fill). This prevents empty white space in fixed-height layouts like `bottomNavigationBar`. Set `hideOnLoading: false` or `hideOnError: false` to show placeholder widgets instead.
 
 ### AdsEnabledManager
 

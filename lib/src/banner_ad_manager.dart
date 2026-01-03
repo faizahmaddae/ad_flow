@@ -104,7 +104,7 @@ class BannerAdManager {
 
     // Check consent before loading (Google best practice)
     if (!await ConsentInformation.instance.canRequestAds()) {
-      debugPrint('BannerAdManager: Cannot request ads (no consent)');;
+      debugPrint('BannerAdManager: Cannot request ads (no consent)');
       return;
     }
 

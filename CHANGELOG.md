@@ -1,3 +1,12 @@
+## 1.3.6
+
+* **NEW**: `EasyNativeAd` now collapses when ads fail to load (no more empty white space)
+  - Added `hideOnLoading` parameter (default: `true`) - collapses while loading
+  - Added `hideOnError` parameter (default: `true`) - collapses on load failure (e.g., no fill)
+  - Set to `false` to show loading/error widgets with reserved height
+* **FIX**: Removed double semicolon in `BannerAdManager` causing static analysis warning
+* **IMPROVED**: Better UX for fixed-height layouts like `bottomNavigationBar`
+
 ## 1.3.5
 
 * **FIX**: All ad managers now respect `AdsEnabledManager.isDisabled` state

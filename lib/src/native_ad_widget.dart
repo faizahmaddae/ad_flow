@@ -89,11 +89,32 @@ class NativeAdWidget extends StatelessWidget {
 ///
 /// This is the simplest way to add a native ad - just drop it in your widget tree!
 ///
+/// By default, the widget collapses (shows nothing) when an ad fails to load,
+/// avoiding empty white space in your UI. You can customize this behavior with
+/// [hideOnLoading] and [hideOnError] parameters.
+///
 /// Usage:
 /// ```dart
+/// // Basic usage - collapses on error
 /// EasyNativeAd(
 ///   factoryId: NativeAdFactoryIds.medium,
 ///   height: 300,
+/// )
+///
+/// // Show placeholder while loading, collapse on error
+/// EasyNativeAd(
+///   factoryId: 'medium_template',
+///   height: 300,
+///   hideOnLoading: false,  // Show loading indicator
+///   hideOnError: true,     // Collapse on error (default)
+/// )
+///
+/// // Custom error widget instead of collapsing
+/// EasyNativeAd(
+///   factoryId: 'medium_template',
+///   height: 300,
+///   hideOnError: false,
+///   errorWidget: MyCustomErrorWidget(),
 /// )
 /// ```
 class EasyNativeAd extends StatefulWidget {
@@ -106,11 +127,33 @@ class EasyNativeAd extends StatefulWidget {
   /// Width of the ad (defaults to full width)
   final double? width;
 
-  /// Widget to show while ad is loading
+  /// Widget to show while ad is loading.
+  ///
+  /// Only shown if [hideOnLoading] is false.
+  /// Defaults to a centered [CircularProgressIndicator].
   final Widget? loadingWidget;
 
-  /// Widget to show if ad fails to load
+  /// Widget to show if ad fails to load.
+  ///
+  /// Only shown if [hideOnError] is false.
+  /// Defaults to [SizedBox.shrink] (empty widget).
   final Widget? errorWidget;
+
+  /// Whether to hide the widget (collapse to zero height) while loading.
+  ///
+  /// - `true`: Shows nothing while loading (no reserved space)
+  /// - `false`: Shows [loadingWidget] with specified [height]
+  ///
+  /// Defaults to `true` for cleaner UX in fixed-height layouts.
+  final bool hideOnLoading;
+
+  /// Whether to hide the widget (collapse to zero height) when ad fails to load.
+  ///
+  /// - `true`: Shows nothing on error (no reserved space)
+  /// - `false`: Shows [errorWidget] with specified [height]
+  ///
+  /// Defaults to `true` to prevent empty white space when no fill.
+  final bool hideOnError;
 
   /// Padding around the ad
   final EdgeInsets padding;
@@ -134,6 +177,8 @@ class EasyNativeAd extends StatefulWidget {
     this.width,
     this.loadingWidget,
     this.errorWidget,
+    this.hideOnLoading = true,
+    this.hideOnError = true,
     this.padding = EdgeInsets.zero,
     this.backgroundColor,
     this.borderRadius,
@@ -226,11 +271,30 @@ class _EasyNativeAdState extends State<EasyNativeAd> {
     // Don't show anything if ads are disabled
     if (!_adsEnabled) return const SizedBox.shrink();
 
+    // Error state: collapse or show errorWidget based on hideOnError
     if (_hasError) {
-      return widget.errorWidget ?? const SizedBox.shrink();
+      if (widget.hideOnError) {
+        return const SizedBox.shrink();
+      }
+      return SizedBox(
+        height: widget.height,
+        width: widget.width,
+        child:
+            widget.errorWidget ??
+            Container(
+              decoration: BoxDecoration(
+                color: widget.backgroundColor ?? Colors.grey[200],
+                borderRadius: widget.borderRadius,
+              ),
+            ),
+      );
     }
 
+    // Loading state: collapse or show loadingWidget based on hideOnLoading
     if (!_isLoaded) {
+      if (widget.hideOnLoading) {
+        return const SizedBox.shrink();
+      }
       return SizedBox(
         height: widget.height,
         width: widget.width,
