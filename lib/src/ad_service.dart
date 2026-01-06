@@ -520,7 +520,9 @@ class AdFlow {
       debugPrint('AdFlow: Mediation consent forwarded successfully');
     } else {
       for (final failed in summary.failed) {
-        debugPrint('AdFlow: Mediation consent failed for ${failed.networkName}: ${failed.error}');
+        debugPrint(
+          'AdFlow: Mediation consent failed for ${failed.networkName}: ${failed.error}',
+        );
       }
     }
   }

@@ -56,7 +56,10 @@ void main() {
 
         expect(MediationHelper.registeredAdapters.length, 1);
         expect(MediationHelper.registeredAdapters, contains('Network B'));
-        expect(MediationHelper.registeredAdapters, isNot(contains('Network A')));
+        expect(
+          MediationHelper.registeredAdapters,
+          isNot(contains('Network A')),
+        );
       });
 
       test('unregisterAll clears all adapters', () {
@@ -182,10 +185,7 @@ void main() {
         );
 
         await MediationHelper.forwardConsent(
-          MediationConsentConfig(
-            hasGdprConsent: true,
-            enableLogging: false,
-          ),
+          MediationConsentConfig(hasGdprConsent: true, enableLogging: false),
         );
 
         expect(receivedConsents['A'], true);
@@ -330,9 +330,7 @@ void main() {
         expect(emptySum.hasNetworks, false);
 
         final withNetworks = MediationForwardSummary(
-          results: [
-            MediationForwardResult(networkName: 'Test', success: true),
-          ],
+          results: [MediationForwardResult(networkName: 'Test', success: true)],
           timestamp: DateTime.now(),
         );
         expect(withNetworks.hasNetworks, true);

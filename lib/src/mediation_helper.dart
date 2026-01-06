@@ -7,10 +7,11 @@ import 'package:flutter/foundation.dart';
 ///
 /// [gdprConsent] - `true` if user has GDPR consent for personalized ads.
 /// [ccpaOptOut] - `true` if user opted out of data sale (CCPA "Do Not Sell").
-typedef MediationConsentForwarder = Future<void> Function({
-  required bool gdprConsent,
-  required bool ccpaOptOut,
-});
+typedef MediationConsentForwarder =
+    Future<void> Function({
+      required bool gdprConsent,
+      required bool ccpaOptOut,
+    });
 
 /// Configuration for mediation consent settings.
 ///
@@ -257,14 +258,13 @@ class MediationHelper {
       if (config.enableLogging) {
         debugPrint('MediationHelper: No adapters registered, skipping');
       }
-      return MediationForwardSummary(
-        results: [],
-        timestamp: DateTime.now(),
-      );
+      return MediationForwardSummary(results: [], timestamp: DateTime.now());
     }
 
     if (config.enableLogging) {
-      debugPrint('MediationHelper: Forwarding consent to ${_adapters.length} networks...');
+      debugPrint(
+        'MediationHelper: Forwarding consent to ${_adapters.length} networks...',
+      );
       debugPrint('  GDPR consent: ${config.hasGdprConsent}');
       debugPrint('  CCPA opt-out: ${config.ccpaOptOut}');
     }
@@ -280,16 +280,15 @@ class MediationHelper {
           gdprConsent: config.hasGdprConsent,
           ccpaOptOut: config.ccpaOptOut,
         );
-        results.add(MediationForwardResult(
-          networkName: name,
-          success: true,
-        ));
+        results.add(MediationForwardResult(networkName: name, success: true));
       } catch (e) {
-        results.add(MediationForwardResult(
-          networkName: name,
-          success: false,
-          error: e.toString(),
-        ));
+        results.add(
+          MediationForwardResult(
+            networkName: name,
+            success: false,
+            error: e.toString(),
+          ),
+        );
       }
     }
 
@@ -338,7 +337,9 @@ class MediationHelper {
       name: 'Unity Ads',
       forwarder: ({required gdprConsent, required ccpaOptOut}) async {
         await setGDPRConsent(gdprConsent);
-        await setCCPAConsent(!ccpaOptOut); // CCPA: true = consent given (inverted)
+        await setCCPAConsent(
+          !ccpaOptOut,
+        ); // CCPA: true = consent given (inverted)
       },
     );
   }
@@ -376,4 +377,3 @@ class MediationHelper {
     _adapters.clear();
   }
 }
-

@@ -55,142 +55,146 @@ void main() {
     });
 
     group('ads disabled', () {
-      testWidgets('returns SizedBox.shrink when ads are disabled before mount', (
-        tester,
-      ) async {
-        // Disable ads first
-        await AdsEnabledManager.instance.initialize();
-        await AdsEnabledManager.instance.disableAds();
+      testWidgets(
+        'returns SizedBox.shrink when ads are disabled before mount',
+        (tester) async {
+          // Disable ads first
+          await AdsEnabledManager.instance.initialize();
+          await AdsEnabledManager.instance.disableAds();
 
-        await tester.pumpWidget(
-          const MaterialApp(
-            home: Scaffold(
-              body: EasyNativeAd(
-                factoryId: 'medium_template',
-                height: 300,
-                hideOnLoading: false, // Would show loading, but ads disabled
-              ),
-            ),
-          ),
-        );
-
-        // Should not show loading indicator because ads are disabled
-        expect(find.byType(CircularProgressIndicator), findsNothing);
-      });
-
-      testWidgets('collapses to zero height when ads disabled AFTER widget mounted', (
-        tester,
-      ) async {
-        // Initialize with ads ENABLED
-        await AdsEnabledManager.instance.initialize();
-        expect(AdsEnabledManager.instance.isEnabled, true);
-
-        await tester.pumpWidget(
-          const MaterialApp(
-            home: Scaffold(
-              body: Center(
-                child: EasyNativeAd(
+          await tester.pumpWidget(
+            const MaterialApp(
+              home: Scaffold(
+                body: EasyNativeAd(
                   factoryId: 'medium_template',
                   height: 300,
-                  hideOnLoading: false, // Show loading indicator
+                  hideOnLoading: false, // Would show loading, but ads disabled
                 ),
               ),
             ),
-          ),
-        );
-        await tester.pump(); // Allow post frame callback
+          );
 
-        // Widget should show loading state (ads enabled, hideOnLoading: false)
-        // The EasyNativeAd renders a SizedBox(height: 300) with loading inside
-        final renderBoxBefore = tester.renderObject<RenderBox>(
-          find.byType(EasyNativeAd),
-        );
-        expect(renderBoxBefore.size.height, 300);
+          // Should not show loading indicator because ads are disabled
+          expect(find.byType(CircularProgressIndicator), findsNothing);
+        },
+      );
 
-        // Now disable ads AFTER widget is mounted
-        await AdFlow.instance.disableAds();
-        await tester.pump(); // Allow listener callback and rebuild
+      testWidgets(
+        'collapses to zero height when ads disabled AFTER widget mounted',
+        (tester) async {
+          // Initialize with ads ENABLED
+          await AdsEnabledManager.instance.initialize();
+          expect(AdsEnabledManager.instance.isEnabled, true);
 
-        // Widget should now collapse to zero height (SizedBox.shrink)
-        final renderBoxAfter = tester.renderObject<RenderBox>(
-          find.byType(EasyNativeAd),
-        );
-        expect(renderBoxAfter.size.height, 0.0);
-        expect(renderBoxAfter.size.width, 0.0);
-      });
-
-      testWidgets('collapses when ads disabled IMMEDIATELY after mount (same frame)', (
-        tester,
-      ) async {
-        // Initialize with ads ENABLED
-        await AdsEnabledManager.instance.initialize();
-        expect(AdsEnabledManager.instance.isEnabled, true);
-
-        await tester.pumpWidget(
-          const MaterialApp(
-            home: Scaffold(
-              body: Center(
-                child: EasyNativeAd(
-                  factoryId: 'medium_template',
-                  height: 300,
-                  hideOnLoading: false,
+          await tester.pumpWidget(
+            const MaterialApp(
+              home: Scaffold(
+                body: Center(
+                  child: EasyNativeAd(
+                    factoryId: 'medium_template',
+                    height: 300,
+                    hideOnLoading: false, // Show loading indicator
+                  ),
                 ),
               ),
             ),
-          ),
-        );
-        // DON'T pump - disable ads in the same frame as mount!
-        await AdFlow.instance.disableAds();
-        
-        // Now pump to process everything
-        await tester.pump();
+          );
+          await tester.pump(); // Allow post frame callback
 
-        // Widget should collapse to zero height
-        final renderBox = tester.renderObject<RenderBox>(
-          find.byType(EasyNativeAd),
-        );
-        expect(renderBox.size.height, 0.0);
-        expect(renderBox.size.width, 0.0);
-      });
+          // Widget should show loading state (ads enabled, hideOnLoading: false)
+          // The EasyNativeAd renders a SizedBox(height: 300) with loading inside
+          final renderBoxBefore = tester.renderObject<RenderBox>(
+            find.byType(EasyNativeAd),
+          );
+          expect(renderBoxBefore.size.height, 300);
 
-      testWidgets('collapses when AdsEnabledManager NOT initialized (edge case)', (
-        tester,
-      ) async {
-        // DON'T initialize AdsEnabledManager - simulating user forgetting to call init
-        // AdsEnabledManager.instance.isEnabled defaults to true
-        expect(AdsEnabledManager.instance.isEnabled, true);
+          // Now disable ads AFTER widget is mounted
+          await AdFlow.instance.disableAds();
+          await tester.pump(); // Allow listener callback and rebuild
 
-        await tester.pumpWidget(
-          const MaterialApp(
-            home: Scaffold(
-              body: Center(
-                child: EasyNativeAd(
-                  factoryId: 'medium_template',
-                  height: 300,
-                  hideOnLoading: false,
+          // Widget should now collapse to zero height (SizedBox.shrink)
+          final renderBoxAfter = tester.renderObject<RenderBox>(
+            find.byType(EasyNativeAd),
+          );
+          expect(renderBoxAfter.size.height, 0.0);
+          expect(renderBoxAfter.size.width, 0.0);
+        },
+      );
+
+      testWidgets(
+        'collapses when ads disabled IMMEDIATELY after mount (same frame)',
+        (tester) async {
+          // Initialize with ads ENABLED
+          await AdsEnabledManager.instance.initialize();
+          expect(AdsEnabledManager.instance.isEnabled, true);
+
+          await tester.pumpWidget(
+            const MaterialApp(
+              home: Scaffold(
+                body: Center(
+                  child: EasyNativeAd(
+                    factoryId: 'medium_template',
+                    height: 300,
+                    hideOnLoading: false,
+                  ),
                 ),
               ),
             ),
-          ),
-        );
-        await tester.pump();
+          );
+          // DON'T pump - disable ads in the same frame as mount!
+          await AdFlow.instance.disableAds();
 
-        // Should show loading (height: 300) because ads enabled by default
-        final renderBoxBefore = tester.renderObject<RenderBox>(
-          find.byType(EasyNativeAd),
-        );
-        expect(renderBoxBefore.size.height, 300);
+          // Now pump to process everything
+          await tester.pump();
 
-        // Disable ads directly (skipping initialize)
-        await AdsEnabledManager.instance.disableAds();
-        await tester.pump();
+          // Widget should collapse to zero height
+          final renderBox = tester.renderObject<RenderBox>(
+            find.byType(EasyNativeAd),
+          );
+          expect(renderBox.size.height, 0.0);
+          expect(renderBox.size.width, 0.0);
+        },
+      );
 
-        // Should collapse
-        final renderBoxAfter = tester.renderObject<RenderBox>(
-          find.byType(EasyNativeAd),
-        );
-        expect(renderBoxAfter.size.height, 0.0);
-      });
+      testWidgets(
+        'collapses when AdsEnabledManager NOT initialized (edge case)',
+        (tester) async {
+          // DON'T initialize AdsEnabledManager - simulating user forgetting to call init
+          // AdsEnabledManager.instance.isEnabled defaults to true
+          expect(AdsEnabledManager.instance.isEnabled, true);
+
+          await tester.pumpWidget(
+            const MaterialApp(
+              home: Scaffold(
+                body: Center(
+                  child: EasyNativeAd(
+                    factoryId: 'medium_template',
+                    height: 300,
+                    hideOnLoading: false,
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+
+          // Should show loading (height: 300) because ads enabled by default
+          final renderBoxBefore = tester.renderObject<RenderBox>(
+            find.byType(EasyNativeAd),
+          );
+          expect(renderBoxBefore.size.height, 300);
+
+          // Disable ads directly (skipping initialize)
+          await AdsEnabledManager.instance.disableAds();
+          await tester.pump();
+
+          // Should collapse
+          final renderBoxAfter = tester.renderObject<RenderBox>(
+            find.byType(EasyNativeAd),
+          );
+          expect(renderBoxAfter.size.height, 0.0);
+        },
+      );
     });
 
     group('NativeAdWidget (non-Easy version)', () {
@@ -200,16 +204,19 @@ void main() {
         // Disable ads BEFORE building widget
         await AdsEnabledManager.instance.initialize();
         await AdsEnabledManager.instance.disableAds();
-        
+
         final manager = NativeAdManager();
-        
+
         await tester.pumpWidget(
           MaterialApp(
             home: Scaffold(
               body: NativeAdWidget(
                 manager: manager,
                 height: 300,
-                placeholder: const SizedBox(height: 300, child: Text('Loading')),
+                placeholder: const SizedBox(
+                  height: 300,
+                  child: Text('Loading'),
+                ),
               ),
             ),
           ),
@@ -217,45 +224,49 @@ void main() {
 
         // NativeAdWidget should NOT show placeholder because ads are disabled
         expect(find.text('Loading'), findsNothing);
-        
+
         manager.dispose();
       });
 
-      testWidgets('NativeAdWidget requires parent rebuild to react to disableAds', (
-        tester,
-      ) async {
-        // This documents that NativeAdWidget (StatelessWidget) doesn't auto-update
-        // Use EasyNativeAd for automatic handling, or wrap NativeAdWidget in
-        // a StreamBuilder with AdsEnabledManager.instance.stream
-        await AdsEnabledManager.instance.initialize();
-        
-        final manager = NativeAdManager();
-        
-        await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: NativeAdWidget(
-                manager: manager,
-                height: 300,
-                placeholder: const SizedBox(height: 300, child: Text('Loading')),
+      testWidgets(
+        'NativeAdWidget requires parent rebuild to react to disableAds',
+        (tester) async {
+          // This documents that NativeAdWidget (StatelessWidget) doesn't auto-update
+          // Use EasyNativeAd for automatic handling, or wrap NativeAdWidget in
+          // a StreamBuilder with AdsEnabledManager.instance.stream
+          await AdsEnabledManager.instance.initialize();
+
+          final manager = NativeAdManager();
+
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: NativeAdWidget(
+                  manager: manager,
+                  height: 300,
+                  placeholder: const SizedBox(
+                    height: 300,
+                    child: Text('Loading'),
+                  ),
+                ),
               ),
             ),
-          ),
-        );
+          );
 
-        // Shows placeholder initially (ads enabled)
-        expect(find.text('Loading'), findsOneWidget);
-        
-        // Disable ads - NativeAdWidget won't auto-update (StatelessWidget)
-        await AdsEnabledManager.instance.disableAds();
-        await tester.pump();
-        
-        // Still shows because StatelessWidget doesn't listen to changes
-        // This is expected - use EasyNativeAd for auto-handling
-        expect(find.text('Loading'), findsOneWidget);
-        
-        manager.dispose();
-      });
+          // Shows placeholder initially (ads enabled)
+          expect(find.text('Loading'), findsOneWidget);
+
+          // Disable ads - NativeAdWidget won't auto-update (StatelessWidget)
+          await AdsEnabledManager.instance.disableAds();
+          await tester.pump();
+
+          // Still shows because StatelessWidget doesn't listen to changes
+          // This is expected - use EasyNativeAd for auto-handling
+          expect(find.text('Loading'), findsOneWidget);
+
+          manager.dispose();
+        },
+      );
     });
 
     group('constructor parameters', () {
