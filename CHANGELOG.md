@@ -1,3 +1,11 @@
+## 1.3.9
+
+* **FIX**: Export `BannerAdListener` from `google_mobile_ads` (fixes [#1](https://github.com/faizahmaddae/ad_flow/issues/1))
+  - Allows users to create custom-sized `BannerAd` instances directly
+* **NEW**: Added `BannerAdManager.loadBanner()` method for custom ad sizes
+  - Load banners with specific sizes like `AdSize.mediumRectangle` (300x250) for dialogs
+  - Same consent/disabled checks and callbacks as `loadAdaptiveBanner()`
+
 ## 1.3.8
 
 * **NEW**: Mediation support for third-party ad networks

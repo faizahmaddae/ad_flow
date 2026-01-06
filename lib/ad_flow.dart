@@ -79,6 +79,7 @@ export 'package:google_mobile_ads/google_mobile_ads.dart'
         AdWidget,
         AdSize,
         BannerAd,
+        BannerAdListener,
         InterstitialAd,
         AppOpenAd,
         NativeAd,

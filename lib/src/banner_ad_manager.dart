@@ -78,6 +78,58 @@ class BannerAdManager {
   /// The size of the current banner ad
   AdSize? get currentSize => _currentSize;
 
+  /// Loads a banner ad with a custom size.
+  ///
+  /// Use this method when you need a specific ad size like
+  /// [AdSize.mediumRectangle] (300x250) for dialogs or other layouts.
+  ///
+  /// Example:
+  /// ```dart
+  /// await bannerManager.loadBanner(
+  ///   size: AdSize.mediumRectangle, // 300x250 - great for dialogs
+  ///   onAdLoaded: (ad) {
+  ///     setState(() => _adLoaded = true);
+  ///   },
+  /// );
+  /// ```
+  ///
+  /// For responsive banners that fit the screen width, use
+  /// [loadAdaptiveBanner] instead.
+  Future<void> loadBanner({
+    required AdSize size,
+    BannerAdCallback? onAdLoaded,
+    BannerAdErrorCallback? onAdFailedToLoad,
+    String? adUnitId,
+  }) async {
+    // Check if ads are disabled (Remove Ads feature)
+    if (AdsEnabledManager.instance.isDisabled) {
+      debugPrint('BannerAdManager: Ads disabled, skipping load');
+      return;
+    }
+
+    // Check consent before loading (Google best practice)
+    if (!await ConsentInformation.instance.canRequestAds()) {
+      debugPrint('BannerAdManager: Cannot request ads (no consent)');
+      return;
+    }
+
+    if (_isLoading) {
+      debugPrint('BannerAdManager: Already loading, skipping...');
+      return;
+    }
+
+    _isLoading = true;
+    _currentSize = size;
+
+    await _loadBanner(
+      adUnitId: adUnitId ?? AdFlowConfig.current.bannerAdUnitId,
+      size: size,
+      request: const AdRequest(),
+      onAdLoaded: onAdLoaded,
+      onAdFailedToLoad: onAdFailedToLoad,
+    );
+  }
+
   /// Loads an anchored adaptive banner ad.
   ///
   /// The ad size is automatically calculated based on the device width

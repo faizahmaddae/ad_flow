@@ -393,6 +393,23 @@ await _bannerManager.loadCollapsibleBanner(
 );
 ```
 
+### Custom Size Banner Ads
+
+```dart
+// Load a specific size banner (great for dialogs)
+await _bannerManager.loadBanner(
+  size: AdSize.mediumRectangle, // 300x250
+  onAdLoaded: (ad) => setState(() {}),
+);
+
+// Other common sizes:
+// AdSize.banner           // 320x50
+// AdSize.largeBanner      // 320x100
+// AdSize.mediumRectangle  // 300x250 (best for dialogs)
+// AdSize.fullBanner       // 468x60
+// AdSize.leaderboard      // 728x90
+```
+
 ### Interstitial Ads
 
 ```dart
