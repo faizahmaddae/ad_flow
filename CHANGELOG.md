@@ -1,3 +1,14 @@
+## 1.3.8
+
+* **NEW**: Mediation support for third-party ad networks
+  - Added `MediationHelper` class for forwarding consent to mediation networks
+  - Built-in support for Unity Ads and AppLovin with convenience methods
+  - Register custom adapters for any mediation network
+  - Consent auto-forwarded during `initialize()` / `initializeWithExplainer()`
+  - See `doc/MEDIATION_SETUP.md` for complete integration guide
+* **DOCS**: Added comprehensive mediation documentation
+* **IMPROVED**: Updated copilot-instructions.md with mediation patterns
+
 ## 1.3.7
 
 * **FIX**: `NativeAdWidget` now respects `AdsEnabledManager.isDisabled` on initial build

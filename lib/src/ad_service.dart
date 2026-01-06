@@ -16,6 +16,7 @@ import 'app_lifecycle_reactor.dart';
 import 'native_ad_manager.dart';
 import 'rewarded_ad_manager.dart';
 import 'ads_enabled_manager.dart';
+import 'mediation_helper.dart';
 
 /// Callback for ad service initialization completion.
 ///
@@ -288,7 +289,12 @@ class AdFlow {
           debugPrint('AdFlow: Consent error: ${error.message}');
         }
 
-        // Step 2: Initialize Mobile Ads SDK if we can request ads
+        // Step 2: Forward consent to mediation networks (if any registered)
+        if (consent.canRequestAds && MediationHelper.hasAdapters) {
+          await _forwardConsentToMediationNetworks();
+        }
+
+        // Step 3: Initialize Mobile Ads SDK if we can request ads
         bool sdkInitialized = false;
         if (consent.canRequestAds && !_isMobileAdsInitialized) {
           sdkInitialized = await _initializeMobileAds();
@@ -298,12 +304,12 @@ class AdFlow {
 
         // Only proceed with ad operations if SDK initialized successfully
         if (consent.canRequestAds && sdkInitialized) {
-          // Step 3: Setup lifecycle reactor for app open ads
+          // Step 4: Setup lifecycle reactor for app open ads
           if (enableAppOpenOnForeground) {
             _setupLifecycleReactor();
           }
 
-          // Step 4: Preload ads if configured
+          // Step 5: Preload ads if configured
           if (preloadInterstitial) {
             interstitial.loadAd();
           }
@@ -414,7 +420,12 @@ class AdFlow {
           debugPrint('AdFlow: Consent error: ${error.message}');
         }
 
-        // Step 2: Initialize Mobile Ads SDK if we can request ads
+        // Step 2: Forward consent to mediation networks (if any registered)
+        if (consent.canRequestAds && MediationHelper.hasAdapters) {
+          await _forwardConsentToMediationNetworks();
+        }
+
+        // Step 3: Initialize Mobile Ads SDK if we can request ads
         bool sdkInitialized = false;
         if (consent.canRequestAds && !_isMobileAdsInitialized) {
           sdkInitialized = await _initializeMobileAds();
@@ -424,12 +435,12 @@ class AdFlow {
 
         // Only proceed with ad operations if SDK initialized successfully
         if (consent.canRequestAds && sdkInitialized) {
-          // Step 3: Setup lifecycle reactor for app open ads
+          // Step 4: Setup lifecycle reactor for app open ads
           if (enableAppOpenOnForeground) {
             _setupLifecycleReactor();
           }
 
-          // Step 4: Preload ads if configured
+          // Step 5: Preload ads if configured
           if (preloadInterstitial) {
             interstitial.loadAd();
           }
@@ -483,6 +494,34 @@ class AdFlow {
       debugPrint('AdFlow: Failed to initialize Mobile Ads SDK: $e');
       _isMobileAdsInitialized = false;
       return false;
+    }
+  }
+
+  /// Forwards consent to registered mediation networks.
+  ///
+  /// This is called automatically during initialization if any
+  /// mediation adapters are registered via [MediationHelper].
+  Future<void> _forwardConsentToMediationNetworks() async {
+    debugPrint('AdFlow: Forwarding consent to mediation networks...');
+
+    // Determine consent status based on UMP result
+    // canRequestAds being true means user consented
+    final hasConsent = consent.canRequestAds;
+
+    final summary = await MediationHelper.forwardConsent(
+      MediationConsentConfig(
+        hasGdprConsent: hasConsent,
+        ccpaOptOut: !hasConsent,
+        enableLogging: true,
+      ),
+    );
+
+    if (summary.allSuccessful) {
+      debugPrint('AdFlow: Mediation consent forwarded successfully');
+    } else {
+      for (final failed in summary.failed) {
+        debugPrint('AdFlow: Mediation consent failed for ${failed.networkName}: ${failed.error}');
+      }
     }
   }
 

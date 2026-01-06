@@ -62,6 +62,9 @@ export 'src/rewarded_ad_manager.dart';
 // App Lifecycle
 export 'src/app_lifecycle_reactor.dart';
 
+// Mediation Support
+export 'src/mediation_helper.dart';
+
 // Easy Widgets
 export 'src/easy_banner_widget.dart';
 export 'src/easy_privacy_settings_button.dart';

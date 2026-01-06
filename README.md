@@ -20,6 +20,7 @@ A production-ready, fully compliant AdMob integration package for Flutter with G
 | **US Privacy** | ✅ | CCPA and state regulations |
 | **iOS ATT** | ✅ | App Tracking Transparency |
 | **Native Ads** | ✅ | Custom ads matching your app design |
+| **Mediation** | ✅ | Unity Ads, AppLovin, and more |
 | **Remove Ads** | ✅ | Built-in IAP support to disable ads |
 | **Auto Preloading** | ✅ | Ads ready when you need them |
 | **Retry Logic** | ✅ | Exponential backoff on failures |
@@ -35,7 +36,7 @@ A production-ready, fully compliant AdMob integration package for Flutter with G
 ```yaml
 # pubspec.yaml
 dependencies:
-  ad_flow: ^1.3.2
+  ad_flow: ^1.3.8
 ```
 
 ### 2. Android Setup
@@ -940,9 +941,38 @@ Banners automatically refresh every 60 seconds (AdMob default). Don't manually r
 ### 5. eCPM Optimization
 
 - ✅ Enable all ad formats
-- ✅ Use mediation (optional, advanced)
+- ✅ Use mediation (see below)
 - ✅ Target appropriate content rating
 - ✅ Maintain high user engagement
+
+---
+
+## 🔗 Mediation Support
+
+Maximize revenue by serving ads from multiple networks. ad_flow supports Unity Ads, AppLovin, and any other AdMob mediation network.
+
+### Quick Setup
+
+```dart
+import 'package:ad_flow/ad_flow.dart';
+import 'package:gma_mediation_unity/gma_mediation_unity.dart';
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Register BEFORE AdFlow.initialize()
+  final unity = GmaMediationUnity();
+  MediationHelper.registerUnityWithCallbacks(
+    setGDPRConsent: unity.setGDPRConsent,
+    setCCPAConsent: unity.setCCPAConsent,
+  );
+
+  // Consent is auto-forwarded during initialization
+  await AdFlow.instance.initialize(...);
+}
+```
+
+📖 **Full guide:** See [doc/MEDIATION_SETUP.md](doc/MEDIATION_SETUP.md) for complete setup instructions, supported networks, and troubleshooting.
 
 ---
 

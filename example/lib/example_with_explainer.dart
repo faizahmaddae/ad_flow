@@ -15,8 +15,39 @@
 import 'package:flutter/material.dart';
 import 'package:ad_flow/ad_flow.dart';
 
+// ============================================================
+// MEDIATION SETUP (Optional)
+// ============================================================
+// Uncomment these imports when gma_mediation packages are
+// updated for google_mobile_ads ^7.0.0:
+//
+// import 'package:gma_mediation_unity/gma_mediation_unity.dart';
+// import 'package:gma_mediation_applovin/gma_mediation_applovin.dart';
+// ============================================================
+
 void main() {
-  // Don't initialize AdFlow here - we need BuildContext for explainer
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // ============================================================
+  // MEDIATION SETUP - Register adapters BEFORE initialization
+  // ============================================================
+  // Create instance and register Unity Ads adapter
+  // final unity = GmaMediationUnity();
+  // MediationHelper.registerUnityWithCallbacks(
+  //   setGDPRConsent: unity.setGDPRConsent,
+  //   setCCPAConsent: unity.setCCPAConsent,
+  // );
+  //
+  // AppLovin example (uncomment if using):
+  // final applovin = GmaMediationApplovin();
+  // MediationHelper.registerApplovinWithCallbacks(
+  //   setHasUserConsent: applovin.setHasUserConsent,
+  //   setDoNotSell: applovin.setDoNotSell,
+  // );
+  // ============================================================
+
+  // Run the app - AdFlow initialization happens in SplashScreen
+  // because initializeWithExplainer() needs a BuildContext
   runApp(const MyApp());
 }
 
