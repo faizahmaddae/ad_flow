@@ -2,6 +2,7 @@
 // Just drop this widget anywhere in your app!
 
 import 'package:flutter/material.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart' show AdSize;
 import 'banner_ad_manager.dart';
 import 'ad_config.dart' show CollapsibleBannerPlacement;
 import 'ads_enabled_manager.dart';
@@ -13,25 +14,28 @@ import 'ads_enabled_manager.dart';
 ///
 /// Usage:
 /// ```dart
-/// // At bottom of screen
-/// Scaffold(
-///   body: YourContent(),
-///   bottomNavigationBar: EasyBannerAd(),
-/// )
+/// // Adaptive banner (default) - fits screen width
+/// EasyBannerAd()
 ///
-/// // Or anywhere in a Column
-/// Column(
-///   children: [
-///     YourContent(),
-///     EasyBannerAd(),
-///   ],
-/// )
+/// // Fixed size banner
+/// EasyBannerAd(adSize: AdSize.mediumRectangle)  // 300x250
+/// EasyBannerAd(adSize: AdSize.largeBanner)      // 320x100
+///
+/// // Collapsible banner (expands then shrinks)
+/// EasyBannerAd(collapsible: true)
 /// ```
 class EasyBannerAd extends StatefulWidget {
-  /// Whether to use collapsible banner (larger, then shrinks)
+  /// Fixed ad size. If null, uses adaptive banner that fits screen width.
+  ///
+  /// Common sizes: `AdSize.banner`, `AdSize.mediumRectangle`,
+  /// `AdSize.largeBanner`, `AdSize.leaderboard`.
+  final AdSize? adSize;
+
+  /// Whether to use collapsible banner (larger, then shrinks).
+  /// Ignored if [adSize] is provided.
   final bool collapsible;
 
-  const EasyBannerAd({super.key, this.collapsible = false});
+  const EasyBannerAd({super.key, this.adSize, this.collapsible = false});
 
   @override
   State<EasyBannerAd> createState() => _EasyBannerAdState();
@@ -84,7 +88,19 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
   Future<void> _loadAd() async {
     if (!_adsEnabled || !_isInitialized || !mounted) return;
 
-    if (widget.collapsible) {
+    // Priority: adSize > collapsible > adaptive
+    if (widget.adSize != null) {
+      // Fixed size banner
+      await _bannerManager.loadBanner(
+        size: widget.adSize!,
+        onAdLoaded: (ad) {
+          if (mounted) setState(() => _isLoaded = true);
+        },
+        onAdFailedToLoad: (ad, error) {
+          if (mounted) setState(() => _isLoaded = false);
+        },
+      );
+    } else if (widget.collapsible) {
       await _bannerManager.loadCollapsibleBanner(
         context: context,
         placement: CollapsibleBannerPlacement.bottom,
@@ -121,7 +137,15 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
     // Don't show anything if ads are disabled
     if (!_adsEnabled) return const SizedBox.shrink();
 
-    // Handle orientation changes - dispose and reload banner
+    // Fixed size banners don't need orientation handling
+    if (widget.adSize != null) {
+      if (!_isLoaded) return const SizedBox.shrink();
+      return SafeArea(
+        child: _bannerManager.buildAdWidget() ?? const SizedBox.shrink(),
+      );
+    }
+
+    // Handle orientation changes for adaptive/collapsible banners
     // This follows Google's recommended pattern for adaptive banners
     return OrientationBuilder(
       builder: (context, orientation) {

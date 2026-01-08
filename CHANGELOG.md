@@ -1,3 +1,11 @@
+## 1.3.10
+
+* **NEW**: `EasyBannerAd` now supports custom ad sizes
+  - Use `EasyBannerAd(adSize: AdSize.mediumRectangle)` for fixed-size banners
+  - Supports all standard sizes: `banner`, `largeBanner`, `mediumRectangle`, `leaderboard`, etc.
+  - Fixed-size banners skip orientation handling for better performance
+  - Priority: `adSize` > `collapsible` > adaptive (default)
+
 ## 1.3.9
 
 * **FIX**: Export `BannerAdListener` from `google_mobile_ads` (fixes [#1](https://github.com/faizahmaddae/ad_flow/issues/1))
