@@ -41,12 +41,21 @@ class ConsentManager {
   bool _isInitialized = false;
   bool _canRequestAds = false;
   bool _isPrivacyOptionsRequired = false;
+  TrackingStatus? _lastAttStatus;
 
   /// Whether consent has been initialized
   bool get isInitialized => _isInitialized;
 
   /// Whether ads can be requested based on consent status
   bool get canRequestAds => _canRequestAds;
+
+  /// The last known iOS ATT status (null on non-iOS or if not yet checked)
+  TrackingStatus? get lastAttStatus => _lastAttStatus;
+
+  /// Whether ATT was denied (user selected "Ask App Not to Track")
+  bool get isAttDenied =>
+      _lastAttStatus == TrackingStatus.denied ||
+      _lastAttStatus == TrackingStatus.restricted;
 
   /// Gathers user consent if required.
   ///
@@ -76,7 +85,18 @@ class ConsentManager {
 
     // Step 1: iOS ATT - request only if not determined
     if (Platform.isIOS) {
-      await _requestIOSTrackingIfNeeded();
+      _lastAttStatus = await _requestIOSTrackingIfNeeded();
+
+      // Check if we should skip GDPR consent after ATT denial
+      if (_shouldSkipGdprConsent()) {
+        debugPrint(
+          'ConsentManager: Skipping GDPR consent (ATT denied, skipGdprConsentIfAttDenied=true)',
+        );
+        await _updateCanRequestAds();
+        _isInitialized = true;
+        onConsentGatheringComplete(null);
+        return;
+      }
     }
 
     // Step 2: UMP consent flow (GDPR/US Privacy)
@@ -107,11 +127,22 @@ class ConsentManager {
 
     // Step 1: iOS ATT flow (check → explainer → prompt) - sequential
     if (Platform.isIOS) {
-      await _handleIOSATTWithExplainer(
+      _lastAttStatus = await _handleIOSATTWithExplainer(
         context: context,
         showExplainer: showExplainer,
         attTexts: attTexts,
       );
+
+      // Check if we should skip GDPR consent after ATT denial
+      if (_shouldSkipGdprConsent()) {
+        debugPrint(
+          'ConsentManager: Skipping GDPR consent (ATT denied, skipGdprConsentIfAttDenied=true)',
+        );
+        await _updateCanRequestAds();
+        _isInitialized = true;
+        onConsentGatheringComplete(null);
+        return;
+      }
     }
 
     // Step 2: GDPR/US Privacy flow (check → explainer → form) - sequential
@@ -133,39 +164,49 @@ class ConsentManager {
   // iOS ATT Handling
   // ==========================================================================
 
+  /// Checks if GDPR consent should be skipped based on ATT status and config.
+  bool _shouldSkipGdprConsent() {
+    if (!Platform.isIOS) return false;
+    if (!AdFlowConfig.current.skipGdprConsentIfAttDenied) return false;
+    return isAttDenied;
+  }
+
   /// Requests iOS ATT permission only if not already determined.
-  Future<void> _requestIOSTrackingIfNeeded() async {
+  /// Returns the final ATT status.
+  Future<TrackingStatus> _requestIOSTrackingIfNeeded() async {
     try {
-      final status = await AppTrackingTransparency.trackingAuthorizationStatus;
+      var status = await AppTrackingTransparency.trackingAuthorizationStatus;
       debugPrint('ConsentManager: ATT status: $status');
 
       if (status == TrackingStatus.notDetermined) {
         // Small delay recommended by Apple before showing ATT prompt
         await Future.delayed(_kATTPromptDelay);
-        final result =
-            await AppTrackingTransparency.requestTrackingAuthorization();
-        debugPrint('ConsentManager: ATT result: $result');
+        status = await AppTrackingTransparency.requestTrackingAuthorization();
+        debugPrint('ConsentManager: ATT result: $status');
       }
+      return status;
     } catch (e) {
       debugPrint('ConsentManager: ATT error: $e');
+      return TrackingStatus.notSupported;
     }
   }
 
   /// Handles iOS ATT with optional explainer dialog.
   /// Sequential: check needed → show explainer → show system prompt
-  Future<void> _handleIOSATTWithExplainer({
+  /// Returns the final ATT status.
+  Future<TrackingStatus> _handleIOSATTWithExplainer({
     required BuildContext context,
     required bool showExplainer,
     required ATTExplainerTexts attTexts,
   }) async {
     try {
       // Step 1: Check if ATT is needed
-      final status = await AppTrackingTransparency.trackingAuthorizationStatus;
+      var status = await AppTrackingTransparency.trackingAuthorizationStatus;
       debugPrint('ConsentManager: ATT status: $status');
 
       if (status != TrackingStatus.notDetermined) {
         debugPrint('ConsentManager: ATT already determined, skipping');
-        return;
+        return status;
       }
 
       // Step 2: Show explainer if enabled and context is valid
@@ -176,11 +217,12 @@ class ConsentManager {
 
       // Step 3: Show system ATT prompt
       await Future.delayed(_kATTPromptDelay);
-      final result =
-          await AppTrackingTransparency.requestTrackingAuthorization();
-      debugPrint('ConsentManager: ATT result: $result');
+      status = await AppTrackingTransparency.requestTrackingAuthorization();
+      debugPrint('ConsentManager: ATT result: $status');
+      return status;
     } catch (e) {
       debugPrint('ConsentManager: ATT error: $e');
+      return TrackingStatus.notSupported;
     }
   }
 

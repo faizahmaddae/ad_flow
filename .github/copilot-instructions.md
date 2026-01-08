@@ -41,6 +41,7 @@ AdFlow.instance.consent      // ConsentManager (separate singleton)
 cd example && flutter run              # Run example app
 flutter test                           # All unit tests
 flutter test test/ad_flow_test.dart    # Single test file
+flutter analyze                        # Lint checks
 ```
 
 ### Test Isolation (MANDATORY)
@@ -52,7 +53,7 @@ setUp(() async {
   await AdFlow.instance.reset();
 });
 ```
-**Limitation:** `Platform.isAndroid/isIOS` cannot be mocked—skip platform-specific tests.
+**Limitation:** `Platform.isAndroid/isIOS` cannot be mocked—skip platform-specific tests in unit tests.
 
 ## Code Patterns
 
@@ -67,40 +68,68 @@ All widgets return `SizedBox.shrink()` if ads disabled.
 // Required state getters
 bool get isLoaded;
 bool get isLoading;
-bool get isShowing;
-bool get canShowAd;  // cooldown check for interstitials
+bool get isShowing;      // fullscreen ads only
+bool get canShowAd;      // cooldown check for interstitials
 
 // Required methods
 Future<void> loadAd();   // Check AdsEnabledManager.isDisabled first
-Future<void> showAd();   // Check AdsEnabledManager.isDisabled first
+Future<void> showAd();   // Check AdsEnabledManager.isDisabled first (fullscreen only)
 void dispose();
 
 // Reactive updates
 void addStatusListener(VoidCallback);
 void removeStatusListener(VoidCallback);
+void _notifyStatusListeners();          // Private, call after state changes
 ```
-Reference: [interstitial_ad_manager.dart](lib/src/interstitial_ad_manager.dart)
+Reference: `lib/src/interstitial_ad_manager.dart`
 
 ### Error Handling
-Central stream for all ad errors:
+Central stream via `AdFlowErrorHandler` singleton:
 ```dart
 AdFlow.instance.errorStream.listen((AdFlowError e) => log(e.message));
+// Alternatively:
+AdFlow.instance.setErrorCallback((error) => analytics.log(error));
 ```
 
 ## Critical Rules
-1. **Never** call `initialize()` more than once per session
+1. **Never** call `initialize()` more than once per session—check `_isInitialized` early
 2. **Disable ads BEFORE init**—`onComplete` callback runs AFTER preloading
-3. Dispose managers **only if accessed** (lazy init pattern saves memory)
-4. Keep consent flows **sequential** (ATT → UMP → MobileAds.init)
+3. Dispose managers **only if accessed** (lazy init: check `if (_xxxManager != null)`)
+4. Keep consent flows **sequential** (ATT → UMP → MobileAds.init)—never parallelize dialogs
 5. Register mediation adapters **BEFORE** `initialize()`
 6. App Open ads expire after 4 hours (`appOpenAdMaxCacheDuration`)
-7. **Always** export new public APIs from `lib/ad_flow.dart` barrel
+7. **Always** export new public APIs from `lib/ad_flow.dart` barrel file
 
 ## Adding New Ad Types
 1. Create `lib/src/xxx_ad_manager.dart`:
    - Follow `InterstitialAdManager` pattern (status listeners, state getters, retry logic)
-   - Check `AdsEnabledManager.isDisabled` in `loadAd()`/`showAd()`
-2. Add lazy getter in `lib/src/ad_service.dart` (`_xxxManager` field + `xxx` getter)
+   - Check `AdsEnabledManager.isDisabled` at start of `loadAd()`/`showAd()`
+   - Use `AdFlowErrorHandler.instance.reportError()` for error reporting
+2. Add lazy getter in `lib/src/ad_service.dart`:
+   ```dart
+   XxxAdManager? _xxxAdManager;
+   XxxAdManager get xxx => _xxxAdManager ??= XxxAdManager();
+   ```
 3. Export from `lib/ad_flow.dart`
-4. Add to `disposeAllAds()` and `reset()` (check `if (_xxxManager != null)` before dispose)
-5. Write tests with singleton reset in `setUp()`
+4. Update `disposeAllAds()`: `await _xxxAdManager?.dispose();`
+5. Update `reset()`: `_xxxAdManager = null;`
+6. Write tests with singleton reset in `setUp()`
+
+## Widget Lifecycle Pattern
+Self-contained widgets like `EasyBannerAd` follow this pattern:
+```dart
+@override
+void initState() {
+  _adsEnabled = AdsEnabledManager.instance.isEnabled;
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (_adsEnabled) _loadAd();
+  });
+  AdsEnabledManager.instance.addListener(_onAdsEnabledChanged);
+}
+
+@override
+void dispose() {
+  AdsEnabledManager.instance.removeListener(_onAdsEnabledChanged);
+  _bannerManager.dispose();
+}
+```

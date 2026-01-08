@@ -1,3 +1,16 @@
+## 1.3.11
+
+* **FIX**: `AppOpenAdManager.addStatusListener` callback now fires correctly ([#3](https://github.com/faizahmaddae/ad_flow/issues/3))
+  - Status listeners were not notified when using `showAdIfAvailable()`
+  - Now properly calls `_notifyStatusListeners()` on show/dismiss/fail events
+* **FIX**: iOS App Store rejection for GDPR shown after ATT denial ([#2](https://github.com/faizahmaddae/ad_flow/issues/2))
+  - Added `skipGdprConsentIfAttDenied` config option (default: `true`)
+  - When user selects "Ask App Not to Track", GDPR consent UI is skipped
+  - Prevents Apple Guideline 5.1.1 rejections
+  - Set to `false` if you legally require showing GDPR consent regardless of ATT
+* **NEW**: `ConsentManager.lastAttStatus` and `isAttDenied` getters
+  - Access the iOS ATT authorization status after consent gathering
+
 ## 1.3.10
 
 * **NEW**: `EasyBannerAd` now supports custom ad sizes

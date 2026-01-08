@@ -132,6 +132,17 @@ class AdFlowConfig {
   /// Delay between load retries
   final Duration retryDelay;
 
+  /// iOS only: Skip GDPR consent UI if ATT was denied.
+  ///
+  /// When `true` and the user selects "Ask App Not to Track" in the ATT prompt,
+  /// the GDPR/TCF consent dialog will be skipped entirely on iOS.
+  /// This prevents Apple App Store review rejections (Guideline 5.1.1)
+  /// for showing personalized ad consent after ATT denial.
+  ///
+  /// Default is `true` for compliance with Apple guidelines.
+  /// Set to `false` only if you need to show the consent form for legal reasons.
+  final bool skipGdprConsentIfAttDenied;
+
   /// Creates a custom ad configuration.
   ///
   /// At minimum, provide your ad unit IDs for production use.
@@ -153,6 +164,7 @@ class AdFlowConfig {
     this.minInterstitialInterval = const Duration(seconds: 30),
     this.maxLoadRetries = 3,
     this.retryDelay = const Duration(seconds: 5),
+    this.skipGdprConsentIfAttDenied = true,
   });
 
   /// Creates a test configuration using Google's official test ad unit IDs.

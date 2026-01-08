@@ -322,6 +322,7 @@ class AppOpenAdManager {
       onAdShowedFullScreenContent: (Ad ad) {
         debugPrint('AppOpenAdManager: Ad showed full screen content');
         _isShowing = true;
+        _notifyStatusListeners();
       },
       onAdDismissedFullScreenContent: (Ad ad) {
         debugPrint('AppOpenAdManager: Ad dismissed');
@@ -330,6 +331,7 @@ class AppOpenAdManager {
         _appOpenAd = null;
         _isLoaded = false;
         _loadTime = null;
+        _notifyStatusListeners();
         onAdDismissed?.call();
 
         // Preload next ad
@@ -342,6 +344,7 @@ class AppOpenAdManager {
         _appOpenAd = null;
         _isLoaded = false;
         _loadTime = null;
+        _notifyStatusListeners();
         onAdFailedToShow?.call();
 
         // Try to load another ad
