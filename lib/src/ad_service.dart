@@ -79,6 +79,7 @@ class AdFlow {
   // State
   bool _isInitialized = false;
   bool _isMobileAdsInitialized = false;
+  bool _pendingMobileAdsInit = false;
   int _maxForegroundAdsPerSession = _kDefaultMaxForegroundAds;
   AdFlowConfig? _config;
 
@@ -317,13 +318,35 @@ class AdFlow {
             rewarded.loadAd();
           }
           if (preloadAppOpen) {
-            // Load and wait for the ad to be ready
-            final adLoaded = await appOpen.loadAdAndWait();
+            // Use cold-start timeout to avoid blocking too long
+            final coldStartTimeout = AdFlowConfig.current.coldStartAdTimeout;
 
-            // Show app open ad on cold start if enabled and ad is ready
-            if (showAppOpenOnColdStart && adLoaded && appOpen.isAdAvailable) {
-              debugPrint('AdFlow: Showing app open ad on cold start');
-              await appOpen.showAdIfAvailable();
+            if (showAppOpenOnColdStart && coldStartTimeout != null) {
+              // Wait briefly for ad to load, then show if ready
+              final adLoaded = await appOpen.loadAdAndWait().timeout(
+                coldStartTimeout,
+                onTimeout: () {
+                  debugPrint(
+                    'AdFlow: Cold-start app open ad timed out after ${coldStartTimeout.inSeconds}s, continuing without it',
+                  );
+                  return false;
+                },
+              );
+
+              if (adLoaded && appOpen.isAdAvailable) {
+                debugPrint('AdFlow: Showing app open ad on cold start');
+                await appOpen.showAdIfAvailable();
+              }
+            } else if (showAppOpenOnColdStart) {
+              // No timeout configured, wait for ad (legacy behavior)
+              final adLoaded = await appOpen.loadAdAndWait();
+              if (adLoaded && appOpen.isAdAvailable) {
+                debugPrint('AdFlow: Showing app open ad on cold start');
+                await appOpen.showAdIfAvailable();
+              }
+            } else {
+              // Just preload in background, don't block
+              appOpen.loadAd();
             }
           }
         } else if (consent.canRequestAds && !sdkInitialized) {
@@ -448,11 +471,35 @@ class AdFlow {
             rewarded.loadAd();
           }
           if (preloadAppOpen) {
-            final adLoaded = await appOpen.loadAdAndWait();
+            // Use cold-start timeout to avoid blocking too long
+            final coldStartTimeout = AdFlowConfig.current.coldStartAdTimeout;
 
-            if (showAppOpenOnColdStart && adLoaded && appOpen.isAdAvailable) {
-              debugPrint('AdFlow: Showing app open ad on cold start');
-              await appOpen.showAdIfAvailable();
+            if (showAppOpenOnColdStart && coldStartTimeout != null) {
+              // Wait briefly for ad to load, then show if ready
+              final adLoaded = await appOpen.loadAdAndWait().timeout(
+                coldStartTimeout,
+                onTimeout: () {
+                  debugPrint(
+                    'AdFlow: Cold-start app open ad timed out after ${coldStartTimeout.inSeconds}s, continuing without it',
+                  );
+                  return false;
+                },
+              );
+
+              if (adLoaded && appOpen.isAdAvailable) {
+                debugPrint('AdFlow: Showing app open ad on cold start');
+                await appOpen.showAdIfAvailable();
+              }
+            } else if (showAppOpenOnColdStart) {
+              // No timeout configured, wait for ad (legacy behavior)
+              final adLoaded = await appOpen.loadAdAndWait();
+              if (adLoaded && appOpen.isAdAvailable) {
+                debugPrint('AdFlow: Showing app open ad on cold start');
+                await appOpen.showAdIfAvailable();
+              }
+            } else {
+              // Just preload in background, don't block
+              appOpen.loadAd();
             }
           }
         } else if (consent.canRequestAds && !sdkInitialized) {
@@ -473,12 +520,31 @@ class AdFlow {
   /// Initializes the Mobile Ads SDK.
   ///
   /// Returns `true` if initialization succeeded, `false` otherwise.
+  /// If timeout occurs, will retry in background.
   Future<bool> _initializeMobileAds() async {
     debugPrint('AdFlow: Initializing Mobile Ads SDK...');
 
     try {
-      await MobileAds.instance.initialize();
+      final timeout = AdFlowConfig.current.sdkInitTimeout;
+
+      if (timeout != null) {
+        await MobileAds.instance.initialize().timeout(
+          timeout,
+          onTimeout: () {
+            debugPrint(
+              'AdFlow: SDK initialization timed out after ${timeout.inSeconds}s',
+            );
+            _pendingMobileAdsInit = true;
+            _retryMobileAdsInitInBackground();
+            throw TimeoutException('SDK init timeout', timeout);
+          },
+        );
+      } else {
+        await MobileAds.instance.initialize();
+      }
+
       _isMobileAdsInitialized = true;
+      _pendingMobileAdsInit = false;
       debugPrint('AdFlow: Mobile Ads SDK initialized');
 
       // Set request configuration
@@ -490,11 +556,41 @@ class AdFlow {
       );
       await MobileAds.instance.updateRequestConfiguration(config);
       return true;
+    } on TimeoutException {
+      // Timeout handled above, don't log again
+      return false;
     } catch (e) {
       debugPrint('AdFlow: Failed to initialize Mobile Ads SDK: $e');
       _isMobileAdsInitialized = false;
       return false;
     }
+  }
+
+  /// Retries Mobile Ads SDK initialization in background.
+  void _retryMobileAdsInitInBackground() {
+    Future.delayed(const Duration(seconds: 2), () async {
+      if (_isMobileAdsInitialized || !_pendingMobileAdsInit) return;
+
+      debugPrint('AdFlow: Retrying Mobile Ads SDK initialization...');
+      try {
+        await MobileAds.instance.initialize();
+        _isMobileAdsInitialized = true;
+        _pendingMobileAdsInit = false;
+        debugPrint('AdFlow: Mobile Ads SDK initialized (background retry)');
+
+        // Set request configuration
+        final config = RequestConfiguration(
+          testDeviceIds: AdFlowConfig.current.testDeviceIds,
+          tagForUnderAgeOfConsent: AdFlowConfig.current.tagForUnderAgeOfConsent
+              ? TagForUnderAgeOfConsent.yes
+              : TagForUnderAgeOfConsent.no,
+        );
+        await MobileAds.instance.updateRequestConfiguration(config);
+      } catch (e) {
+        debugPrint('AdFlow: Background SDK init retry failed: $e');
+        // Could retry again with exponential backoff if needed
+      }
+    });
   }
 
   /// Forwards consent to registered mediation networks.
@@ -657,6 +753,7 @@ class AdFlow {
     _rewardedAdManager = null;
     _lifecycleReactor = null;
     _isMobileAdsInitialized = false;
+    _pendingMobileAdsInit = false;
     _maxForegroundAdsPerSession = _kDefaultMaxForegroundAds;
     _config = null;
     AdFlowConfig.resetCurrent();

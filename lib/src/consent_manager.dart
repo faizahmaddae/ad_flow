@@ -230,30 +230,62 @@ class ConsentManager {
   // UMP Consent Handling (GDPR/US Privacy)
   // ==========================================================================
 
-  /// Standard UMP consent flow (matches Google's sample).
+  /// Standard UMP consent flow with timeout for network request.
   void _gatherUMPConsent(ConsentCallback onComplete) {
     final params = ConsentRequestParameters(
       tagForUnderAgeOfConsent: AdFlowConfig.current.tagForUnderAgeOfConsent,
       consentDebugSettings: _buildDebugSettings(),
     );
 
+    final timeout = AdFlowConfig.current.consentNetworkTimeout;
+    Timer? timeoutTimer;
+    bool hasCompleted = false;
+
+    void completeWithForm() {
+      if (hasCompleted) return;
+      hasCompleted = true;
+      timeoutTimer?.cancel();
+
+      // loadAndShowConsentFormIfRequired handles the "if required" logic
+      ConsentForm.loadAndShowConsentFormIfRequired((FormError? error) async {
+        await _updateCanRequestAds();
+        _isInitialized = true;
+        onComplete(error);
+      });
+    }
+
+    void completeWithError(FormError error) {
+      if (hasCompleted) return;
+      hasCompleted = true;
+      timeoutTimer?.cancel();
+
+      debugPrint('ConsentManager: Consent update failed: ${error.message}');
+      AdFlowErrorHandler.instance.reportConsentError(error);
+      _updateCanRequestAds().then((_) {
+        _isInitialized = true;
+        onComplete(error);
+      });
+    }
+
+    // Set up timeout if configured
+    if (timeout != null) {
+      timeoutTimer = Timer(timeout, () {
+        if (hasCompleted) return;
+        debugPrint(
+          'ConsentManager: Consent network request timed out after ${timeout.inSeconds}s, using cached status',
+        );
+        completeWithForm(); // Proceed with cached consent status
+      });
+    }
+
     // Request consent info update, then load/show form if required
     ConsentInformation.instance.requestConsentInfoUpdate(
       params,
       () async {
-        // loadAndShowConsentFormIfRequired handles the "if required" logic
-        ConsentForm.loadAndShowConsentFormIfRequired((FormError? error) async {
-          await _updateCanRequestAds();
-          _isInitialized = true;
-          onComplete(error);
-        });
+        completeWithForm();
       },
       (FormError error) async {
-        debugPrint('ConsentManager: Consent update failed: ${error.message}');
-        AdFlowErrorHandler.instance.reportConsentError(error);
-        await _updateCanRequestAds();
-        _isInitialized = true;
-        onComplete(error);
+        completeWithError(error);
       },
     );
   }
@@ -273,9 +305,16 @@ class ConsentManager {
 
     // Use Completer for the callback-based API
     final completer = Completer<void>();
+    final timeout = AdFlowConfig.current.consentNetworkTimeout;
+    Timer? timeoutTimer;
+    bool hasCompleted = false;
 
-    ConsentInformation.instance.requestConsentInfoUpdate(
-      params,
+    void completeWithForm() {
+      if (hasCompleted) return;
+      hasCompleted = true;
+      timeoutTimer?.cancel();
+
+      // Run the form logic async
       () async {
         // Step 1: Check if consent form will be shown
         final formStatus = await ConsentInformation.instance
@@ -300,14 +339,41 @@ class ConsentManager {
           onComplete(error);
           if (!completer.isCompleted) completer.complete();
         });
-      },
-      (FormError error) async {
-        debugPrint('ConsentManager: Consent update failed: ${error.message}');
-        AdFlowErrorHandler.instance.reportConsentError(error);
-        await _updateCanRequestAds();
+      }();
+    }
+
+    void completeWithError(FormError error) {
+      if (hasCompleted) return;
+      hasCompleted = true;
+      timeoutTimer?.cancel();
+
+      debugPrint('ConsentManager: Consent update failed: ${error.message}');
+      AdFlowErrorHandler.instance.reportConsentError(error);
+      _updateCanRequestAds().then((_) {
         _isInitialized = true;
         onComplete(error);
         if (!completer.isCompleted) completer.complete();
+      });
+    }
+
+    // Set up timeout if configured
+    if (timeout != null) {
+      timeoutTimer = Timer(timeout, () {
+        if (hasCompleted) return;
+        debugPrint(
+          'ConsentManager: Consent network request timed out after ${timeout.inSeconds}s, using cached status',
+        );
+        completeWithForm(); // Proceed with cached consent status
+      });
+    }
+
+    ConsentInformation.instance.requestConsentInfoUpdate(
+      params,
+      () async {
+        completeWithForm();
+      },
+      (FormError error) async {
+        completeWithError(error);
       },
     );
 

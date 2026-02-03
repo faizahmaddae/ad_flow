@@ -93,6 +93,22 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _initializeAdFlow() async {
     // Initialize AdFlow WITH explainer dialog
     // This shows a friendly dialog before consent popups
+    //
+    // SMART TIMEOUTS (built-in):
+    // - Consent network request: 10s timeout (falls back to cached status)
+    // - SDK initialization: 8s timeout (retries in background)
+    // - Cold-start app open ad: 3s timeout (continues without it)
+    //
+    // These ensure initialization completes in reasonable time even on
+    // slow networks, while still respecting consent requirements.
+    //
+    // To customize timeouts, use AdFlowConfig:
+    // config: AdFlowConfig(
+    //   consentNetworkTimeout: Duration(seconds: 15),
+    //   sdkInitTimeout: Duration(seconds: 10),
+    //   coldStartAdTimeout: Duration(seconds: 5),
+    //   // ... your ad unit IDs
+    // ),
     await AdFlow.instance.initializeWithExplainer(
       context: context,
       // Use test mode during development
@@ -103,6 +119,7 @@ class _SplashScreenState extends State<SplashScreen> {
       preloadInterstitial: true,
 
       // Preload and show app open ad on cold start
+      // Note: Uses coldStartAdTimeout (default 3s) to avoid long waits
       preloadAppOpen: true,
       showAppOpenOnColdStart: true,
 

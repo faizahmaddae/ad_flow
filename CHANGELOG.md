@@ -1,3 +1,15 @@
+## 1.3.12
+
+* **FIX**: Splash screen remains too long when AdMob initialization is slow ([#4](https://github.com/faizahmaddae/ad_flow/issues/4))
+  - Added smart timeouts with sensible defaults to prevent indefinite blocking
+  - `consentNetworkTimeout` (default: 10s) - Timeout for consent info network request, falls back to cached status
+  - `sdkInitTimeout` (default: 8s) - Timeout for Mobile Ads SDK initialization, retries in background
+  - `coldStartAdTimeout` (default: 3s) - Timeout for cold-start app open ad loading
+  - Consent dialogs are NOT affected - they always wait for user interaction (compliance)
+  - Zero code changes required - existing apps get faster initialization automatically
+* **IMPROVED**: Background retry for SDK initialization if timeout occurs
+* **IMPROVED**: Cold-start app open ads now use bounded timeout instead of blocking indefinitely
+
 ## 1.3.11
 
 * **FIX**: `AppOpenAdManager.addStatusListener` callback now fires correctly ([#3](https://github.com/faizahmaddae/ad_flow/issues/3))

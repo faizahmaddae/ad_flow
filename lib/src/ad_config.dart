@@ -143,6 +143,36 @@ class AdFlowConfig {
   /// Set to `false` only if you need to show the consent form for legal reasons.
   final bool skipGdprConsentIfAttDenied;
 
+  // ============================================================
+  // INITIALIZATION TIMEOUTS
+  // ============================================================
+
+  /// Timeout for consent network request (requestConsentInfoUpdate).
+  ///
+  /// If the network request takes longer than this, the SDK will fall back
+  /// to cached consent status. This does NOT affect consent dialogs - those
+  /// always wait for user interaction.
+  ///
+  /// Default: 10 seconds. Set to `null` to disable timeout (not recommended).
+  final Duration? consentNetworkTimeout;
+
+  /// Timeout for Mobile Ads SDK initialization.
+  ///
+  /// If initialization takes longer than this, the app will proceed without ads
+  /// and retry SDK initialization in the background.
+  ///
+  /// Default: 8 seconds. Set to `null` to disable timeout (not recommended).
+  final Duration? sdkInitTimeout;
+
+  /// Timeout for cold-start app open ad loading.
+  ///
+  /// If the app open ad doesn't load within this time on cold start,
+  /// the app proceeds without showing it. The ad continues loading in background
+  /// for future use.
+  ///
+  /// Default: 3 seconds. Set to `null` to wait indefinitely (not recommended).
+  final Duration? coldStartAdTimeout;
+
   /// Creates a custom ad configuration.
   ///
   /// At minimum, provide your ad unit IDs for production use.
@@ -165,6 +195,9 @@ class AdFlowConfig {
     this.maxLoadRetries = 3,
     this.retryDelay = const Duration(seconds: 5),
     this.skipGdprConsentIfAttDenied = true,
+    this.consentNetworkTimeout = const Duration(seconds: 10),
+    this.sdkInitTimeout = const Duration(seconds: 8),
+    this.coldStartAdTimeout = const Duration(seconds: 3),
   });
 
   /// Creates a test configuration using Google's official test ad unit IDs.
@@ -178,6 +211,9 @@ class AdFlowConfig {
   factory AdFlowConfig.testMode({
     List<String> testDeviceIds = const [],
     bool enableConsentDebug = true,
+    Duration? consentNetworkTimeout = const Duration(seconds: 10),
+    Duration? sdkInitTimeout = const Duration(seconds: 8),
+    Duration? coldStartAdTimeout = const Duration(seconds: 3),
   }) {
     return AdFlowConfig(
       androidBannerAdUnitId: TestAdUnitIds.banner,
@@ -192,6 +228,9 @@ class AdFlowConfig {
       iosRewardedAdUnitId: TestAdUnitIds.rewarded,
       testDeviceIds: testDeviceIds,
       enableConsentDebug: enableConsentDebug,
+      consentNetworkTimeout: consentNetworkTimeout,
+      sdkInitTimeout: sdkInitTimeout,
+      coldStartAdTimeout: coldStartAdTimeout,
     );
   }
 

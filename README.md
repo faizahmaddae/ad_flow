@@ -759,12 +759,19 @@ await AdFlow.instance.initialize(
     maxLoadRetries: 3,                              // Retry failed loads
     retryDelay: Duration(seconds: 5),               // Delay between retries
     
+    // Initialization timeouts (for slow networks)
+    consentNetworkTimeout: Duration(seconds: 10),   // Consent info request timeout
+    sdkInitTimeout: Duration(seconds: 8),           // SDK init timeout (retries in bg)
+    coldStartAdTimeout: Duration(seconds: 3),       // Cold-start app open ad timeout
+    
     // Testing & debug
     testDeviceIds: ['YOUR_DEVICE_HASHED_ID'],       // Avoid invalid impressions
     enableConsentDebug: false,                       // Test GDPR in non-EU regions
   ),
 );
 ```
+
+> **Note:** Timeouts only apply to network operations, NOT consent dialogs. User consent interactions always wait for the user to respond (required for GDPR/ATT compliance).
 
 ### Test Device IDs
 
