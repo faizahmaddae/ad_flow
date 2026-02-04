@@ -1,3 +1,18 @@
+## 1.3.13
+
+* **FIX**: Ad managers now properly guard against dispose-during-retry crashes
+  - Added `_isDisposed` flag to `InterstitialAdManager`, `RewardedAdManager`, `AppOpenAdManager`, `NativeAdManager`
+  - Retry loops now exit early if manager is disposed mid-operation
+  - Prevents `setState() called after dispose()` errors in edge cases
+* **FIX**: Status listener iteration is now safe from concurrent modification
+  - All ad managers now use `List.of()` when notifying listeners
+  - Prevents `ConcurrentModificationError` if listener removes itself during callback
+* **FIX**: Removed unnecessary `meta` import in `ad_service.dart`
+* **IMPROVED**: Test coverage expanded from 227 to 309 tests
+  - Added comprehensive tests for `EasyPrivacySettingsButton` and `PrivacySettingsListTile`
+  - Added dispose guard tests for all ad managers
+  - Added listener safety tests for concurrent modification scenarios
+
 ## 1.3.12
 
 * **FIX**: Splash screen remains too long when AdMob initialization is slow ([#4](https://github.com/faizahmaddae/ad_flow/issues/4))
