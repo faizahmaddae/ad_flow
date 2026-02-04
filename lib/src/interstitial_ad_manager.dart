@@ -50,6 +50,7 @@ class InterstitialAdManager {
   bool _isLoaded = false;
   bool _isLoading = false;
   bool _isShowing = false;
+  bool _isDisposed = false;
   DateTime? _lastShowTime;
   int _loadAttempts = 0;
 
@@ -68,7 +69,7 @@ class InterstitialAdManager {
 
   /// Notify all listeners of a status change
   void _notifyStatusListeners() {
-    for (final listener in _statusListeners) {
+    for (final listener in List.of(_statusListeners)) {
       listener();
     }
   }
@@ -166,10 +167,11 @@ class InterstitialAdManager {
             debugPrint(
               'InterstitialAdManager: Retrying load (attempt $_loadAttempts)...',
             );
-            Future.delayed(
-              AdFlowConfig.current.retryDelay * _loadAttempts,
-              () => loadAd(adUnitId: adUnitId),
-            );
+            Future.delayed(AdFlowConfig.current.retryDelay * _loadAttempts, () {
+              // Guard against retry after dispose
+              if (_isDisposed) return;
+              loadAd(adUnitId: adUnitId);
+            });
           }
 
           onAdFailedToLoad?.call(error);
@@ -281,6 +283,7 @@ class InterstitialAdManager {
 
   /// Disposes of the current interstitial ad.
   Future<void> dispose() async {
+    _isDisposed = true;
     _statusListeners.clear();
     await _interstitialAd?.dispose();
     _interstitialAd = null;

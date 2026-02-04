@@ -47,6 +47,7 @@ class NativeAdManager {
   NativeAd? _nativeAd;
   bool _isLoaded = false;
   bool _isLoading = false;
+  bool _isDisposed = false;
   int _loadAttempts = 0;
   String? _currentFactoryId;
 
@@ -65,7 +66,7 @@ class NativeAdManager {
 
   /// Notify all listeners of a status change
   void _notifyStatusListeners() {
-    for (final listener in _statusListeners) {
+    for (final listener in List.of(_statusListeners)) {
       listener();
     }
   }
@@ -167,15 +168,16 @@ class NativeAdManager {
             debugPrint(
               'NativeAdManager: Retrying load (attempt $_loadAttempts)...',
             );
-            Future.delayed(
-              AdFlowConfig.current.retryDelay * _loadAttempts,
-              () => loadAd(
+            Future.delayed(AdFlowConfig.current.retryDelay * _loadAttempts, () {
+              // Guard against retry after dispose
+              if (_isDisposed) return;
+              loadAd(
                 factoryId: factoryId,
                 adUnitId: adUnitId,
                 onAdLoaded: onAdLoaded,
                 onAdFailedToLoad: onAdFailedToLoad,
-              ),
-            );
+              );
+            });
           } else {
             onAdFailedToLoad?.call(error);
           }
@@ -200,6 +202,7 @@ class NativeAdManager {
 
   /// Disposes of the current native ad.
   Future<void> dispose() async {
+    _isDisposed = true;
     _statusListeners.clear();
     await _nativeAd?.dispose();
     _nativeAd = null;

@@ -256,111 +256,15 @@ class AdFlow {
     bool showAppOpenOnColdStart = false,
     int maxForegroundAdsPerSession = 1,
   }) async {
-    if (_isInitialized) {
-      debugPrint('AdFlow: Already initialized');
-      onComplete?.call(consent.canRequestAds);
-      return;
-    }
-
-    // Set config (defaults to test mode if not provided)
-    _config = config ?? AdFlowConfig.testMode();
-    AdFlowConfig.setCurrent(_config!);
-
-    debugPrint('AdFlow: Starting initialization...');
-    debugPrint(
-      'AdFlow: Using test ads: ${AdFlowConfig.current.isUsingTestAds}',
-    );
-    _maxForegroundAdsPerSession = maxForegroundAdsPerSession;
-
-    // Step 0: Initialize AdsEnabledManager (for Remove Ads feature)
-    await AdsEnabledManager.instance.initialize();
-
-    // Check if ads are disabled (user purchased Remove Ads)
-    if (AdsEnabledManager.instance.isDisabled) {
-      debugPrint('AdFlow: Ads are disabled (Remove Ads purchased)');
-      _isInitialized = true;
-      onComplete?.call(false);
-      return;
-    }
-
-    // Step 1: Gather consent
-    await consent.gatherConsent(
-      onConsentGatheringComplete: (error) async {
-        if (error != null) {
-          debugPrint('AdFlow: Consent error: ${error.message}');
-        }
-
-        // Step 2: Forward consent to mediation networks (if any registered)
-        if (consent.canRequestAds && MediationHelper.hasAdapters) {
-          await _forwardConsentToMediationNetworks();
-        }
-
-        // Step 3: Initialize Mobile Ads SDK if we can request ads
-        bool sdkInitialized = false;
-        if (consent.canRequestAds && !_isMobileAdsInitialized) {
-          sdkInitialized = await _initializeMobileAds();
-        } else {
-          sdkInitialized = _isMobileAdsInitialized;
-        }
-
-        // Only proceed with ad operations if SDK initialized successfully
-        if (consent.canRequestAds && sdkInitialized) {
-          // Step 4: Setup lifecycle reactor for app open ads
-          if (enableAppOpenOnForeground) {
-            _setupLifecycleReactor();
-          }
-
-          // Step 5: Preload ads if configured
-          if (preloadInterstitial) {
-            interstitial.loadAd();
-          }
-          if (preloadRewarded) {
-            rewarded.loadAd();
-          }
-          if (preloadAppOpen) {
-            // Use cold-start timeout to avoid blocking too long
-            final coldStartTimeout = AdFlowConfig.current.coldStartAdTimeout;
-
-            if (showAppOpenOnColdStart && coldStartTimeout != null) {
-              // Wait briefly for ad to load, then show if ready
-              final adLoaded = await appOpen.loadAdAndWait().timeout(
-                coldStartTimeout,
-                onTimeout: () {
-                  debugPrint(
-                    'AdFlow: Cold-start app open ad timed out after ${coldStartTimeout.inSeconds}s, continuing without it',
-                  );
-                  return false;
-                },
-              );
-
-              if (adLoaded && appOpen.isAdAvailable) {
-                debugPrint('AdFlow: Showing app open ad on cold start');
-                await appOpen.showAdIfAvailable();
-              }
-            } else if (showAppOpenOnColdStart) {
-              // No timeout configured, wait for ad (legacy behavior)
-              final adLoaded = await appOpen.loadAdAndWait();
-              if (adLoaded && appOpen.isAdAvailable) {
-                debugPrint('AdFlow: Showing app open ad on cold start');
-                await appOpen.showAdIfAvailable();
-              }
-            } else {
-              // Just preload in background, don't block
-              appOpen.loadAd();
-            }
-          }
-        } else if (consent.canRequestAds && !sdkInitialized) {
-          debugPrint('AdFlow: SDK initialization failed, skipping ad preload');
-        }
-
-        _isInitialized = true;
-        debugPrint('AdFlow: Initialization complete');
-        debugPrint(
-          'AdFlow: Can request ads: ${consent.canRequestAds && sdkInitialized}',
-        );
-
-        onComplete?.call(consent.canRequestAds && sdkInitialized);
-      },
+    return _initializeInternal(
+      config: config,
+      onComplete: onComplete,
+      preloadInterstitial: preloadInterstitial,
+      preloadRewarded: preloadRewarded,
+      preloadAppOpen: preloadAppOpen,
+      enableAppOpenOnForeground: enableAppOpenOnForeground,
+      showAppOpenOnColdStart: showAppOpenOnColdStart,
+      maxForegroundAdsPerSession: maxForegroundAdsPerSession,
     );
   }
 
@@ -416,6 +320,44 @@ class AdFlow {
     ConsentExplainerTexts consentTexts = kDefaultConsentExplainerTexts,
     ATTExplainerTexts attTexts = kDefaultATTExplainerTexts,
   }) async {
+    return _initializeInternal(
+      config: config,
+      onComplete: onComplete,
+      preloadInterstitial: preloadInterstitial,
+      preloadRewarded: preloadRewarded,
+      preloadAppOpen: preloadAppOpen,
+      enableAppOpenOnForeground: enableAppOpenOnForeground,
+      showAppOpenOnColdStart: showAppOpenOnColdStart,
+      maxForegroundAdsPerSession: maxForegroundAdsPerSession,
+      // Explainer-specific params
+      context: context,
+      showExplainer: showExplainer,
+      consentTexts: consentTexts,
+      attTexts: attTexts,
+    );
+  }
+
+  /// Internal implementation of initialization logic.
+  ///
+  /// Shared by both [initialize] and [initializeWithExplainer].
+  /// If [context] is provided, uses consent gathering with explainer dialog.
+  Future<void> _initializeInternal({
+    AdFlowConfig? config,
+    AdFlowInitCallback? onComplete,
+    bool preloadInterstitial = false,
+    bool preloadRewarded = false,
+    bool preloadAppOpen = false,
+    bool enableAppOpenOnForeground = false,
+    bool showAppOpenOnColdStart = false,
+    int maxForegroundAdsPerSession = 1,
+    // Optional explainer params (null = no explainer)
+    BuildContext? context,
+    bool showExplainer = true,
+    ConsentExplainerTexts consentTexts = kDefaultConsentExplainerTexts,
+    ATTExplainerTexts attTexts = kDefaultATTExplainerTexts,
+  }) async {
+    final useExplainer = context != null;
+
     if (_isInitialized) {
       debugPrint('AdFlow: Already initialized');
       onComplete?.call(consent.canRequestAds);
@@ -426,95 +368,140 @@ class AdFlow {
     _config = config ?? AdFlowConfig.testMode();
     AdFlowConfig.setCurrent(_config!);
 
-    debugPrint('AdFlow: Starting initialization with explainer...');
+    debugPrint(
+      'AdFlow: Starting initialization${useExplainer ? ' with explainer' : ''}...',
+    );
     debugPrint(
       'AdFlow: Using test ads: ${AdFlowConfig.current.isUsingTestAds}',
     );
     _maxForegroundAdsPerSession = maxForegroundAdsPerSession;
 
-    // Step 1: Gather consent WITH explainer dialog
-    await consent.gatherConsentWithExplainer(
-      context: context,
-      showExplainer: showExplainer,
-      consentTexts: consentTexts,
-      attTexts: attTexts,
-      onConsentGatheringComplete: (error) async {
-        if (error != null) {
-          debugPrint('AdFlow: Consent error: ${error.message}');
+    // Step 0: Initialize AdsEnabledManager (for Remove Ads feature)
+    // Always initialize first to load persisted "Remove Ads" state
+    await AdsEnabledManager.instance.initialize();
+
+    // Check if ads are disabled (user purchased Remove Ads)
+    // Skip this check for explainer path - it will be handled after dialog
+    if (!useExplainer && AdsEnabledManager.instance.isDisabled) {
+      debugPrint('AdFlow: Ads are disabled (Remove Ads purchased)');
+      _isInitialized = true;
+      onComplete?.call(false);
+      return;
+    }
+
+    // Create the shared post-consent callback
+    Future<void> onConsentComplete(FormError? error) async {
+      if (error != null) {
+        debugPrint('AdFlow: Consent error: ${error.message}');
+      }
+
+      // Step 2: Forward consent to mediation networks (if any registered)
+      if (consent.canRequestAds && MediationHelper.hasAdapters) {
+        await _forwardConsentToMediationNetworks();
+      }
+
+      // Step 3: Initialize Mobile Ads SDK if we can request ads
+      bool sdkInitialized = false;
+      if (consent.canRequestAds && !_isMobileAdsInitialized) {
+        sdkInitialized = await _initializeMobileAds();
+      } else {
+        sdkInitialized = _isMobileAdsInitialized;
+      }
+
+      // Only proceed with ad operations if SDK initialized successfully
+      if (consent.canRequestAds && sdkInitialized) {
+        // Step 4: Setup lifecycle reactor for app open ads
+        if (enableAppOpenOnForeground) {
+          _setupLifecycleReactor();
         }
 
-        // Step 2: Forward consent to mediation networks (if any registered)
-        if (consent.canRequestAds && MediationHelper.hasAdapters) {
-          await _forwardConsentToMediationNetworks();
-        }
+        // Step 5: Preload ads if configured
+        await _preloadAdsIfConfigured(
+          preloadInterstitial: preloadInterstitial,
+          preloadRewarded: preloadRewarded,
+          preloadAppOpen: preloadAppOpen,
+          showAppOpenOnColdStart: showAppOpenOnColdStart,
+        );
+      } else if (consent.canRequestAds && !sdkInitialized) {
+        debugPrint('AdFlow: SDK initialization failed, skipping ad preload');
+      }
 
-        // Step 3: Initialize Mobile Ads SDK if we can request ads
-        bool sdkInitialized = false;
-        if (consent.canRequestAds && !_isMobileAdsInitialized) {
-          sdkInitialized = await _initializeMobileAds();
-        } else {
-          sdkInitialized = _isMobileAdsInitialized;
-        }
+      _isInitialized = true;
+      debugPrint(
+        'AdFlow: Initialization complete${useExplainer ? ' (with explainer)' : ''}',
+      );
+      debugPrint(
+        'AdFlow: Can request ads: ${consent.canRequestAds && sdkInitialized}',
+      );
 
-        // Only proceed with ad operations if SDK initialized successfully
-        if (consent.canRequestAds && sdkInitialized) {
-          // Step 4: Setup lifecycle reactor for app open ads
-          if (enableAppOpenOnForeground) {
-            _setupLifecycleReactor();
-          }
+      onComplete?.call(consent.canRequestAds && sdkInitialized);
+    }
 
-          // Step 5: Preload ads if configured
-          if (preloadInterstitial) {
-            interstitial.loadAd();
-          }
-          if (preloadRewarded) {
-            rewarded.loadAd();
-          }
-          if (preloadAppOpen) {
-            // Use cold-start timeout to avoid blocking too long
-            final coldStartTimeout = AdFlowConfig.current.coldStartAdTimeout;
+    // Step 1: Gather consent (with or without explainer)
+    if (useExplainer) {
+      // Context was already validated as non-null via useExplainer check
+      await consent.gatherConsentWithExplainer(
+        // ignore: use_build_context_synchronously
+        context: context,
+        showExplainer: showExplainer,
+        consentTexts: consentTexts,
+        attTexts: attTexts,
+        onConsentGatheringComplete: onConsentComplete,
+      );
+    } else {
+      await consent.gatherConsent(
+        onConsentGatheringComplete: onConsentComplete,
+      );
+    }
+  }
 
-            if (showAppOpenOnColdStart && coldStartTimeout != null) {
-              // Wait briefly for ad to load, then show if ready
-              final adLoaded = await appOpen.loadAdAndWait().timeout(
-                coldStartTimeout,
-                onTimeout: () {
-                  debugPrint(
-                    'AdFlow: Cold-start app open ad timed out after ${coldStartTimeout.inSeconds}s, continuing without it',
-                  );
-                  return false;
-                },
-              );
+  /// Preloads ads based on configuration flags.
+  ///
+  /// Extracted from initialization to reduce duplication.
+  Future<void> _preloadAdsIfConfigured({
+    required bool preloadInterstitial,
+    required bool preloadRewarded,
+    required bool preloadAppOpen,
+    required bool showAppOpenOnColdStart,
+  }) async {
+    if (preloadInterstitial) {
+      interstitial.loadAd();
+    }
+    if (preloadRewarded) {
+      rewarded.loadAd();
+    }
+    if (preloadAppOpen) {
+      // Use cold-start timeout to avoid blocking too long
+      final coldStartTimeout = AdFlowConfig.current.coldStartAdTimeout;
 
-              if (adLoaded && appOpen.isAdAvailable) {
-                debugPrint('AdFlow: Showing app open ad on cold start');
-                await appOpen.showAdIfAvailable();
-              }
-            } else if (showAppOpenOnColdStart) {
-              // No timeout configured, wait for ad (legacy behavior)
-              final adLoaded = await appOpen.loadAdAndWait();
-              if (adLoaded && appOpen.isAdAvailable) {
-                debugPrint('AdFlow: Showing app open ad on cold start');
-                await appOpen.showAdIfAvailable();
-              }
-            } else {
-              // Just preload in background, don't block
-              appOpen.loadAd();
-            }
-          }
-        } else if (consent.canRequestAds && !sdkInitialized) {
-          debugPrint('AdFlow: SDK initialization failed, skipping ad preload');
-        }
-
-        _isInitialized = true;
-        debugPrint('AdFlow: Initialization complete (with explainer)');
-        debugPrint(
-          'AdFlow: Can request ads: ${consent.canRequestAds && sdkInitialized}',
+      if (showAppOpenOnColdStart && coldStartTimeout != null) {
+        // Wait briefly for ad to load, then show if ready
+        final adLoaded = await appOpen.loadAdAndWait().timeout(
+          coldStartTimeout,
+          onTimeout: () {
+            debugPrint(
+              'AdFlow: Cold-start app open ad timed out after ${coldStartTimeout.inSeconds}s, continuing without it',
+            );
+            return false;
+          },
         );
 
-        onComplete?.call(consent.canRequestAds && sdkInitialized);
-      },
-    );
+        if (adLoaded && appOpen.isAdAvailable) {
+          debugPrint('AdFlow: Showing app open ad on cold start');
+          await appOpen.showAdIfAvailable();
+        }
+      } else if (showAppOpenOnColdStart) {
+        // No timeout configured, wait for ad (legacy behavior)
+        final adLoaded = await appOpen.loadAdAndWait();
+        if (adLoaded && appOpen.isAdAvailable) {
+          debugPrint('AdFlow: Showing app open ad on cold start');
+          await appOpen.showAdIfAvailable();
+        }
+      } else {
+        // Just preload in background, don't block
+        appOpen.loadAd();
+      }
+    }
   }
 
   /// Initializes the Mobile Ads SDK.
@@ -743,6 +730,7 @@ class AdFlow {
   ///   await AdFlow.instance.reset();
   /// });
   /// ```
+  @visibleForTesting
   Future<void> reset() async {
     debugPrint('AdFlow: Resetting state...');
     await dispose();

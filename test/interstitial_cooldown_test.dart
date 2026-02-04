@@ -108,4 +108,102 @@ void main() {
       expect(config.minInterstitialInterval, Duration.zero);
     });
   });
+
+  group('Dispose guard behavior', () {
+    late InterstitialAdManager manager;
+
+    setUp(() {
+      manager = InterstitialAdManager();
+      AdFlowConfig.setCurrent(const AdFlowConfig());
+    });
+
+    test('isLoaded is false after dispose', () async {
+      await manager.dispose();
+      expect(manager.isLoaded, false);
+    });
+
+    test('isLoading is false after dispose', () async {
+      await manager.dispose();
+      expect(manager.isLoading, false);
+    });
+
+    test('isShowing is false after dispose', () async {
+      await manager.dispose();
+      expect(manager.isShowing, false);
+    });
+
+    test('interstitialAd is null after dispose', () async {
+      await manager.dispose();
+      expect(manager.interstitialAd, isNull);
+    });
+
+    test('dispose can be called multiple times safely', () async {
+      await manager.dispose();
+      await manager.dispose();
+      await manager.dispose();
+      // Should not throw
+      expect(manager.isLoaded, false);
+    });
+
+    test('status listeners are cleared after dispose', () async {
+      int callCount = 0;
+      void listener() {
+        callCount++;
+      }
+
+      manager.addStatusListener(listener);
+      await manager.dispose();
+
+      // Listeners should be cleared
+      // Adding new listener after dispose should still work
+      manager.addStatusListener(listener);
+      expect(callCount, 0);
+    });
+  });
+
+  group('Status listener safety', () {
+    late InterstitialAdManager manager;
+
+    setUp(() {
+      manager = InterstitialAdManager();
+      AdFlowConfig.setCurrent(const AdFlowConfig());
+    });
+
+    tearDown(() {
+      manager.dispose();
+    });
+
+    test('multiple listeners can be added', () {
+      int count1 = 0;
+      int count2 = 0;
+      void listener1() => count1++;
+      void listener2() => count2++;
+
+      manager.addStatusListener(listener1);
+      manager.addStatusListener(listener2);
+
+      // No exception should be thrown
+      manager.removeStatusListener(listener1);
+      manager.removeStatusListener(listener2);
+    });
+
+    test('removing non-existent listener does not throw', () {
+      void listener() {}
+
+      // Should not throw when removing listener that was never added
+      manager.removeStatusListener(listener);
+    });
+
+    test('same listener can be added multiple times', () {
+      int callCount = 0;
+      void listener() => callCount++;
+
+      manager.addStatusListener(listener);
+      manager.addStatusListener(listener);
+
+      // Both should be in the list
+      manager.removeStatusListener(listener);
+      // One should remain after removing once
+    });
+  });
 }

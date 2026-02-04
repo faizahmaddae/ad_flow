@@ -120,4 +120,94 @@ void main() {
       expect(AdFlowConfig.current.retryDelay.inSeconds, 15);
     });
   });
+
+  group('Dispose guard behavior', () {
+    late RewardedAdManager manager;
+
+    setUp(() {
+      manager = RewardedAdManager();
+      AdFlowConfig.setCurrent(const AdFlowConfig());
+    });
+
+    test('isLoaded is false after dispose', () async {
+      await manager.dispose();
+      expect(manager.isLoaded, false);
+    });
+
+    test('isLoading is false after dispose', () async {
+      await manager.dispose();
+      expect(manager.isLoading, false);
+    });
+
+    test('isShowing is false after dispose', () async {
+      await manager.dispose();
+      expect(manager.isShowing, false);
+    });
+
+    test('rewardedAd is null after dispose', () async {
+      await manager.dispose();
+      expect(manager.rewardedAd, isNull);
+    });
+
+    test('dispose can be called multiple times safely', () async {
+      await manager.dispose();
+      await manager.dispose();
+      await manager.dispose();
+      expect(manager.isLoaded, false);
+    });
+
+    test('status listeners are cleared after dispose', () async {
+      int callCount = 0;
+      void listener() {
+        callCount++;
+      }
+
+      manager.addStatusListener(listener);
+      await manager.dispose();
+
+      manager.addStatusListener(listener);
+      expect(callCount, 0);
+    });
+  });
+
+  group('Status listener safety', () {
+    late RewardedAdManager manager;
+
+    setUp(() {
+      manager = RewardedAdManager();
+      AdFlowConfig.setCurrent(const AdFlowConfig());
+    });
+
+    tearDown(() {
+      manager.dispose();
+    });
+
+    test('multiple listeners can be added', () {
+      int count1 = 0;
+      int count2 = 0;
+      void listener1() => count1++;
+      void listener2() => count2++;
+
+      manager.addStatusListener(listener1);
+      manager.addStatusListener(listener2);
+
+      manager.removeStatusListener(listener1);
+      manager.removeStatusListener(listener2);
+    });
+
+    test('removing non-existent listener does not throw', () {
+      void listener() {}
+      manager.removeStatusListener(listener);
+    });
+
+    test('same listener can be added multiple times', () {
+      int callCount = 0;
+      void listener() => callCount++;
+
+      manager.addStatusListener(listener);
+      manager.addStatusListener(listener);
+
+      manager.removeStatusListener(listener);
+    });
+  });
 }

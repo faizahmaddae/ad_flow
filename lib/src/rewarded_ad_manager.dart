@@ -61,6 +61,7 @@ class RewardedAdManager {
   bool _isLoaded = false;
   bool _isLoading = false;
   bool _isShowing = false;
+  bool _isDisposed = false;
   int _loadAttempts = 0;
 
   /// Status listeners for reactive UI updates
@@ -78,7 +79,7 @@ class RewardedAdManager {
 
   /// Notify all listeners of a status change
   void _notifyStatusListeners() {
-    for (final listener in _statusListeners) {
+    for (final listener in List.of(_statusListeners)) {
       listener();
     }
   }
@@ -165,10 +166,11 @@ class RewardedAdManager {
             debugPrint(
               'RewardedAdManager: Retrying load (attempt $_loadAttempts)...',
             );
-            Future.delayed(
-              AdFlowConfig.current.retryDelay * _loadAttempts,
-              () => loadAd(adUnitId: adUnitId),
-            );
+            Future.delayed(AdFlowConfig.current.retryDelay * _loadAttempts, () {
+              // Guard against retry after dispose
+              if (_isDisposed) return;
+              loadAd(adUnitId: adUnitId);
+            });
           }
 
           onAdFailedToLoad?.call(error);
@@ -281,6 +283,7 @@ class RewardedAdManager {
 
   /// Disposes of the current rewarded ad.
   Future<void> dispose() async {
+    _isDisposed = true;
     _statusListeners.clear();
     await _rewardedAd?.dispose();
     _rewardedAd = null;

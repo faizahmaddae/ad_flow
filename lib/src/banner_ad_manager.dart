@@ -61,7 +61,7 @@ class BannerAdManager {
 
   /// Notify all listeners of a status change
   void _notifyStatusListeners() {
-    for (final listener in _statusListeners) {
+    for (final listener in List.of(_statusListeners)) {
       listener();
     }
   }
