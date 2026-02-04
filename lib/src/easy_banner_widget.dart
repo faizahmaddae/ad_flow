@@ -1,11 +1,13 @@
 // Easy-to-use Banner Ad Widget
 // Just drop this widget anywhere in your app!
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart' show AdSize;
 import 'banner_ad_manager.dart';
 import 'ad_config.dart' show CollapsibleBannerPlacement;
 import 'ads_enabled_manager.dart';
+import 'ad_service.dart';
 
 /// A simple, self-contained banner ad widget.
 ///
@@ -48,6 +50,13 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
   bool _isInitialized = false;
   bool _isDisposed = false;
   Orientation? _currentOrientation;
+  StreamSubscription<bool>? _initSubscription;
+  Timer? _orientationDebounceTimer;
+
+  /// Debounce duration for orientation changes to prevent ad request spam
+  static const Duration _orientationDebounceDuration = Duration(
+    milliseconds: 300,
+  );
 
   @override
   void initState() {
@@ -59,7 +68,7 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_isDisposed) return;
         _isInitialized = true;
-        _loadAd();
+        _tryLoadAd();
       });
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -68,8 +77,33 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
       });
     }
 
-    // Add listener after marking initialized
+    // Listen for ads enabled changes
     AdsEnabledManager.instance.addListener(_onAdsEnabledChanged);
+
+    // Listen for AdFlow initialization completion (for non-blocking init)
+    // This allows the widget to load ads when AdFlow becomes ready
+    _initSubscription = AdFlow.instance.initStream.listen(_onAdFlowInitialized);
+  }
+
+  void _onAdFlowInitialized(bool canRequestAds) {
+    if (_isDisposed || !mounted || !_isInitialized) return;
+    if (canRequestAds && _adsEnabled && !_isLoaded) {
+      debugPrint('EasyBannerAd: AdFlow initialized, loading ad');
+      _loadAd();
+    }
+  }
+
+  /// Tries to load ad if AdFlow is initialized, otherwise waits for init stream.
+  Future<void> _tryLoadAd() async {
+    if (!_adsEnabled || !_isInitialized || !mounted) return;
+
+    // If AdFlow is already initialized, load immediately
+    if (AdFlow.instance.isInitialized) {
+      await _loadAd();
+    } else {
+      // AdFlow not ready yet - will be triggered by _onAdFlowInitialized
+      debugPrint('EasyBannerAd: Waiting for AdFlow initialization...');
+    }
   }
 
   void _onAdsEnabledChanged(bool isEnabled) {
@@ -78,7 +112,7 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
 
     setState(() => _adsEnabled = isEnabled);
     if (isEnabled && !_isLoaded) {
-      _loadAd();
+      _tryLoadAd();
     } else if (!isEnabled) {
       _bannerManager.dispose();
       _isLoaded = false;
@@ -86,7 +120,7 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
   }
 
   Future<void> _loadAd() async {
-    if (!_adsEnabled || !_isInitialized || !mounted) return;
+    if (!_adsEnabled || !_isInitialized || !mounted || _isDisposed) return;
 
     // Priority: adSize > collapsible > adaptive
     if (widget.adSize != null) {
@@ -97,6 +131,7 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
           if (mounted) setState(() => _isLoaded = true);
         },
         onAdFailedToLoad: (ad, error) {
+          // Note: BannerAdManager already reports errors to AdFlowErrorHandler
           if (mounted) setState(() => _isLoaded = false);
         },
       );
@@ -108,6 +143,7 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
           if (mounted) setState(() => _isLoaded = true);
         },
         onAdFailedToLoad: (ad, error) {
+          // Note: BannerAdManager already reports errors to AdFlowErrorHandler
           if (mounted) setState(() => _isLoaded = false);
         },
       );
@@ -118,6 +154,7 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
           if (mounted) setState(() => _isLoaded = true);
         },
         onAdFailedToLoad: (ad, error) {
+          // Note: BannerAdManager already reports errors to AdFlowErrorHandler
           if (mounted) setState(() => _isLoaded = false);
         },
       );
@@ -127,6 +164,8 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
   @override
   void dispose() {
     _isDisposed = true;
+    _orientationDebounceTimer?.cancel();
+    _initSubscription?.cancel();
     AdsEnabledManager.instance.removeListener(_onAdsEnabledChanged);
     _bannerManager.dispose();
     super.dispose();
@@ -150,13 +189,18 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
     return OrientationBuilder(
       builder: (context, orientation) {
         if (_currentOrientation != null && _currentOrientation != orientation) {
-          // Orientation changed - schedule dispose and reload for proper sizing
+          // Orientation changed - debounce to prevent ad request spam during rotation
           // Using addPostFrameCallback to avoid modifying state during build
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted || _isDisposed) return;
-            _bannerManager.dispose();
-            setState(() => _isLoaded = false);
-            _loadAd();
+            // Cancel any pending reload and start new debounce
+            _orientationDebounceTimer?.cancel();
+            _orientationDebounceTimer = Timer(_orientationDebounceDuration, () {
+              if (!mounted || _isDisposed) return;
+              _bannerManager.dispose();
+              setState(() => _isLoaded = false);
+              _tryLoadAd();
+            });
           });
         }
         _currentOrientation = orientation;

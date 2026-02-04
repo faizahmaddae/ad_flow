@@ -54,15 +54,13 @@ typedef OnUserEarnedRewardCallback =
 /// }
 /// ```
 class RewardedAdManager {
-  /// HTTP timeout for ad requests (30 seconds for better fill rate)
-  static const int _kHttpTimeoutMillis = 30000;
-
   RewardedAd? _rewardedAd;
   bool _isLoaded = false;
   bool _isLoading = false;
   bool _isShowing = false;
   bool _isDisposed = false;
   int _loadAttempts = 0;
+  DateTime? _lastMaxRetryFailureTime;
 
   /// Status listeners for reactive UI updates
   final List<VoidCallback> _statusListeners = [];
@@ -79,6 +77,7 @@ class RewardedAdManager {
 
   /// Notify all listeners of a status change
   void _notifyStatusListeners() {
+    if (_isDisposed) return;
     for (final listener in List.of(_statusListeners)) {
       listener();
     }
@@ -106,8 +105,13 @@ class RewardedAdManager {
     RewardedAdCallback? onAdLoaded,
     RewardedAdErrorCallback? onAdFailedToLoad,
   }) async {
+    // Reset disposed flag to allow reuse (manager is accessed via lazy getter)
+    _isDisposed = false;
+
     // Check if ads are disabled (Remove Ads feature)
-    if (AdsEnabledManager.instance.isDisabled) {
+    // By default, rewarded ads ignore Remove Ads setting since users may still want rewards
+    if (!AdFlowConfig.current.rewardedAdsIgnoreRemoveAds &&
+        AdsEnabledManager.instance.isDisabled) {
       debugPrint('RewardedAdManager: Ads disabled, skipping load');
       return;
     }
@@ -118,9 +122,28 @@ class RewardedAdManager {
       return;
     }
 
+    // Check if already loading or loaded (before cooldown check to avoid unnecessary work)
     if (_isLoading || _isLoaded) {
       debugPrint('RewardedAdManager: Already loading or loaded, skipping...');
       return;
+    }
+
+    // Check retry cooldown after max attempts
+    if (_loadAttempts >= AdFlowConfig.current.maxLoadRetries &&
+        _lastMaxRetryFailureTime != null) {
+      final elapsed = DateTime.now().difference(_lastMaxRetryFailureTime!);
+      if (elapsed < AdFlowConfig.current.retryCooldownAfterMaxAttempts) {
+        final remaining =
+            AdFlowConfig.current.retryCooldownAfterMaxAttempts - elapsed;
+        debugPrint(
+          'RewardedAdManager: In cooldown after max retries (${remaining.inSeconds}s remaining)',
+        );
+        return;
+      } else {
+        // Cooldown expired, reset attempts
+        _loadAttempts = 0;
+        _lastMaxRetryFailureTime = null;
+      }
     }
 
     _isLoading = true;
@@ -129,9 +152,8 @@ class RewardedAdManager {
 
     await RewardedAd.load(
       adUnitId: adUnitId ?? AdFlowConfig.current.rewardedAdUnitId,
-      request: const AdRequest(
-        httpTimeoutMillis:
-            _kHttpTimeoutMillis, // Longer timeout for better fill rate
+      request: AdRequest(
+        httpTimeoutMillis: AdFlowConfig.current.httpTimeoutMillis,
       ),
       rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (RewardedAd ad) {
@@ -171,6 +193,12 @@ class RewardedAdManager {
               if (_isDisposed) return;
               loadAd(adUnitId: adUnitId);
             });
+          } else {
+            // Max retries exhausted, start cooldown
+            _lastMaxRetryFailureTime = DateTime.now();
+            debugPrint(
+              'RewardedAdManager: Max retries exhausted, entering ${AdFlowConfig.current.retryCooldownAfterMaxAttempts.inMinutes}min cooldown',
+            );
           }
 
           onAdFailedToLoad?.call(error);

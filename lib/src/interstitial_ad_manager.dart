@@ -43,9 +43,6 @@ typedef OnUserEarnedReward = void Function(AdWithoutView ad, RewardItem reward);
 /// }
 /// ```
 class InterstitialAdManager {
-  /// HTTP timeout for ad requests (30 seconds for better fill rate)
-  static const int _kHttpTimeoutMillis = 30000;
-
   InterstitialAd? _interstitialAd;
   bool _isLoaded = false;
   bool _isLoading = false;
@@ -53,6 +50,7 @@ class InterstitialAdManager {
   bool _isDisposed = false;
   DateTime? _lastShowTime;
   int _loadAttempts = 0;
+  DateTime? _lastMaxRetryFailureTime;
 
   /// Status listeners for reactive UI updates
   final List<VoidCallback> _statusListeners = [];
@@ -69,6 +67,7 @@ class InterstitialAdManager {
 
   /// Notify all listeners of a status change
   void _notifyStatusListeners() {
+    if (_isDisposed) return;
     for (final listener in List.of(_statusListeners)) {
       listener();
     }
@@ -103,6 +102,9 @@ class InterstitialAdManager {
     InterstitialAdCallback? onAdLoaded,
     InterstitialAdErrorCallback? onAdFailedToLoad,
   }) async {
+    // Reset disposed flag to allow reuse (manager is accessed via lazy getter)
+    _isDisposed = false;
+
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
       debugPrint('InterstitialAdManager: Ads disabled, skipping load');
@@ -122,15 +124,32 @@ class InterstitialAdManager {
       return;
     }
 
+    // Check retry cooldown after max attempts
+    if (_loadAttempts >= AdFlowConfig.current.maxLoadRetries &&
+        _lastMaxRetryFailureTime != null) {
+      final elapsed = DateTime.now().difference(_lastMaxRetryFailureTime!);
+      if (elapsed < AdFlowConfig.current.retryCooldownAfterMaxAttempts) {
+        final remaining =
+            AdFlowConfig.current.retryCooldownAfterMaxAttempts - elapsed;
+        debugPrint(
+          'InterstitialAdManager: In cooldown after max retries (${remaining.inSeconds}s remaining)',
+        );
+        return;
+      } else {
+        // Cooldown expired, reset attempts
+        _loadAttempts = 0;
+        _lastMaxRetryFailureTime = null;
+      }
+    }
+
     _isLoading = true;
     _notifyStatusListeners();
     debugPrint('InterstitialAdManager: Loading interstitial ad...');
 
     await InterstitialAd.load(
       adUnitId: adUnitId ?? AdFlowConfig.current.interstitialAdUnitId,
-      request: const AdRequest(
-        httpTimeoutMillis:
-            _kHttpTimeoutMillis, // Longer timeout for better fill rate
+      request: AdRequest(
+        httpTimeoutMillis: AdFlowConfig.current.httpTimeoutMillis,
       ),
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (InterstitialAd ad) {
@@ -172,6 +191,12 @@ class InterstitialAdManager {
               if (_isDisposed) return;
               loadAd(adUnitId: adUnitId);
             });
+          } else {
+            // Max retries exhausted, start cooldown
+            _lastMaxRetryFailureTime = DateTime.now();
+            debugPrint(
+              'InterstitialAdManager: Max retries exhausted, entering ${AdFlowConfig.current.retryCooldownAfterMaxAttempts.inMinutes}min cooldown',
+            );
           }
 
           onAdFailedToLoad?.call(error);

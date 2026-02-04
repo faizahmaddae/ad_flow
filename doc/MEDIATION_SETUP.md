@@ -36,7 +36,7 @@ Add the mediation packages you need to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  ad_flow: ^1.3.8
+  ad_flow: ^1.3.14
   
   # Add only the networks you want to use:
   gma_mediation_unity: ^1.6.2      # Unity Ads

@@ -14,6 +14,11 @@ AdFlow.instance.rewarded     // RewardedAdManager
 AdFlow.instance.appOpen      // AppOpenAdManager (4-hour cache expiry)
 AdFlow.instance.native       // NativeAdManager
 AdFlow.instance.consent      // ConsentManager (separate singleton)
+
+// Non-blocking init support (v1.3.14+)
+AdFlow.instance.initStream   // Stream<bool> - emits when init completes
+AdFlow.instance.waitForInit() // Future<bool> - waits for init with optional timeout
+AdFlow.instance.isInitialized // bool - check if already initialized
 ```
 
 **Why lazy?** Users who only need banners won't waste memory on interstitial/rewarded managers. Performance-first design.
@@ -39,6 +44,8 @@ AdFlow.instance.consent      // ConsentManager (separate singleton)
 5. MobileAds.instance.initialize()    → Only if canRequestAds == true
 6. Preload ads per AdFlowConfig flags → Auto-load if enabled in config
 ```
+
+**Non-Blocking Mode (v1.3.14+):** The same sequence runs in background—call `initialize()` without `await`. Reactive widgets (`EasyBannerAd`, `EasyNativeAd`) auto-load when ready via `initStream`. For fullscreen ads, use `await waitForInit()`.
 
 **Gotcha:** Calling `initialize()` multiple times per session is a no-op (checks `_isInitialized`). "Remove Ads" must be disabled **before** init to skip ad preloading.
 
@@ -134,16 +141,32 @@ void initState() {
   
   // Load AFTER first frame (ensures context ready)
   WidgetsBinding.instance.addPostFrameCallback((_) {
-    if (_adsEnabled && !_isDisposed) _loadAd();
+    if (_adsEnabled && !_isDisposed) _tryLoadAd();
   });
   
   // Listen for "Remove Ads" state changes
   AdsEnabledManager.instance.addListener(_onAdsEnabledChanged);
+  
+  // Listen for AdFlow initialization (non-blocking init support)
+  _initSubscription = AdFlow.instance.initStream.listen(_onAdFlowInitialized);
+}
+
+void _onAdFlowInitialized(bool canRequestAds) {
+  if (_isDisposed || !mounted || !canRequestAds) return;
+  if (_adsEnabled && !_isLoaded) _loadAd();
+}
+
+void _tryLoadAd() {
+  if (AdFlow.instance.isInitialized) {
+    _loadAd();
+  }
+  // If not initialized, _onAdFlowInitialized will be called when ready
 }
 
 @override
 void dispose() {
   _isDisposed = true; // Set flag FIRST
+  _initSubscription?.cancel();  // Cancel stream subscription
   AdsEnabledManager.instance.removeListener(_onAdsEnabledChanged);
   _manager.dispose();
   super.dispose();
@@ -151,6 +174,25 @@ void dispose() {
 ```
 
 **Key:** Check `_isDisposed` in callbacks to prevent post-dispose setState calls.
+
+### Non-Blocking Initialization Pattern
+For apps that need instant startup:
+```dart
+// main.dart - NO await, app starts immediately
+void main() {
+  runApp(MyApp());
+}
+
+// In first page's initState
+WidgetsBinding.instance.addPostFrameCallback((_) {
+  AdFlow.instance.initializeWithExplainer(context: context);  // Fire-and-forget
+});
+
+// Reactive widgets (EasyBannerAd, EasyNativeAd) auto-load when ready
+// For fullscreen ads, use waitForInit():
+final ready = await AdFlow.instance.waitForInit();
+if (ready) await AdFlow.instance.interstitial.showAd();
+```
 
 ## Critical Rules
 1. **Never** call `initialize()` more than once per session—check `_isInitialized` early
@@ -162,6 +204,7 @@ void dispose() {
 7. **Always** export new public APIs from `lib/ad_flow.dart` barrel file
 8. Check `AdsEnabledManager.isDisabled` at start of `loadAd()`/`showAd()` in all managers
 9. Call `_notifyStatusListeners()` after ANY state change in managers (enables reactive UI)
+10. **Always cancel stream subscriptions** in widget `dispose()`—`initStream.listen()` without cancel causes memory leaks in navigable pages
 
 ## Adding New Ad Types
 1. Create `lib/src/xxx_ad_manager.dart`:

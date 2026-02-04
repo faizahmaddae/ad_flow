@@ -78,16 +78,117 @@ class AdFlow {
 
   // State
   bool _isInitialized = false;
+  bool _isInitializing = false;
   bool _isMobileAdsInitialized = false;
   bool _pendingMobileAdsInit = false;
   int _maxForegroundAdsPerSession = _kDefaultMaxForegroundAds;
   AdFlowConfig? _config;
+
+  /// Completer for waiting on initialization.
+  /// Created when initialize() starts, completed when it finishes.
+  Completer<bool>? _initCompleter;
+
+  /// Stream controller for notifying when initialization completes.
+  /// Widgets can subscribe to react when AdFlow becomes ready.
+  /// Note: This is recreated on reset() to allow re-initialization in tests.
+  StreamController<bool> _initStreamController =
+      StreamController<bool>.broadcast();
 
   /// Default maximum foreground ads per session
   static const int _kDefaultMaxForegroundAds = 1;
 
   /// The current ad configuration
   AdFlowConfig get config => _config ?? AdFlowConfig.testMode();
+
+  /// Stream that emits when initialization completes.
+  ///
+  /// Useful for widgets that need to react when AdFlow becomes ready.
+  /// Emits `true` if ads can be requested, `false` otherwise.
+  ///
+  /// Example:
+  /// ```dart
+  /// AdFlow.instance.initStream.listen((canRequestAds) {
+  ///   if (canRequestAds) {
+  ///     // Start loading ads
+  ///   }
+  /// });
+  /// ```
+  Stream<bool> get initStream => _initStreamController.stream;
+
+  /// Waits for AdFlow initialization to complete.
+  ///
+  /// Call this before loading ads if you're not using `await` on initialize().
+  /// Returns `true` if ads can be requested, `false` otherwise.
+  ///
+  /// This method:
+  /// - Returns immediately if already initialized
+  /// - Waits up to 60 seconds for initialization (configurable)
+  /// - Prints a debug warning to remind developers to await initialize()
+  /// - Throws [StateError] if initialization was never started
+  ///
+  /// Example:
+  /// ```dart
+  /// // In main.dart (no await - non-blocking)
+  /// AdFlow.instance.initializeWithExplainer(context: context);
+  /// runApp(MyApp());
+  ///
+  /// // In ad manager (waits for init)
+  /// final canRequest = await AdFlow.instance.waitForInit();
+  /// if (canRequest) loadAd();
+  /// ```
+  Future<bool> waitForInit({Duration? timeout}) async {
+    // Already initialized - return immediately
+    if (_isInitialized) {
+      return consent.canRequestAds && _isMobileAdsInitialized;
+    }
+
+    // Warn in debug mode to remind devs to use await
+    assert(() {
+      debugPrint(
+        '⚠️ AdFlow: waitForInit() called before initialization complete. '
+        'Consider using: await AdFlow.instance.initialize()',
+      );
+      return true;
+    }());
+
+    // No initialization started - throw helpful error
+    if (_initCompleter == null) {
+      throw StateError(
+        'AdFlow.waitForInit() called but initialize() was never called. '
+        'Call AdFlow.instance.initialize() or initializeWithExplainer() first.',
+      );
+    }
+
+    // Wait for initialization with timeout
+    final effectiveTimeout = timeout ?? const Duration(seconds: 60);
+    try {
+      return await _initCompleter!.future.timeout(
+        effectiveTimeout,
+        onTimeout: () {
+          debugPrint(
+            '⚠️ AdFlow: waitForInit() timed out after ${effectiveTimeout.inSeconds}s',
+          );
+          return false;
+        },
+      );
+    } catch (e) {
+      debugPrint('AdFlow: waitForInit() error: $e');
+      return false;
+    }
+  }
+
+  /// Completes the init completer and notifies listeners.
+  ///
+  /// Called internally when initialization finishes.
+  void _completeInit(bool canRequestAds) {
+    _isInitializing = false; // Reset initializing flag
+    // Complete the future for waitForInit() callers
+    if (_initCompleter != null && !_initCompleter!.isCompleted) {
+      _initCompleter!.complete(canRequestAds);
+    }
+    // Notify stream listeners (for reactive widgets)
+    _initStreamController.add(canRequestAds);
+  }
 
   /// Whether the ad service is fully initialized
   bool get isInitialized => _isInitialized;
@@ -364,6 +465,19 @@ class AdFlow {
       return;
     }
 
+    // Prevent concurrent initialization calls
+    if (_isInitializing) {
+      debugPrint('AdFlow: Initialization already in progress');
+      // Wait for existing initialization to complete
+      waitForInit().then((canRequestAds) => onComplete?.call(canRequestAds));
+      return;
+    }
+    _isInitializing = true;
+
+    // Create completer for waitForInit() callers
+    // This allows other parts of the code to wait for initialization
+    _initCompleter ??= Completer<bool>();
+
     // Set config (defaults to test mode if not provided)
     _config = config ?? AdFlowConfig.testMode();
     AdFlowConfig.setCurrent(_config!);
@@ -374,6 +488,17 @@ class AdFlow {
     debugPrint(
       'AdFlow: Using test ads: ${AdFlowConfig.current.isUsingTestAds}',
     );
+
+    // Policy warning: Alert developers if using test IDs in release build
+    if (AdFlowConfig.current.isUsingTestAds) {
+      assert(() {
+        debugPrint(
+          '⚠️ AdFlow WARNING: Using test ad unit IDs. '
+          'Replace with production IDs before release!',
+        );
+        return true;
+      }());
+    }
     _maxForegroundAdsPerSession = maxForegroundAdsPerSession;
 
     // Step 0: Initialize AdsEnabledManager (for Remove Ads feature)
@@ -385,6 +510,7 @@ class AdFlow {
     if (!useExplainer && AdsEnabledManager.instance.isDisabled) {
       debugPrint('AdFlow: Ads are disabled (Remove Ads purchased)');
       _isInitialized = true;
+      _completeInit(false);
       onComplete?.call(false);
       return;
     }
@@ -426,15 +552,16 @@ class AdFlow {
         debugPrint('AdFlow: SDK initialization failed, skipping ad preload');
       }
 
+      final canRequestAds = consent.canRequestAds && sdkInitialized;
+
       _isInitialized = true;
+      _completeInit(canRequestAds);
       debugPrint(
         'AdFlow: Initialization complete${useExplainer ? ' (with explainer)' : ''}',
       );
-      debugPrint(
-        'AdFlow: Can request ads: ${consent.canRequestAds && sdkInitialized}',
-      );
+      debugPrint('AdFlow: Can request ads: $canRequestAds');
 
-      onComplete?.call(consent.canRequestAds && sdkInitialized);
+      onComplete?.call(canRequestAds);
     }
 
     // Step 1: Gather consent (with or without explainer)
@@ -712,6 +839,9 @@ class AdFlow {
     await _rewardedAdManager?.dispose();
     _lifecycleReactor?.dispose();
     _isInitialized = false;
+    _isInitializing = false;
+    // Note: We don't close _initStreamController here since it's a singleton
+    // and may still have subscribers. It's properly closed/recreated in reset().
     debugPrint('AdFlow: Disposed');
   }
 
@@ -741,9 +871,14 @@ class AdFlow {
     _rewardedAdManager = null;
     _lifecycleReactor = null;
     _isMobileAdsInitialized = false;
+    _isInitializing = false;
     _pendingMobileAdsInit = false;
     _maxForegroundAdsPerSession = _kDefaultMaxForegroundAds;
     _config = null;
+    _initCompleter = null; // Reset completer for re-initialization
+    // Close old stream controller and create a new one for re-initialization
+    await _initStreamController.close();
+    _initStreamController = StreamController<bool>.broadcast();
     AdFlowConfig.resetCurrent();
     debugPrint('AdFlow: State reset complete');
   }

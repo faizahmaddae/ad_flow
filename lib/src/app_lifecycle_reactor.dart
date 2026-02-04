@@ -220,6 +220,11 @@ class AppLifecycleReactor with WidgetsBindingObserver {
 /// This widget integrates [AppLifecycleReactor] with your widget tree,
 /// making it easy to show app open ads when the app comes to the foreground.
 ///
+/// **WARNING:** This widget creates its own [AppLifecycleReactor]. If you also
+/// call `AdFlow.instance.initialize(enableAppOpenOnForeground: true)`, you will
+/// have TWO lifecycle reactors that may both try to show app open ads.
+/// Use EITHER this widget OR the `enableAppOpenOnForeground` parameter, not both.
+///
 /// Example:
 /// ```dart
 /// void main() {

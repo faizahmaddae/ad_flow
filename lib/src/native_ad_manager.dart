@@ -49,6 +49,7 @@ class NativeAdManager {
   bool _isLoading = false;
   bool _isDisposed = false;
   int _loadAttempts = 0;
+  DateTime? _lastMaxRetryFailureTime;
   String? _currentFactoryId;
 
   /// Status listeners for reactive UI updates
@@ -66,6 +67,7 @@ class NativeAdManager {
 
   /// Notify all listeners of a status change
   void _notifyStatusListeners() {
+    if (_isDisposed) return;
     for (final listener in List.of(_statusListeners)) {
       listener();
     }
@@ -102,6 +104,9 @@ class NativeAdManager {
     NativeAdCallback? onAdLoaded,
     NativeAdErrorCallback? onAdFailedToLoad,
   }) async {
+    // Reset disposed flag to allow reuse (manager is accessed via lazy getter)
+    _isDisposed = false;
+
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
       debugPrint('NativeAdManager: Ads disabled, skipping load');
@@ -129,6 +134,24 @@ class NativeAdManager {
       return;
     }
 
+    // Check retry cooldown after max attempts
+    if (_loadAttempts >= AdFlowConfig.current.maxLoadRetries &&
+        _lastMaxRetryFailureTime != null) {
+      final elapsed = DateTime.now().difference(_lastMaxRetryFailureTime!);
+      if (elapsed < AdFlowConfig.current.retryCooldownAfterMaxAttempts) {
+        final remaining =
+            AdFlowConfig.current.retryCooldownAfterMaxAttempts - elapsed;
+        debugPrint(
+          'NativeAdManager: In cooldown after max retries (${remaining.inSeconds}s remaining)',
+        );
+        return;
+      } else {
+        // Cooldown expired, reset attempts
+        _loadAttempts = 0;
+        _lastMaxRetryFailureTime = null;
+      }
+    }
+
     _isLoading = true;
     _currentFactoryId = factoryId;
     _notifyStatusListeners();
@@ -137,7 +160,9 @@ class NativeAdManager {
     _nativeAd = NativeAd(
       adUnitId: adUnitId ?? AdFlowConfig.current.nativeAdUnitId,
       factoryId: factoryId,
-      request: const AdRequest(),
+      request: AdRequest(
+        httpTimeoutMillis: AdFlowConfig.current.httpTimeoutMillis,
+      ),
       listener: NativeAdListener(
         onAdLoaded: (Ad ad) {
           debugPrint('NativeAdManager: Ad loaded successfully');
@@ -149,6 +174,13 @@ class NativeAdManager {
         },
         onAdFailedToLoad: (Ad ad, LoadAdError error) {
           debugPrint('NativeAdManager: Ad failed to load: ${error.message}');
+          // Hint for common factory registration issue
+          if (error.code == 0 ||
+              error.message.toLowerCase().contains('factory')) {
+            debugPrint(
+              'NativeAdManager: HINT - Ensure native ad factory "$factoryId" is registered in native code (Android/iOS)',
+            );
+          }
           _isLoaded = false;
           _isLoading = false;
           _loadAttempts++;
@@ -179,6 +211,11 @@ class NativeAdManager {
               );
             });
           } else {
+            // Max retries exhausted, start cooldown
+            _lastMaxRetryFailureTime = DateTime.now();
+            debugPrint(
+              'NativeAdManager: Max retries exhausted, entering ${AdFlowConfig.current.retryCooldownAfterMaxAttempts.inMinutes}min cooldown',
+            );
             onAdFailedToLoad?.call(error);
           }
         },

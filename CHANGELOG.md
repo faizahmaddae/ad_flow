@@ -1,3 +1,40 @@
+## 1.3.14
+
+* **NEW**: Non-blocking initialization for instant app startup
+  - App can start immediately without waiting for AdFlow to initialize
+  - Ads load in background while users interact with the app
+  - Dramatically improves user experience on slow networks
+* **NEW**: `waitForInit()` method - waits for initialization to complete
+  - Returns `Future<bool>` indicating if ads can be requested
+  - Returns immediately if already initialized
+  - Use for fullscreen ads (interstitial, rewarded) before showing
+* **NEW**: `initStream` - broadcast stream that emits when initialization completes
+  - Widgets can subscribe and react when AdFlow becomes ready
+  - Useful for complex scenarios requiring custom ad loading
+* **IMPROVED**: `EasyBannerAd` and `EasyNativeAd` are now fully reactive
+  - Automatically subscribe to `initStream` on mount
+  - Auto-load ads when AdFlow initialization completes
+  - No code changes required - existing widgets work seamlessly
+* **IMPROVED**: Test coverage expanded from 309 to 328 tests
+  - Added tests for `waitForInit()` behavior
+  - Added tests for reactive widget initialization
+  - Added tests for stream subscription cleanup
+
+## 1.3.13
+
+* **FIX**: Ad managers now properly guard against dispose-during-retry crashes
+  - Added `_isDisposed` flag to `InterstitialAdManager`, `RewardedAdManager`, `AppOpenAdManager`, `NativeAdManager`
+  - Retry loops now exit early if manager is disposed mid-operation
+  - Prevents `setState() called after dispose()` errors in edge cases
+* **FIX**: Status listener iteration is now safe from concurrent modification
+  - All ad managers now use `List.of()` when notifying listeners
+  - Prevents `ConcurrentModificationError` if listener removes itself during callback
+* **FIX**: Removed unnecessary `meta` import in `ad_service.dart`
+* **IMPROVED**: Test coverage expanded from 227 to 309 tests
+  - Added comprehensive tests for `EasyPrivacySettingsButton` and `PrivacySettingsListTile`
+  - Added dispose guard tests for all ad managers
+  - Added listener safety tests for concurrent modification scenarios
+
 ## 1.3.12
 
 * **FIX**: Splash screen remains too long when AdMob initialization is slow ([#4](https://github.com/faizahmaddae/ad_flow/issues/4))

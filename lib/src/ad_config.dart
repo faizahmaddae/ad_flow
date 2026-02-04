@@ -143,6 +143,41 @@ class AdFlowConfig {
   /// Set to `false` only if you need to show the consent form for legal reasons.
   final bool skipGdprConsentIfAttDenied;
 
+  /// Whether rewarded ads should ignore the "Remove Ads" setting.
+  ///
+  /// When `true` (default), rewarded ads will still be available even when
+  /// the user has purchased "Remove Ads". This is the expected behavior for
+  /// most apps since users typically still want access to optional rewards.
+  ///
+  /// Set to `false` if you want rewarded ads to also be disabled when
+  /// the user purchases "Remove Ads".
+  final bool rewardedAdsIgnoreRemoveAds;
+
+  /// HTTP timeout for ad requests in milliseconds.
+  ///
+  /// Longer timeouts improve fill rates but may delay the UI.
+  /// Default is 30 seconds (30000ms).
+  final int httpTimeoutMillis;
+
+  /// Cooldown period after max retries are exhausted.
+  ///
+  /// After an ad fails to load [maxLoadRetries] times, the manager will
+  /// wait this duration before allowing new load attempts. This prevents
+  /// rapid-fire failed requests that could trigger AdMob rate limiting.
+  ///
+  /// Default is 5 minutes.
+  final Duration retryCooldownAfterMaxAttempts;
+
+  /// Banner ad refresh interval (placeholder for future implementation).
+  ///
+  /// **Note:** This config option is defined but auto-refresh is NOT yet
+  /// implemented in `EasyBannerAd`. For now, banners refresh on orientation
+  /// change only. This field is reserved for future use.
+  ///
+  /// When implemented, Google recommends refreshing every 60-120 seconds
+  /// for optimal revenue. Set to `null` to disable auto-refresh (default).
+  final Duration? bannerRefreshInterval;
+
   // ============================================================
   // INITIALIZATION TIMEOUTS
   // ============================================================
@@ -195,6 +230,10 @@ class AdFlowConfig {
     this.maxLoadRetries = 3,
     this.retryDelay = const Duration(seconds: 5),
     this.skipGdprConsentIfAttDenied = true,
+    this.rewardedAdsIgnoreRemoveAds = true,
+    this.httpTimeoutMillis = 30000,
+    this.retryCooldownAfterMaxAttempts = const Duration(minutes: 5),
+    this.bannerRefreshInterval,
     this.consentNetworkTimeout = const Duration(seconds: 10),
     this.sdkInitTimeout = const Duration(seconds: 8),
     this.coldStartAdTimeout = const Duration(seconds: 3),
@@ -291,7 +330,9 @@ class AdFlowConfig {
   bool get isUsingTestAds {
     return bannerAdUnitId.contains(_testPublisherId) ||
         interstitialAdUnitId.contains(_testPublisherId) ||
-        appOpenAdUnitId.contains(_testPublisherId);
+        appOpenAdUnitId.contains(_testPublisherId) ||
+        nativeAdUnitId.contains(_testPublisherId) ||
+        rewardedAdUnitId.contains(_testPublisherId);
   }
 
   // ============================================================

@@ -161,8 +161,8 @@ class AdFlowErrorHandler {
   /// Singleton instance
   static AdFlowErrorHandler get instance => _instance;
 
-  /// StreamController for error events
-  final StreamController<AdFlowError> _errorController =
+  /// StreamController for error events (recreated if closed)
+  StreamController<AdFlowError> _errorController =
       StreamController<AdFlowError>.broadcast();
 
   /// Optional callback for errors
@@ -243,14 +243,23 @@ class AdFlowErrorHandler {
   }
 
   /// Disposes of resources.
+  ///
+  /// **Note:** This is a singleton. After calling dispose(), the error stream
+  /// will be closed. Call [reset] to recreate the stream if needed.
   void dispose() {
     _errorController.close();
     _errorCallback = null;
   }
 
   /// Resets for testing purposes.
+  ///
+  /// Recreates the stream controller if it was closed, allowing the
+  /// singleton to be reused after [dispose] was called.
   void reset() {
     _errorCallback = null;
-    // Note: We don't close the controller, just clear callback
+    // Recreate the controller if it was closed
+    if (_errorController.isClosed) {
+      _errorController = StreamController<AdFlowError>.broadcast();
+    }
   }
 }

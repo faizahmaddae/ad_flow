@@ -4,7 +4,7 @@
 
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/foundation.dart' show kReleaseMode;
+import 'package:flutter/foundation.dart' show kReleaseMode, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
@@ -148,7 +148,15 @@ class ConsentManager {
     // Step 2: GDPR/US Privacy flow (check → explainer → form) - sequential
     // Check if context is still valid after iOS ATT flow
     if (!context.mounted) {
-      debugPrint('ConsentManager: Context no longer mounted, aborting');
+      debugPrint(
+        'ConsentManager: Context no longer mounted, completing with error',
+      );
+      // P0 FIX: Always call the callback, even when context is unmounted
+      await _updateCanRequestAds();
+      _isInitialized = true;
+      onConsentGatheringComplete(
+        FormError(errorCode: -1, message: 'Context unmounted during consent'),
+      );
       return;
     }
 
@@ -314,6 +322,9 @@ class ConsentManager {
       hasCompleted = true;
       timeoutTimer?.cancel();
 
+      // Track if form callback has fired to prevent double completion
+      bool formCallbackFired = false;
+
       // Run the form logic async
       () async {
         // Step 1: Check if consent form will be shown
@@ -334,6 +345,10 @@ class ConsentManager {
 
         // Step 3: Show consent form if required
         ConsentForm.loadAndShowConsentFormIfRequired((FormError? error) async {
+          // Guard against double callback (edge case with timeout)
+          if (formCallbackFired) return;
+          formCallbackFired = true;
+
           await _updateCanRequestAds();
           _isInitialized = true;
           onComplete(error);
@@ -433,12 +448,14 @@ class ConsentManager {
   /// Resets consent information for testing purposes.
   ///
   /// WARNING: Only use during development/testing.
+  @visibleForTesting
   void resetConsent() {
     debugPrint('ConsentManager: Resetting consent');
     ConsentInformation.instance.reset();
     _isInitialized = false;
     _canRequestAds = false;
     _isPrivacyOptionsRequired = false;
+    _lastAttStatus = null;
   }
 
   /// Gets the current consent status.

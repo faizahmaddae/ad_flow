@@ -26,6 +26,7 @@ A production-ready, fully compliant AdMob integration package for Flutter with G
 | **Retry Logic** | ✅ | Exponential backoff on failures |
 | **Lazy Loading** | ✅ | Managers created only when used |
 | **Error Handling** | ✅ | Centralized error stream for all ads |
+| **Non-Blocking Init** | ✅ | App starts instantly, ads load in background |
 
 ---
 
@@ -36,7 +37,7 @@ A production-ready, fully compliant AdMob integration package for Flutter with G
 ```yaml
 # pubspec.yaml
 dependencies:
-  ad_flow: ^1.3.8
+  ad_flow: ^1.3.14
 ```
 
 ### 2. Android Setup
@@ -311,6 +312,386 @@ await AdFlow.instance.initialize(
 await AdFlow.instance.initialize(
   config: AdFlowConfig.testMode(), // Uses Google's test ad IDs
 );
+```
+
+---
+
+## � Non-Blocking Initialization (Recommended)
+
+**Problem:** Traditional `await AdFlow.instance.initialize()` blocks your app until consent dialogs finish and ads preload. On slow networks, this can take 10+ seconds, causing a poor user experience.
+
+**Solution:** Use non-blocking initialization! Your app starts instantly, and ads load in the background. Reactive widgets automatically show ads when ready.
+
+### Before vs After
+
+```
+❌ BLOCKING (Old Way)                    ✅ NON-BLOCKING (Recommended)
+─────────────────────────────────────    ─────────────────────────────────────
+void main() async {                      void main() {
+  await AdFlow.instance.initialize();      runApp(MyApp());  // App starts NOW!
+  // User waits 5-15 seconds...            // Init happens in background
+  runApp(MyApp());                       }
+}
+```
+
+### Quick Start (Non-Blocking)
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:ad_flow/ad_flow.dart';
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // App starts IMMEDIATELY - no await!
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: const HomePage(),
+    );
+  }
+}
+
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  @override
+  void initState() {
+    super.initState();
+    
+    // Initialize in background (after first frame for context)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initAds();
+    });
+  }
+
+  void _initAds() {
+    // NO await - this runs in background!
+    AdFlow.instance.initializeWithExplainer(
+      context: context,
+      config: AdFlowConfig.testMode(),
+      preloadInterstitial: true,
+      onComplete: (canRequestAds) {
+        debugPrint('Ads ready: $canRequestAds');
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('My App')),
+      body: const Center(child: Text('App loaded instantly!')),
+      
+      // Banner loads automatically when AdFlow is ready!
+      bottomNavigationBar: const EasyBannerAd(),
+    );
+  }
+}
+```
+
+### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  NON-BLOCKING INITIALIZATION FLOW                                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  main() {                                                                │
+│    runApp(MyApp());  ◄─── App starts IMMEDIATELY (user sees UI)         │
+│    AdFlow.instance.initializeWithExplainer(...);  // Runs in background │
+│  }                                                                       │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  BACKGROUND INITIALIZATION (doesn't block UI)                    │    │
+│  │                                                                   │    │
+│  │  1. AdsEnabledManager.initialize()    ──► Load "Remove Ads" state│    │
+│  │           ↓                                                       │    │
+│  │  2. ConsentManager.gatherConsent()    ──► ATT → UMP Dialog       │    │
+│  │           ↓                                                       │    │
+│  │  3. MobileAds.instance.initialize()   ──► Initialize SDK         │    │
+│  │           ↓                                                       │    │
+│  │  4. Preload ads (interstitial, etc.)  ──► Based on config flags  │    │
+│  │           ↓                                                       │    │
+│  │  5. _completeInit() ──► Notifies waitForInit() & initStream      │    │
+│  │                                                                   │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  REACTIVE WIDGETS (auto-respond to init completion)              │    │
+│  │                                                                   │    │
+│  │  EasyBannerAd ──► Subscribes to initStream                       │    │
+│  │       │          ──► When AdFlow ready, auto-loads banner        │    │
+│  │       ↓                                                           │    │
+│  │  [Shows banner when loaded]                                       │    │
+│  │                                                                   │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Reactive Widgets
+
+`EasyBannerAd` and `EasyNativeAd` are **reactive** - they automatically wait for AdFlow to initialize, then load and display ads:
+
+```dart
+// Just drop these widgets anywhere - they handle waiting automatically!
+const EasyBannerAd()      // Waits for init, then loads banner
+const EasyNativeAd(       // Waits for init, then loads native ad
+  factoryId: 'medium_template',
+  height: 300,
+)
+```
+
+**What happens internally:**
+1. Widget mounts before AdFlow is ready → shows nothing
+2. Widget subscribes to `AdFlow.instance.initStream`
+3. When AdFlow completes initialization → widget auto-loads ad
+4. Ad appears without any extra code!
+
+### waitForInit() - For Custom Ad Loading
+
+For fullscreen ads (interstitial, rewarded, app open), use `waitForInit()` to ensure AdFlow is ready:
+
+```dart
+Future<void> _showInterstitial() async {
+  // Wait for AdFlow to be ready (returns immediately if already ready)
+  final isReady = await AdFlow.instance.waitForInit();
+  
+  if (!isReady) {
+    // Consent not granted or init failed
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Ads not available')),
+    );
+    return;
+  }
+  
+  // Now safe to show ads
+  if (AdFlow.instance.interstitial.isLoaded) {
+    await AdFlow.instance.interstitial.showAd(
+      onAdDismissed: () => debugPrint('Ad closed'),
+    );
+  } else {
+    // Ad not preloaded yet, load now
+    await AdFlow.instance.interstitial.loadAd();
+  }
+}
+```
+
+### initStream - For Complex Scenarios
+
+Subscribe to `initStream` for more control over when to perform ad operations:
+
+```dart
+class _MyWidgetState extends State<MyWidget> {
+  StreamSubscription<bool>? _initSub;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // Check if already initialized
+    if (AdFlow.instance.isInitialized) {
+      _onAdFlowReady(true);
+    } else {
+      // Wait for init to complete
+      _initSub = AdFlow.instance.initStream.listen(_onAdFlowReady);
+    }
+  }
+
+  void _onAdFlowReady(bool canRequestAds) {
+    if (canRequestAds) {
+      // Load your custom ads
+      _loadMyAds();
+    }
+  }
+
+  @override
+  void dispose() {
+    _initSub?.cancel();  // Always cancel subscriptions!
+    super.dispose();
+  }
+}
+```
+
+### Monitor Initialization Status
+
+```dart
+// Check current state
+if (AdFlow.instance.isInitialized) {
+  // Already initialized
+}
+
+// In main.dart (app-level) - OK without cancel (lives forever)
+AdFlow.instance.initStream.listen((canRequestAds) {
+  if (canRequestAds) {
+    print('Ads ready!');
+  } else {
+    print('Ads not available (consent denied or init failed)');
+  }
+});
+```
+
+> ⚠️ **Memory Leak Warning:** If you subscribe to `initStream` inside a widget that can be disposed (any navigable page, dialog, or bottom sheet), you **MUST** store the subscription and cancel it in `dispose()`. See the example above for the correct pattern.
+```
+
+### Preloading Still Works!
+
+All preloading options work exactly the same - they just run in the background:
+
+```dart
+AdFlow.instance.initializeWithExplainer(
+  context: context,
+  config: AdFlowConfig.testMode(),
+  
+  // These all run in background after consent completes:
+  preloadInterstitial: true,       // ✅ Preloads interstitial
+  preloadRewarded: true,           // ✅ Preloads rewarded ad
+  preloadAppOpen: true,            // ✅ Preloads app open ad
+  showAppOpenOnColdStart: true,    // ✅ Shows app open on first launch
+  enableAppOpenOnForeground: true, // ✅ Shows app open on resume
+  maxForegroundAdsPerSession: 2,   // ✅ Limits foreground ads
+  
+  onComplete: (canRequestAds) {
+    // Called when everything is done
+    print('All ready! Can request ads: $canRequestAds');
+  },
+);
+```
+
+### Manual Preloading (Full Control)
+
+If you need more control over when ads load, preload them manually:
+
+```dart
+// First, wait for AdFlow to be ready
+final isReady = await AdFlow.instance.waitForInit();
+if (!isReady) {
+  debugPrint('Ads not available');
+  return;
+}
+
+// 🔹 Preload Interstitial
+await AdFlow.instance.interstitial.loadAd(
+  onAdLoaded: (_) => debugPrint('Interstitial ready!'),
+  onAdFailedToLoad: (error) => debugPrint('Failed: ${error.message}'),
+);
+
+// 🔹 Preload Rewarded
+await AdFlow.instance.rewarded.loadAd(
+  onAdLoaded: (_) => debugPrint('Rewarded ready!'),
+  onAdFailedToLoad: (error) => debugPrint('Failed: ${error.message}'),
+);
+
+// 🔹 Preload App Open
+await AdFlow.instance.appOpen.loadAd(
+  onAdLoaded: (_) => debugPrint('App Open ready!'),
+  onAdFailedToLoad: (error) => debugPrint('Failed: ${error.message}'),
+);
+```
+
+### Smart Preloading (Production Only)
+
+Use `preloadAds()` to automatically load only ad types with production IDs configured:
+
+```dart
+// Only loads ad types with real (non-test) IDs configured
+await AdFlow.instance.preloadAds();
+```
+
+### Preloading Comparison
+
+| Method | Pros | Cons | Best For |
+|--------|------|------|----------|
+| **Automatic** (`preloadInterstitial: true`) | Simple, runs in background | Less control | Most apps |
+| **Manual** (`loadAd()`) | Full control, custom callbacks | More code | Advanced use |
+| **Smart** (`preloadAds()`) | Only loads configured types | Needs production config | Production apps |
+
+### Check Preload Status
+
+```dart
+// Check if ads are loaded before showing
+if (AdFlow.instance.interstitial.isLoaded) {
+  await AdFlow.instance.interstitial.showAd();
+}
+
+if (AdFlow.instance.rewarded.isLoaded) {
+  await AdFlow.instance.rewarded.showAd(
+    onUserEarnedReward: (reward) => grantReward(reward),
+  );
+}
+
+if (AdFlow.instance.appOpen.isAdAvailable) {
+  await AdFlow.instance.appOpen.showAdIfAvailable();
+}
+```
+
+### Best Practices
+
+| ✅ Do | ❌ Don't |
+|-------|---------|
+| Start app immediately with `runApp()` | Block main() with `await initialize()` |
+| Use reactive widgets (`EasyBannerAd`) | Manually check `isInitialized` repeatedly |
+| Use `waitForInit()` for fullscreen ads | Call `showAd()` without checking init |
+| Cancel stream subscriptions in `dispose()` | Leave subscriptions open (memory leak) |
+| Handle `canRequestAds: false` case | Assume ads will always be available |
+
+### Migration from Blocking Init
+
+**Before (blocking):**
+```dart
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // ❌ User waits here...
+  await AdFlow.instance.initialize(config: AdFlowConfig.testMode());
+  
+  runApp(MyApp());
+}
+```
+
+**After (non-blocking):**
+```dart
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // ✅ App starts immediately!
+  runApp(MyApp());
+}
+
+// In your first page:
+class _HomePageState extends State<HomePage> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Initialize in background - NO await!
+      AdFlow.instance.initializeWithExplainer(
+        context: context,
+        config: AdFlowConfig.testMode(),
+      );
+    });
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: MyContent(),
+      bottomNavigationBar: const EasyBannerAd(),  // Auto-loads when ready!
+    );
+  }
+}
 ```
 
 ---
@@ -1023,15 +1404,25 @@ RewardedAdManager rewarded      // Rewarded ads
 AppOpenAdManager appOpen        // App open ads
 NativeAdManager native          // Native ads
 
-// Methods
-Future<void> initialize({...})  // Initialize everything
+// Initialization
+Future<void> initialize({...})              // Initialize (can be blocking or non-blocking)
+Future<void> initializeWithExplainer({...}) // Initialize with consent explainer
+
+// Non-Blocking Initialization Support
+Future<bool> waitForInit({Duration? timeout})  // Wait for init to complete
+Stream<bool> initStream                        // Emits when init completes
+
+// Ads Control
 Future<void> disableAds()       // Disable ads (Remove Ads)
 Future<void> enableAds()        // Re-enable ads
 void showPrivacyOptions({...})  // Show privacy form
 void openAdInspector()          // Debug tool
+void pauseAppOpenAds()          // Pause app open ads
+void resumeAppOpenAds()         // Resume app open ads
 
 // Streams
 Stream<bool> adsEnabledStream   // Reactive ads enabled state
+Stream<AdFlowError> errorStream // Reactive error stream
 ```
 
 ### BannerAdManager

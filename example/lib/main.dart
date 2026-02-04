@@ -2,7 +2,11 @@
 // Uncomment the example you want to test
 
 // Example 1: With explainer dialog (recommended for GDPR regions)
-export 'example_with_explainer.dart';
+// export 'example_with_explainer.dart';
 
 // Example 2: Without explainer dialog (direct consent)
 // export 'example_without_explainer.dart';
+
+// Example 3: Non-blocking initialization (BEST UX - recommended!)
+// App starts instantly, ads load reactively when ready
+export 'example_non_blocking.dart';

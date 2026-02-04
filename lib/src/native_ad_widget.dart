@@ -1,11 +1,13 @@
 // Copyright 2024 - AdMob Integration Package
 // Native Ad Widget - Easy-to-use Flutter widget for native ads
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'native_ad_manager.dart';
 import 'ads_enabled_manager.dart';
+import 'ad_service.dart';
 
 /// A widget that displays a native ad.
 ///
@@ -202,6 +204,7 @@ class _EasyNativeAdState extends State<EasyNativeAd> {
   bool _adsEnabled = true;
   bool _isInitialized = false;
   bool _isDisposed = false;
+  StreamSubscription<bool>? _initSubscription;
 
   @override
   void initState() {
@@ -212,7 +215,7 @@ class _EasyNativeAdState extends State<EasyNativeAd> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_isDisposed) return;
         _isInitialized = true;
-        _loadAd();
+        _tryLoadAd();
       });
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -222,6 +225,30 @@ class _EasyNativeAdState extends State<EasyNativeAd> {
     }
 
     AdsEnabledManager.instance.addListener(_onAdsEnabledChanged);
+
+    // Listen for AdFlow initialization completion (for non-blocking init)
+    _initSubscription = AdFlow.instance.initStream.listen(_onAdFlowInitialized);
+  }
+
+  void _onAdFlowInitialized(bool canRequestAds) {
+    if (_isDisposed || !mounted || !_isInitialized) return;
+    if (canRequestAds && _adsEnabled && !_isLoaded && !_hasError) {
+      debugPrint('EasyNativeAd: AdFlow initialized, loading ad');
+      _loadAd();
+    }
+  }
+
+  /// Tries to load ad if AdFlow is initialized, otherwise waits for init stream.
+  Future<void> _tryLoadAd() async {
+    if (!_adsEnabled || !_isInitialized || _isDisposed) return;
+
+    // If AdFlow is already initialized, load immediately
+    if (AdFlow.instance.isInitialized) {
+      await _loadAd();
+    } else {
+      // AdFlow not ready yet - will be triggered by _onAdFlowInitialized
+      debugPrint('EasyNativeAd: Waiting for AdFlow initialization...');
+    }
   }
 
   void _onAdsEnabledChanged(bool isEnabled) {
@@ -230,7 +257,7 @@ class _EasyNativeAdState extends State<EasyNativeAd> {
 
     setState(() => _adsEnabled = isEnabled);
     if (isEnabled && !_isLoaded && !_hasError) {
-      _loadAd();
+      _tryLoadAd();
     } else if (!isEnabled) {
       _manager.dispose();
       _isLoaded = false;
@@ -238,7 +265,7 @@ class _EasyNativeAdState extends State<EasyNativeAd> {
   }
 
   Future<void> _loadAd() async {
-    if (!_adsEnabled || !_isInitialized) return;
+    if (!_adsEnabled || !_isInitialized || _isDisposed) return;
 
     await _manager.loadAd(
       factoryId: widget.factoryId,
@@ -252,6 +279,7 @@ class _EasyNativeAdState extends State<EasyNativeAd> {
         }
       },
       onAdFailedToLoad: (error) {
+        // Note: NativeAdManager already reports errors to AdFlowErrorHandler
         if (mounted) {
           setState(() {
             _isLoaded = false;
@@ -266,6 +294,7 @@ class _EasyNativeAdState extends State<EasyNativeAd> {
   @override
   void dispose() {
     _isDisposed = true;
+    _initSubscription?.cancel();
     AdsEnabledManager.instance.removeListener(_onAdsEnabledChanged);
     _manager.dispose();
     super.dispose();

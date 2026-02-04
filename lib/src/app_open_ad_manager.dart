@@ -36,9 +36,6 @@ typedef AppOpenAdErrorCallback = void Function(LoadAdError error);
 /// }
 /// ```
 class AppOpenAdManager {
-  /// HTTP timeout for ad requests (30 seconds for better fill rate)
-  static const int _kHttpTimeoutMillis = 30000;
-
   AppOpenAd? _appOpenAd;
   bool _isLoaded = false;
   bool _isLoading = false;
@@ -46,6 +43,7 @@ class AppOpenAdManager {
   bool _isDisposed = false;
   DateTime? _loadTime;
   int _loadAttempts = 0;
+  DateTime? _lastMaxRetryFailureTime;
   Completer<bool>? _loadCompleter;
 
   /// Status listeners for reactive UI updates
@@ -63,6 +61,7 @@ class AppOpenAdManager {
 
   /// Notify all listeners of a status change
   void _notifyStatusListeners() {
+    if (_isDisposed) return;
     for (final listener in List.of(_statusListeners)) {
       listener();
     }
@@ -103,6 +102,9 @@ class AppOpenAdManager {
     AppOpenAdCallback? onAdLoaded,
     AppOpenAdErrorCallback? onAdFailedToLoad,
   }) async {
+    // Reset disposed flag to allow reuse (manager is accessed via lazy getter)
+    _isDisposed = false;
+
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
       debugPrint('AppOpenAdManager: Ads disabled, skipping load');
@@ -135,15 +137,32 @@ class AppOpenAdManager {
       await dispose();
     }
 
+    // Check retry cooldown after max attempts
+    if (_loadAttempts >= AdFlowConfig.current.maxLoadRetries &&
+        _lastMaxRetryFailureTime != null) {
+      final elapsed = DateTime.now().difference(_lastMaxRetryFailureTime!);
+      if (elapsed < AdFlowConfig.current.retryCooldownAfterMaxAttempts) {
+        final remaining =
+            AdFlowConfig.current.retryCooldownAfterMaxAttempts - elapsed;
+        debugPrint(
+          'AppOpenAdManager: In cooldown after max retries (${remaining.inSeconds}s remaining)',
+        );
+        return;
+      } else {
+        // Cooldown expired, reset attempts
+        _loadAttempts = 0;
+        _lastMaxRetryFailureTime = null;
+      }
+    }
+
     _isLoading = true;
     _loadCompleter = Completer<bool>();
     debugPrint('AppOpenAdManager: Loading app open ad...');
 
     await AppOpenAd.load(
       adUnitId: adUnitId ?? AdFlowConfig.current.appOpenAdUnitId,
-      request: const AdRequest(
-        httpTimeoutMillis:
-            _kHttpTimeoutMillis, // Longer timeout for better fill rate
+      request: AdRequest(
+        httpTimeoutMillis: AdFlowConfig.current.httpTimeoutMillis,
       ),
       adLoadCallback: AppOpenAdLoadCallback(
         onAdLoaded: (AppOpenAd ad) {
@@ -195,6 +214,12 @@ class AppOpenAdManager {
               if (_isDisposed) return;
               loadAd(adUnitId: adUnitId);
             });
+          } else {
+            // Max retries exhausted, start cooldown
+            _lastMaxRetryFailureTime = DateTime.now();
+            debugPrint(
+              'AppOpenAdManager: Max retries exhausted, entering ${AdFlowConfig.current.retryCooldownAfterMaxAttempts.inMinutes}min cooldown',
+            );
           }
 
           onAdFailedToLoad?.call(error);
@@ -236,7 +261,13 @@ class AppOpenAdManager {
   }
 
   /// Sets up the full screen content callbacks.
-  void _setupFullScreenContentCallback() {
+  ///
+  /// [onAdDismissed] optional callback when ad is dismissed by user.
+  /// [onAdFailedToShow] optional callback when ad fails to show.
+  void _setupFullScreenContentCallback({
+    VoidCallback? onAdDismissed,
+    VoidCallback? onAdFailedToShow,
+  }) {
     _appOpenAd?.fullScreenContentCallback = FullScreenContentCallback(
       onAdShowedFullScreenContent: (Ad ad) {
         debugPrint('AppOpenAdManager: Ad showed full screen content');
@@ -251,6 +282,7 @@ class AppOpenAdManager {
         _isLoaded = false;
         _loadTime = null;
         _notifyStatusListeners();
+        onAdDismissed?.call();
 
         // Preload next ad
         loadAd();
@@ -263,6 +295,7 @@ class AppOpenAdManager {
         _isLoaded = false;
         _loadTime = null;
         _notifyStatusListeners();
+        onAdFailedToShow?.call();
 
         // Try to load another ad
         loadAd();
@@ -320,48 +353,9 @@ class AppOpenAdManager {
     }
 
     // Update callbacks for this show
-    _appOpenAd!.fullScreenContentCallback = FullScreenContentCallback(
-      onAdShowedFullScreenContent: (Ad ad) {
-        debugPrint('AppOpenAdManager: Ad showed full screen content');
-        _isShowing = true;
-        _notifyStatusListeners();
-      },
-      onAdDismissedFullScreenContent: (Ad ad) {
-        debugPrint('AppOpenAdManager: Ad dismissed');
-        _isShowing = false;
-        ad.dispose();
-        _appOpenAd = null;
-        _isLoaded = false;
-        _loadTime = null;
-        _notifyStatusListeners();
-        onAdDismissed?.call();
-
-        // Preload next ad
-        loadAd();
-      },
-      onAdFailedToShowFullScreenContent: (Ad ad, AdError error) {
-        debugPrint('AppOpenAdManager: Ad failed to show: ${error.message}');
-        _isShowing = false;
-        ad.dispose();
-        _appOpenAd = null;
-        _isLoaded = false;
-        _loadTime = null;
-        _notifyStatusListeners();
-        onAdFailedToShow?.call();
-
-        // Try to load another ad
-        loadAd();
-      },
-      onAdImpression: (Ad ad) {
-        debugPrint('AppOpenAdManager: Ad impression recorded');
-      },
-      onAdClicked: (Ad ad) {
-        debugPrint('AppOpenAdManager: Ad clicked');
-      },
-      // iOS only - called before dismissing full screen content
-      onAdWillDismissFullScreenContent: (Ad ad) {
-        debugPrint('AppOpenAdManager: Ad will dismiss (iOS)');
-      },
+    _setupFullScreenContentCallback(
+      onAdDismissed: onAdDismissed,
+      onAdFailedToShow: onAdFailedToShow,
     );
 
     debugPrint('AppOpenAdManager: Showing ad...');

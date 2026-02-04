@@ -194,8 +194,15 @@ class AdsEnabledManager {
   }
 
   /// Disposes the manager (for cleanup).
+  ///
+  /// **WARNING:** This is a singleton - calling dispose() will close the stream
+  /// controller permanently. Only call this if you're certain the app is
+  /// shutting down and won't need ads again. For testing, use [reset] instead.
+  @visibleForTesting
   void dispose() {
     _listeners.clear();
-    _streamController.close();
+    // Note: Stream controller is intentionally NOT closed for singleton.
+    // Closing it would break subscribers if the singleton is accessed again.
+    // The stream controller will be garbage collected with the app.
   }
 }

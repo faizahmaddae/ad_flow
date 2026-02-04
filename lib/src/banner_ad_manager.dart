@@ -44,7 +44,11 @@ class BannerAdManager {
   BannerAd? _bannerAd;
   bool _isLoaded = false;
   bool _isLoading = false;
+  bool _isDisposed = false;
   AdSize? _currentSize;
+  int _loadAttempts = 0;
+  DateTime? _lastMaxRetryFailureTime;
+  String? _pendingAdUnitId;
 
   /// Status listeners for reactive UI updates
   final List<VoidCallback> _statusListeners = [];
@@ -61,6 +65,7 @@ class BannerAdManager {
 
   /// Notify all listeners of a status change
   void _notifyStatusListeners() {
+    if (_isDisposed) return;
     for (final listener in List.of(_statusListeners)) {
       listener();
     }
@@ -101,6 +106,9 @@ class BannerAdManager {
     BannerAdErrorCallback? onAdFailedToLoad,
     String? adUnitId,
   }) async {
+    // Reset disposed flag to allow reuse (manager is accessed via lazy getter)
+    _isDisposed = false;
+
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
       debugPrint('BannerAdManager: Ads disabled, skipping load');
@@ -116,6 +124,24 @@ class BannerAdManager {
     if (_isLoading) {
       debugPrint('BannerAdManager: Already loading, skipping...');
       return;
+    }
+
+    // Check retry cooldown after max attempts
+    if (_loadAttempts >= AdFlowConfig.current.maxLoadRetries &&
+        _lastMaxRetryFailureTime != null) {
+      final elapsed = DateTime.now().difference(_lastMaxRetryFailureTime!);
+      if (elapsed < AdFlowConfig.current.retryCooldownAfterMaxAttempts) {
+        final remaining =
+            AdFlowConfig.current.retryCooldownAfterMaxAttempts - elapsed;
+        debugPrint(
+          'BannerAdManager: In cooldown after max retries (${remaining.inSeconds}s remaining)',
+        );
+        return;
+      } else {
+        // Cooldown expired, reset attempts
+        _loadAttempts = 0;
+        _lastMaxRetryFailureTime = null;
+      }
     }
 
     _isLoading = true;
@@ -145,6 +171,9 @@ class BannerAdManager {
     BannerAdErrorCallback? onAdFailedToLoad,
     String? adUnitId,
   }) async {
+    // Reset disposed flag to allow reuse (manager is accessed via lazy getter)
+    _isDisposed = false;
+
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
       debugPrint('BannerAdManager: Ads disabled, skipping load');
@@ -163,6 +192,24 @@ class BannerAdManager {
     if (_isLoading) {
       debugPrint('BannerAdManager: Already loading, skipping...');
       return;
+    }
+
+    // Check retry cooldown after max attempts
+    if (_loadAttempts >= AdFlowConfig.current.maxLoadRetries &&
+        _lastMaxRetryFailureTime != null) {
+      final elapsed = DateTime.now().difference(_lastMaxRetryFailureTime!);
+      if (elapsed < AdFlowConfig.current.retryCooldownAfterMaxAttempts) {
+        final remaining =
+            AdFlowConfig.current.retryCooldownAfterMaxAttempts - elapsed;
+        debugPrint(
+          'BannerAdManager: In cooldown after max retries (${remaining.inSeconds}s remaining)',
+        );
+        return;
+      } else {
+        // Cooldown expired, reset attempts
+        _loadAttempts = 0;
+        _lastMaxRetryFailureTime = null;
+      }
     }
 
     _isLoading = true;
@@ -215,6 +262,9 @@ class BannerAdManager {
     BannerAdErrorCallback? onAdFailedToLoad,
     String? adUnitId,
   }) async {
+    // Reset disposed flag to allow reuse (manager is accessed via lazy getter)
+    _isDisposed = false;
+
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
       debugPrint('BannerAdManager: Ads disabled, skipping load');
@@ -233,6 +283,24 @@ class BannerAdManager {
     if (_isLoading) {
       debugPrint('BannerAdManager: Already loading, skipping...');
       return;
+    }
+
+    // Check retry cooldown after max attempts
+    if (_loadAttempts >= AdFlowConfig.current.maxLoadRetries &&
+        _lastMaxRetryFailureTime != null) {
+      final elapsed = DateTime.now().difference(_lastMaxRetryFailureTime!);
+      if (elapsed < AdFlowConfig.current.retryCooldownAfterMaxAttempts) {
+        final remaining =
+            AdFlowConfig.current.retryCooldownAfterMaxAttempts - elapsed;
+        debugPrint(
+          'BannerAdManager: In cooldown after max retries (${remaining.inSeconds}s remaining)',
+        );
+        return;
+      } else {
+        // Cooldown expired, reset attempts
+        _loadAttempts = 0;
+        _lastMaxRetryFailureTime = null;
+      }
     }
 
     _isLoading = true;
@@ -270,8 +338,9 @@ class BannerAdManager {
     BannerAdCallback? onAdLoaded,
     BannerAdErrorCallback? onAdFailedToLoad,
   }) async {
-    // Dispose existing ad
-    await dispose();
+    // Dispose existing ad without clearing listeners
+    await _disposeCurrentAd();
+    _pendingAdUnitId = adUnitId;
 
     debugPrint('BannerAdManager: Loading banner ad...');
 
@@ -291,6 +360,7 @@ class BannerAdManager {
           debugPrint('BannerAdManager: Ad failed to load: ${error.message}');
           _isLoaded = false;
           _isLoading = false;
+          _loadAttempts++;
           ad.dispose();
           _bannerAd = null;
           _notifyStatusListeners();
@@ -301,6 +371,31 @@ class BannerAdManager {
             type: AdErrorType.bannerLoad,
             adUnitId: adUnitId,
           );
+
+          // Retry loading if under max attempts
+          if (_loadAttempts < AdFlowConfig.current.maxLoadRetries) {
+            debugPrint(
+              'BannerAdManager: Retrying load (attempt $_loadAttempts)...',
+            );
+            Future.delayed(AdFlowConfig.current.retryDelay * _loadAttempts, () {
+              // Guard against retry after dispose
+              if (_isDisposed) return;
+              // Retry with same parameters
+              _loadBanner(
+                adUnitId: _pendingAdUnitId ?? adUnitId,
+                size: size,
+                request: request,
+                onAdLoaded: onAdLoaded,
+                onAdFailedToLoad: onAdFailedToLoad,
+              );
+            });
+          } else {
+            // Max retries exhausted, start cooldown
+            _lastMaxRetryFailureTime = DateTime.now();
+            debugPrint(
+              'BannerAdManager: Max retries exhausted, entering ${AdFlowConfig.current.retryCooldownAfterMaxAttempts.inMinutes}min cooldown',
+            );
+          }
 
           onAdFailedToLoad?.call(ad as BannerAd, error);
         },
@@ -396,12 +491,23 @@ class BannerAdManager {
     );
   }
 
-  /// Disposes of the current banner ad.
-  Future<void> dispose() async {
-    _statusListeners.clear();
+  /// Disposes of the current banner ad without clearing listeners.
+  /// Use this when reloading ads to preserve status listeners.
+  Future<void> _disposeCurrentAd() async {
     await _bannerAd?.dispose();
     _bannerAd = null;
     _isLoaded = false;
+  }
+
+  /// Disposes of the manager completely.
+  /// Call this when the manager is no longer needed.
+  Future<void> dispose() async {
+    _isDisposed = true;
+    _statusListeners.clear();
+    await _disposeCurrentAd();
     _isLoading = false;
+    _loadAttempts = 0;
+    _lastMaxRetryFailureTime = null;
+    _pendingAdUnitId = null;
   }
 }
