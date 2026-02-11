@@ -23,6 +23,7 @@ void main() {
     mockSdk = MockAdSdk();
     AdSdk.instance = mockSdk;
     AdFlowPlatform.platformOverride = TargetPlatform.android;
+    AppLifecycleReactor.resetFullscreenAdState();
   });
 
   tearDown(() async {
