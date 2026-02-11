@@ -7,6 +7,8 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'ad_config.dart';
 import 'ad_error_handler.dart';
+import 'ad_manager_mixin.dart';
+import 'ad_sdk.dart';
 import 'ads_enabled_manager.dart';
 
 /// Callback for native ad events
@@ -23,7 +25,7 @@ typedef NativeAdErrorCallback = void Function(LoadAdError error);
 /// Features:
 /// - Multiple factory/template support
 /// - Automatic ad loading and caching
-/// - Load retry with exponential backoff
+/// - Load retry with linear backoff
 /// - Full callback support
 ///
 /// Example usage:
@@ -43,44 +45,28 @@ typedef NativeAdErrorCallback = void Function(LoadAdError error);
 ///   NativeAdWidget(manager: nativeManager);
 /// }
 /// ```
-class NativeAdManager {
+class NativeAdManager
+    with AdStatusNotifier, AdRetryHandler
+    implements AdManager {
   NativeAd? _nativeAd;
   bool _isLoaded = false;
   bool _isLoading = false;
-  bool _isDisposed = false;
-  int _loadAttempts = 0;
-  DateTime? _lastMaxRetryFailureTime;
   String? _currentFactoryId;
-
-  /// Status listeners for reactive UI updates
-  final List<VoidCallback> _statusListeners = [];
-
-  /// Add a listener that will be called when the ad status changes
-  void addStatusListener(VoidCallback listener) {
-    _statusListeners.add(listener);
-  }
-
-  /// Remove a previously added listener
-  void removeStatusListener(VoidCallback listener) {
-    _statusListeners.remove(listener);
-  }
-
-  /// Notify all listeners of a status change
-  void _notifyStatusListeners() {
-    if (_isDisposed) return;
-    for (final listener in List.of(_statusListeners)) {
-      listener();
-    }
-  }
 
   /// The currently loaded native ad
   NativeAd? get nativeAd => _nativeAd;
 
   /// Whether a native ad is currently loaded
+  @override
   bool get isLoaded => _isLoaded;
 
   /// Whether a native ad is currently loading
+  @override
   bool get isLoading => _isLoading;
+
+  /// Not applicable to native ads (non-fullscreen)
+  @override
+  bool get isShowing => false;
 
   /// The factory ID used for the current ad
   String? get currentFactoryId => _currentFactoryId;
@@ -105,17 +91,11 @@ class NativeAdManager {
     NativeAdErrorCallback? onAdFailedToLoad,
   }) async {
     // Reset disposed flag to allow reuse (manager is accessed via lazy getter)
-    _isDisposed = false;
+    resetDisposedState();
 
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
       debugPrint('NativeAdManager: Ads disabled, skipping load');
-      return;
-    }
-
-    // Check consent before loading (Google best practice)
-    if (!await ConsentInformation.instance.canRequestAds()) {
-      debugPrint('NativeAdManager: Cannot request ads (no consent)');
       return;
     }
 
@@ -126,7 +106,7 @@ class NativeAdManager {
 
     // Dispose existing ad if loading a different factory
     if (_isLoaded && _currentFactoryId != factoryId) {
-      await dispose();
+      await _disposeCurrentAd();
     }
 
     if (_isLoaded && _currentFactoryId == factoryId) {
@@ -134,113 +114,100 @@ class NativeAdManager {
       return;
     }
 
-    // Check retry cooldown after max attempts
-    if (_loadAttempts >= AdFlowConfig.current.maxLoadRetries &&
-        _lastMaxRetryFailureTime != null) {
-      final elapsed = DateTime.now().difference(_lastMaxRetryFailureTime!);
-      if (elapsed < AdFlowConfig.current.retryCooldownAfterMaxAttempts) {
-        final remaining =
-            AdFlowConfig.current.retryCooldownAfterMaxAttempts - elapsed;
-        debugPrint(
-          'NativeAdManager: In cooldown after max retries (${remaining.inSeconds}s remaining)',
-        );
-        return;
-      } else {
-        // Cooldown expired, reset attempts
-        _loadAttempts = 0;
-        _lastMaxRetryFailureTime = null;
-      }
-    }
-
     _isLoading = true;
     _currentFactoryId = factoryId;
-    _notifyStatusListeners();
+    notifyStatusListeners();
+
+    // Check consent before loading (Google best practice)
+    if (!await AdSdk.instance.canRequestAds()) {
+      debugPrint('NativeAdManager: Cannot request ads (no consent)');
+      _isLoading = false;
+      notifyStatusListeners();
+      return;
+    }
+
+    // Check retry cooldown after max attempts
+    if (isInRetryCooldown(managerName: 'NativeAdManager')) {
+      _isLoading = false;
+      notifyStatusListeners();
+      return;
+    }
+
     debugPrint('NativeAdManager: Loading native ad with factory: $factoryId');
 
-    _nativeAd = NativeAd(
+    await AdSdk.instance.loadNativeAd(
       adUnitId: adUnitId ?? AdFlowConfig.current.nativeAdUnitId,
       factoryId: factoryId,
       request: AdRequest(
         httpTimeoutMillis: AdFlowConfig.current.httpTimeoutMillis,
       ),
-      listener: NativeAdListener(
-        onAdLoaded: (Ad ad) {
-          debugPrint('NativeAdManager: Ad loaded successfully');
-          _isLoaded = true;
-          _isLoading = false;
-          _loadAttempts = 0;
-          _notifyStatusListeners();
-          onAdLoaded?.call(ad as NativeAd);
-        },
-        onAdFailedToLoad: (Ad ad, LoadAdError error) {
-          debugPrint('NativeAdManager: Ad failed to load: ${error.message}');
-          // Hint for common factory registration issue
-          if (error.code == 0 ||
-              error.message.toLowerCase().contains('factory')) {
-            debugPrint(
-              'NativeAdManager: HINT - Ensure native ad factory "$factoryId" is registered in native code (Android/iOS)',
-            );
-          }
-          _isLoaded = false;
-          _isLoading = false;
-          _loadAttempts++;
-          ad.dispose();
-          _nativeAd = null;
-          _notifyStatusListeners();
-
-          // Report error to centralized handler
-          AdFlowErrorHandler.instance.reportLoadError(
-            error,
-            type: AdErrorType.nativeLoad,
-            adUnitId: adUnitId ?? AdFlowConfig.current.nativeAdUnitId,
+      onAdLoaded: (NativeAd ad) {
+        debugPrint('NativeAdManager: Ad loaded successfully');
+        _nativeAd = ad;
+        _isLoaded = true;
+        _isLoading = false;
+        resetRetryAttempts();
+        notifyStatusListeners();
+        onAdLoaded?.call(ad);
+      },
+      onAdFailedToLoad: (NativeAd ad, LoadAdError error) {
+        debugPrint('NativeAdManager: Ad failed to load: ${error.message}');
+        // Hint for common factory registration issue
+        if (error.code == 0 ||
+            error.message.toLowerCase().contains('factory')) {
+          debugPrint(
+            'NativeAdManager: HINT - Ensure native ad factory "$factoryId" is registered in native code (Android/iOS)',
           );
+        }
+        _isLoaded = false;
+        _isLoading = false;
+        ad.dispose();
+        _nativeAd = null;
+        notifyStatusListeners();
 
-          // Retry loading if under max attempts
-          if (_loadAttempts < AdFlowConfig.current.maxLoadRetries) {
-            debugPrint(
-              'NativeAdManager: Retrying load (attempt $_loadAttempts)...',
-            );
-            Future.delayed(AdFlowConfig.current.retryDelay * _loadAttempts, () {
-              // Guard against retry after dispose
-              if (_isDisposed) return;
-              loadAd(
-                factoryId: factoryId,
-                adUnitId: adUnitId,
-                onAdLoaded: onAdLoaded,
-                onAdFailedToLoad: onAdFailedToLoad,
-              );
-            });
-          } else {
-            // Max retries exhausted, start cooldown
-            _lastMaxRetryFailureTime = DateTime.now();
-            debugPrint(
-              'NativeAdManager: Max retries exhausted, entering ${AdFlowConfig.current.retryCooldownAfterMaxAttempts.inMinutes}min cooldown',
-            );
-            onAdFailedToLoad?.call(error);
-          }
-        },
-        onAdOpened: (Ad ad) {
-          debugPrint('NativeAdManager: Ad opened');
-        },
-        onAdClosed: (Ad ad) {
-          debugPrint('NativeAdManager: Ad closed');
-        },
-        onAdClicked: (Ad ad) {
-          debugPrint('NativeAdManager: Ad clicked');
-        },
-        onAdImpression: (Ad ad) {
-          debugPrint('NativeAdManager: Ad impression recorded');
-        },
-      ),
+        // Report error to centralized handler
+        AdFlowErrorHandler.instance.reportLoadError(
+          error,
+          type: AdErrorType.nativeLoad,
+          adUnitId: adUnitId ?? AdFlowConfig.current.nativeAdUnitId,
+        );
+
+        // Retry loading with linear backoff
+        final retried = handleLoadFailure(
+          checkDisposed: () => isDisposed,
+          onRetry: () => loadAd(
+            factoryId: factoryId,
+            adUnitId: adUnitId,
+            onAdLoaded: onAdLoaded,
+            onAdFailedToLoad: onAdFailedToLoad,
+          ),
+          managerName: 'NativeAdManager',
+        );
+
+        // Only report to callback when all retries exhausted
+        if (!retried) {
+          onAdFailedToLoad?.call(error);
+        }
+      },
     );
-
-    await _nativeAd!.load();
   }
 
-  /// Disposes of the current native ad.
+  /// Disposes only the current ad object, preserving listeners and retry state.
+  ///
+  /// Used when switching factory IDs — the manager stays alive but the
+  /// previous ad is cleaned up.
+  Future<void> _disposeCurrentAd() async {
+    await _nativeAd?.dispose();
+    _nativeAd = null;
+    _isLoaded = false;
+    _currentFactoryId = null;
+  }
+
+  /// Disposes of the manager and all resources.
+  @override
   Future<void> dispose() async {
-    _isDisposed = true;
-    _statusListeners.clear();
+    disposeNotifier();
+    cancelRetryTimer();
     await _nativeAd?.dispose();
     _nativeAd = null;
     _isLoaded = false;

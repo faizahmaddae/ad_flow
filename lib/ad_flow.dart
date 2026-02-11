@@ -41,6 +41,9 @@
 // Configuration
 export 'src/ad_config.dart';
 
+// SDK Abstraction (testability layer)
+export 'src/ad_sdk.dart';
+
 // Error Handling
 export 'src/ad_error_handler.dart';
 
@@ -51,6 +54,9 @@ export 'src/ads_enabled_manager.dart';
 export 'src/consent_manager.dart';
 export 'src/consent_explainer_dialog.dart';
 export 'src/consent_explainer_localizations.dart';
+
+// Ad Manager Base (shared mixins and abstract contract)
+export 'src/ad_manager_mixin.dart';
 
 // Ad Managers
 export 'src/banner_ad_manager.dart';
@@ -69,6 +75,7 @@ export 'src/mediation_helper.dart';
 export 'src/easy_banner_widget.dart';
 export 'src/easy_privacy_settings_button.dart';
 export 'src/native_ad_widget.dart';
+export 'src/privacy_requirement_mixin.dart';
 
 // Unified Service
 export 'src/ad_service.dart';
@@ -83,8 +90,16 @@ export 'package:google_mobile_ads/google_mobile_ads.dart'
         InterstitialAd,
         AppOpenAd,
         NativeAd,
+        NativeAdListener,
         RewardedAd,
         RewardItem,
         AdRequest,
         LoadAdError,
-        AdError;
+        AdError,
+        ServerSideVerificationOptions,
+        MaxAdContentRating,
+        ConsentStatus;
+
+// Re-export TrackingStatus from app_tracking_transparency
+export 'package:app_tracking_transparency/app_tracking_transparency.dart'
+    show TrackingStatus;

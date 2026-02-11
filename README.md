@@ -1,52 +1,57 @@
-# ad_flow - Professional AdMob Integration for Flutter
+# ad_flow
 
-A production-ready, fully compliant AdMob integration package for Flutter with GDPR, US Privacy, and iOS ATT support.
+Easy AdMob integration for Flutter — banners, interstitials, rewarded, native, and app open ads with built-in GDPR/ATT consent and mediation support.
 
 [![pub package](https://img.shields.io/pub/v/ad_flow.svg)](https://pub.dev/packages/ad_flow)
-[![Flutter](https://img.shields.io/badge/Flutter-3.10+-blue.svg)](https://flutter.dev)
+[![Flutter](https://img.shields.io/badge/Flutter-3.27+-blue.svg)](https://flutter.dev)
 [![google_mobile_ads](https://img.shields.io/badge/google__mobile__ads-7.0.0-green.svg)](https://pub.dev/packages/google_mobile_ads)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## ✨ Features
+## Table of Contents
 
-| Feature | Status | Description |
-|---------|--------|-------------|
-| **Banner Ads** | ✅ | Adaptive banners that fit any screen |
-| **Collapsible Banners** | ✅ | Expandable banners for higher engagement |
-| **Interstitial Ads** | ✅ | Full-screen ads with smart cooldown |
-| **Rewarded Ads** | ✅ | Video ads that reward users |
-| **App Open Ads** | ✅ | Ads on app launch/resume |
-| **GDPR Consent** | ✅ | EU/UK/Switzerland compliance |
-| **US Privacy** | ✅ | CCPA and state regulations |
-| **iOS ATT** | ✅ | App Tracking Transparency |
-| **Native Ads** | ✅ | Custom ads matching your app design |
-| **Mediation** | ✅ | Unity Ads, AppLovin, and more |
-| **Remove Ads** | ✅ | Built-in IAP support to disable ads |
-| **Auto Preloading** | ✅ | Ads ready when you need them |
-| **Retry Logic** | ✅ | Exponential backoff on failures |
-| **Lazy Loading** | ✅ | Managers created only when used |
-| **Error Handling** | ✅ | Centralized error stream for all ads |
-| **Non-Blocking Init** | ✅ | App starts instantly, ads load in background |
+1. [Installation](#step-1-installation)
+2. [Platform Setup](#step-2-platform-setup)
+3. [Initialize AdFlow](#step-3-initialize-adflow)
+4. [Show Banner Ads](#step-4-show-banner-ads)
+5. [Show Interstitial Ads](#step-5-show-interstitial-ads)
+6. [Show Rewarded Ads](#step-6-show-rewarded-ads)
+7. [Show App Open Ads](#step-7-show-app-open-ads)
+8. [Show Native Ads](#step-8-show-native-ads)
+9. [Remove Ads (In-App Purchase)](#step-9-remove-ads-in-app-purchase)
+10. [Privacy & Consent](#step-10-privacy--consent)
+11. [Error Handling](#step-11-error-handling)
+12. [Mediation](#step-12-mediation)
+13. [Configuration Reference](#step-13-configuration-reference)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
-## 📦 Installation
+## Step 1: Installation
 
-### 1. Add Dependency
+Add `ad_flow` to your `pubspec.yaml`:
 
 ```yaml
-# pubspec.yaml
 dependencies:
   ad_flow: ^1.3.14
 ```
 
-### 2. Android Setup
+Then run:
 
-**android/app/src/main/AndroidManifest.xml:**
+```bash
+flutter pub get
+```
+
+---
+
+## Step 2: Platform Setup
+
+### Android
+
+Open `android/app/src/main/AndroidManifest.xml` and add your AdMob App ID inside `<application>`:
+
 ```xml
 <manifest>
     <application>
-        <!-- AdMob App ID -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX"/>
@@ -54,17 +59,16 @@ dependencies:
 </manifest>
 ```
 
-### 3. iOS Setup
+### iOS
 
-<details>
-<summary>📱 ios/Runner/Info.plist (click to expand)</summary>
+Open `ios/Runner/Info.plist` and add:
 
 ```xml
 <!-- AdMob App ID -->
 <key>GADApplicationIdentifier</key>
 <string>ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX</string>
 
-<!-- App Tracking Transparency -->
+<!-- App Tracking Transparency description (required) -->
 <key>NSUserTrackingUsageDescription</key>
 <string>This identifier will be used to deliver personalized ads to you.</string>
 
@@ -79,165 +83,19 @@ dependencies:
         <key>SKAdNetworkIdentifier</key>
         <string>4fzdc2evr5.skadnetwork</string>
     </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>4pfyvq9l8r.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>2fnua5tdw4.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>ydx93a7ass.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>5a6flpkh64.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>p78aez3dza.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>v72qych5uu.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>c6k4g5qg8m.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>s39g8k73mm.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>3qy4746246.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>3sh42y64q3.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>f38h382jlk.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>hs6bdukanm.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>prcb7njmu6.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>wzmmz9fp6w.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>yclnxrl5pm.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>7ug5zh24hu.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>9rd848q2bz.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>n6fk4nfna4.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>kbd757ywx3.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>9t245vhmpl.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>4468km3ulz.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>m8dbw4sv7c.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>zmvfpc5aq8.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>ejvt5qm6ak.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>5lm9lj6jb7.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>44jx6755aq.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>t38b2kh725.skadnetwork</string>
-    </dict>
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>24t9a8vw3c.skadnetwork</string>
-    </dict>
+    <!-- Add more from https://developers.google.com/admob/ios/quick-start#update_your_infoplist -->
 </array>
 ```
 
-</details>
+> Get the full SKAdNetwork IDs list from the [AdMob documentation](https://developers.google.com/admob/ios/quick-start#update_your_infoplist).
 
 ---
 
-## 🚀 Quick Start
+## Step 3: Initialize AdFlow
 
-### ⚠️ Important: Initialize Only ONCE
+AdFlow is a singleton — initialize it **once**, then use it anywhere in your app.
 
-**AdFlow is a singleton** - you only need to initialize it **once** for your entire app, typically on your first screen (splash or home page). All other pages can simply use `AdFlow.instance` to show ads.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  YOUR APP                                                    │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐   │
-│  │   Page 1     │    │   Page 2     │    │   Page 3     │   │
-│  │  (Splash)    │    │   (Home)     │    │  (Details)   │   │
-│  │              │    │              │    │              │   │
-│  │ initialize() │───▶│ showBanner() │───▶│ showBanner() │   │
-│  │    ✅        │    │     ✅        │    │     ✅        │   │
-│  └──────────────┘    └──────────────┘    └──────────────┘   │
-│         │                    │                    │          │
-│         └────────────────────┴────────────────────┘          │
-│                              │                               │
-│                    ┌─────────▼─────────┐                    │
-│                    │    AdFlow      │                    │
-│                    │    (Singleton)    │                    │
-│                    │                   │                    │
-│                    │  • BannerManager  │                    │
-│                    │  • Interstitial   │                    │
-│                    │  • AppOpenAd      │                    │
-│                    │  • Consent        │                    │
-│                    └───────────────────┘                    │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
-```
-
-| Action | Where | How Often |
-|--------|-------|-----------|
-| `initialize()` | First page only | **Once per app launch** |
-| Show ads | Any page | As needed |
-
-### Initialize in main.dart
+### Option A: Quick Start (test mode)
 
 ```dart
 import 'package:flutter/material.dart';
@@ -246,21 +104,8 @@ import 'package:ad_flow/ad_flow.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize AdMob with your ad unit IDs
   await AdFlow.instance.initialize(
-    config: AdFlowConfig(
-      // Your production ad unit IDs from AdMob console
-      androidBannerAdUnitId: 'ca-app-pub-YOUR_ID/BANNER_ID',
-      iosBannerAdUnitId: 'ca-app-pub-YOUR_ID/BANNER_ID',
-      androidInterstitialAdUnitId: 'ca-app-pub-YOUR_ID/INTERSTITIAL_ID',
-      iosInterstitialAdUnitId: 'ca-app-pub-YOUR_ID/INTERSTITIAL_ID',
-      androidRewardedAdUnitId: 'ca-app-pub-YOUR_ID/REWARDED_ID',
-      iosRewardedAdUnitId: 'ca-app-pub-YOUR_ID/REWARDED_ID',
-      androidAppOpenAdUnitId: 'ca-app-pub-YOUR_ID/APP_OPEN_ID',
-      iosAppOpenAdUnitId: 'ca-app-pub-YOUR_ID/APP_OPEN_ID',
-      androidNativeAdUnitId: 'ca-app-pub-YOUR_ID/NATIVE_ID',
-      iosNativeAdUnitId: 'ca-app-pub-YOUR_ID/NATIVE_ID',
-    ),
+    config: AdFlowConfig.testMode(), // Uses Google's test ad unit IDs
     onComplete: (canRequestAds) {
       debugPrint('Ads ready: $canRequestAds');
     },
@@ -270,461 +115,164 @@ void main() async {
 }
 ```
 
-### Initialization Parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `config` | `AdFlowConfig?` | `testMode()` | Your ad unit IDs configuration |
-| `onComplete` | `Function(bool)?` | `null` | Callback when initialization completes |
-| `preloadInterstitial` | `bool` | `false` | Preload interstitial ad on init |
-| `preloadRewarded` | `bool` | `false` | Preload rewarded ad on init |
-| `preloadAppOpen` | `bool` | `false` | Preload app open ad on init |
-| `showAppOpenOnColdStart` | `bool` | `false` | Show app open ad on first launch |
-| `enableAppOpenOnForeground` | `bool` | `false` | Show app open ad when app returns from background |
-| `maxForegroundAdsPerSession` | `int` | `1` | Max app open ads per session (foreground only) |
-
-### Advanced Initialization
+### Option B: Production
 
 ```dart
-// Full control over initialization
-await AdFlow.instance.initialize(
-  config: AdFlowConfig(
-    androidBannerAdUnitId: 'ca-app-pub-YOUR_ID/BANNER_ID',
-    iosBannerAdUnitId: 'ca-app-pub-YOUR_ID/BANNER_ID',
-    // ... other ad unit IDs
-  ),
-  onComplete: (canRequestAds) {
-    debugPrint('Ads ready: $canRequestAds');
-  },
-  preloadInterstitial: true,       // Preload interstitial for faster display
-  preloadRewarded: true,           // Preload rewarded for faster display
-  preloadAppOpen: true,            // Preload app open ad
-  showAppOpenOnColdStart: true,    // Show ad on first app launch
-  enableAppOpenOnForeground: true, // Show ad when returning to app
-  maxForegroundAdsPerSession: 2,   // Allow 2 foreground app open ads
-);
-```
-
-### Test Mode (Development)
-
-```dart
-// For development/testing, use test mode:
-await AdFlow.instance.initialize(
-  config: AdFlowConfig.testMode(), // Uses Google's test ad IDs
-);
-```
-
----
-
-## � Non-Blocking Initialization (Recommended)
-
-**Problem:** Traditional `await AdFlow.instance.initialize()` blocks your app until consent dialogs finish and ads preload. On slow networks, this can take 10+ seconds, causing a poor user experience.
-
-**Solution:** Use non-blocking initialization! Your app starts instantly, and ads load in the background. Reactive widgets automatically show ads when ready.
-
-### Before vs After
-
-```
-❌ BLOCKING (Old Way)                    ✅ NON-BLOCKING (Recommended)
-─────────────────────────────────────    ─────────────────────────────────────
-void main() async {                      void main() {
-  await AdFlow.instance.initialize();      runApp(MyApp());  // App starts NOW!
-  // User waits 5-15 seconds...            // Init happens in background
-  runApp(MyApp());                       }
-}
-```
-
-### Quick Start (Non-Blocking)
-
-```dart
-import 'package:flutter/material.dart';
-import 'package:ad_flow/ad_flow.dart';
-
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // App starts IMMEDIATELY - no await!
+
+  await AdFlow.instance.initialize(
+    config: AdFlowConfig(
+      androidBannerAdUnitId: 'ca-app-pub-YOUR_ID/BANNER',
+      iosBannerAdUnitId: 'ca-app-pub-YOUR_ID/BANNER',
+      androidInterstitialAdUnitId: 'ca-app-pub-YOUR_ID/INTERSTITIAL',
+      iosInterstitialAdUnitId: 'ca-app-pub-YOUR_ID/INTERSTITIAL',
+      androidRewardedAdUnitId: 'ca-app-pub-YOUR_ID/REWARDED',
+      iosRewardedAdUnitId: 'ca-app-pub-YOUR_ID/REWARDED',
+      androidAppOpenAdUnitId: 'ca-app-pub-YOUR_ID/APP_OPEN',
+      iosAppOpenAdUnitId: 'ca-app-pub-YOUR_ID/APP_OPEN',
+      androidNativeAdUnitId: 'ca-app-pub-YOUR_ID/NATIVE',
+      iosNativeAdUnitId: 'ca-app-pub-YOUR_ID/NATIVE',
+    ),
+    preloadInterstitial: true,
+    preloadRewarded: true,
+    onComplete: (canRequestAds) {
+      debugPrint('Ads ready: $canRequestAds');
+    },
+  );
+
   runApp(const MyApp());
 }
+```
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+### Option C: Non-Blocking (Recommended)
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      home: const HomePage(),
-    );
-  }
+The app starts instantly. Ads load in the background. Reactive widgets (`EasyBannerAd`, `EasyNativeAd`) automatically display when ready.
+
+```dart
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const MyApp()); // App starts immediately!
 }
+```
 
-class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+Then in your first page:
 
-  @override
-  State<HomePage> createState() => _HomePageState();
-}
-
+```dart
 class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    
-    // Initialize in background (after first frame for context)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initAds();
+      // No await — runs in background
+      AdFlow.instance.initializeWithExplainer(
+        context: context,
+        config: AdFlowConfig.testMode(),
+        preloadInterstitial: true,
+        onComplete: (canRequestAds) {
+          debugPrint('Ads ready: $canRequestAds');
+        },
+      );
     });
-  }
-
-  void _initAds() {
-    // NO await - this runs in background!
-    AdFlow.instance.initializeWithExplainer(
-      context: context,
-      config: AdFlowConfig.testMode(),
-      preloadInterstitial: true,
-      onComplete: (canRequestAds) {
-        debugPrint('Ads ready: $canRequestAds');
-      },
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('My App')),
       body: const Center(child: Text('App loaded instantly!')),
-      
-      // Banner loads automatically when AdFlow is ready!
+      // Banner appears automatically when AdFlow finishes initializing
       bottomNavigationBar: const EasyBannerAd(),
     );
   }
 }
 ```
 
-### How It Works
+> **`initialize` vs `initializeWithExplainer`:**
+> Both do the same thing. The only difference is `initializeWithExplainer` shows a friendly explanation dialog *before* the system consent prompts, giving users context about why they're asked. It requires a `BuildContext`, so call it from a widget.
+
+### What happens during initialization
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  NON-BLOCKING INITIALIZATION FLOW                                        │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│  main() {                                                                │
-│    runApp(MyApp());  ◄─── App starts IMMEDIATELY (user sees UI)         │
-│    AdFlow.instance.initializeWithExplainer(...);  // Runs in background │
-│  }                                                                       │
-│                                                                          │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  BACKGROUND INITIALIZATION (doesn't block UI)                    │    │
-│  │                                                                   │    │
-│  │  1. AdsEnabledManager.initialize()    ──► Load "Remove Ads" state│    │
-│  │           ↓                                                       │    │
-│  │  2. ConsentManager.gatherConsent()    ──► ATT → UMP Dialog       │    │
-│  │           ↓                                                       │    │
-│  │  3. MobileAds.instance.initialize()   ──► Initialize SDK         │    │
-│  │           ↓                                                       │    │
-│  │  4. Preload ads (interstitial, etc.)  ──► Based on config flags  │    │
-│  │           ↓                                                       │    │
-│  │  5. _completeInit() ──► Notifies waitForInit() & initStream      │    │
-│  │                                                                   │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-│                                                                          │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  REACTIVE WIDGETS (auto-respond to init completion)              │    │
-│  │                                                                   │    │
-│  │  EasyBannerAd ──► Subscribes to initStream                       │    │
-│  │       │          ──► When AdFlow ready, auto-loads banner        │    │
-│  │       ↓                                                           │    │
-│  │  [Shows banner when loaded]                                       │    │
-│  │                                                                   │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-│                                                                          │
-└─────────────────────────────────────────────────────────────────────────┘
+1. Load "Remove Ads" state from SharedPreferences
+2. Gather consent (iOS ATT prompt → GDPR/UMP dialog)
+3. Initialize the Google Mobile Ads SDK
+4. Preload ads (interstitial, rewarded, etc. based on config flags)
+5. Emit on initStream → reactive widgets auto-load
 ```
 
-### Reactive Widgets
+### Waiting for init completion
 
-`EasyBannerAd` and `EasyNativeAd` are **reactive** - they automatically wait for AdFlow to initialize, then load and display ads:
+For fullscreen ads, you may need to wait for initialization:
 
 ```dart
-// Just drop these widgets anywhere - they handle waiting automatically!
-const EasyBannerAd()      // Waits for init, then loads banner
-const EasyNativeAd(       // Waits for init, then loads native ad
-  factoryId: 'medium_template',
-  height: 300,
-)
-```
-
-**What happens internally:**
-1. Widget mounts before AdFlow is ready → shows nothing
-2. Widget subscribes to `AdFlow.instance.initStream`
-3. When AdFlow completes initialization → widget auto-loads ad
-4. Ad appears without any extra code!
-
-### waitForInit() - For Custom Ad Loading
-
-For fullscreen ads (interstitial, rewarded, app open), use `waitForInit()` to ensure AdFlow is ready:
-
-```dart
-Future<void> _showInterstitial() async {
-  // Wait for AdFlow to be ready (returns immediately if already ready)
-  final isReady = await AdFlow.instance.waitForInit();
-  
-  if (!isReady) {
-    // Consent not granted or init failed
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Ads not available')),
-    );
-    return;
-  }
-  
-  // Now safe to show ads
-  if (AdFlow.instance.interstitial.isLoaded) {
-    await AdFlow.instance.interstitial.showAd(
-      onAdDismissed: () => debugPrint('Ad closed'),
-    );
-  } else {
-    // Ad not preloaded yet, load now
-    await AdFlow.instance.interstitial.loadAd();
-  }
-}
-```
-
-### initStream - For Complex Scenarios
-
-Subscribe to `initStream` for more control over when to perform ad operations:
-
-```dart
-class _MyWidgetState extends State<MyWidget> {
-  StreamSubscription<bool>? _initSub;
-
-  @override
-  void initState() {
-    super.initState();
-    
-    // Check if already initialized
-    if (AdFlow.instance.isInitialized) {
-      _onAdFlowReady(true);
-    } else {
-      // Wait for init to complete
-      _initSub = AdFlow.instance.initStream.listen(_onAdFlowReady);
-    }
-  }
-
-  void _onAdFlowReady(bool canRequestAds) {
-    if (canRequestAds) {
-      // Load your custom ads
-      _loadMyAds();
-    }
-  }
-
-  @override
-  void dispose() {
-    _initSub?.cancel();  // Always cancel subscriptions!
-    super.dispose();
-  }
-}
-```
-
-### Monitor Initialization Status
-
-```dart
-// Check current state
-if (AdFlow.instance.isInitialized) {
-  // Already initialized
-}
-
-// In main.dart (app-level) - OK without cancel (lives forever)
-AdFlow.instance.initStream.listen((canRequestAds) {
-  if (canRequestAds) {
-    print('Ads ready!');
-  } else {
-    print('Ads not available (consent denied or init failed)');
-  }
-});
-```
-
-> ⚠️ **Memory Leak Warning:** If you subscribe to `initStream` inside a widget that can be disposed (any navigable page, dialog, or bottom sheet), you **MUST** store the subscription and cancel it in `dispose()`. See the example above for the correct pattern.
-```
-
-### Preloading Still Works!
-
-All preloading options work exactly the same - they just run in the background:
-
-```dart
-AdFlow.instance.initializeWithExplainer(
-  context: context,
-  config: AdFlowConfig.testMode(),
-  
-  // These all run in background after consent completes:
-  preloadInterstitial: true,       // ✅ Preloads interstitial
-  preloadRewarded: true,           // ✅ Preloads rewarded ad
-  preloadAppOpen: true,            // ✅ Preloads app open ad
-  showAppOpenOnColdStart: true,    // ✅ Shows app open on first launch
-  enableAppOpenOnForeground: true, // ✅ Shows app open on resume
-  maxForegroundAdsPerSession: 2,   // ✅ Limits foreground ads
-  
-  onComplete: (canRequestAds) {
-    // Called when everything is done
-    print('All ready! Can request ads: $canRequestAds');
-  },
-);
-```
-
-### Manual Preloading (Full Control)
-
-If you need more control over when ads load, preload them manually:
-
-```dart
-// First, wait for AdFlow to be ready
+// Returns true if ads can be requested, false if consent denied or failed
 final isReady = await AdFlow.instance.waitForInit();
-if (!isReady) {
-  debugPrint('Ads not available');
-  return;
-}
 
-// 🔹 Preload Interstitial
-await AdFlow.instance.interstitial.loadAd(
-  onAdLoaded: (_) => debugPrint('Interstitial ready!'),
-  onAdFailedToLoad: (error) => debugPrint('Failed: ${error.message}'),
-);
-
-// 🔹 Preload Rewarded
-await AdFlow.instance.rewarded.loadAd(
-  onAdLoaded: (_) => debugPrint('Rewarded ready!'),
-  onAdFailedToLoad: (error) => debugPrint('Failed: ${error.message}'),
-);
-
-// 🔹 Preload App Open
-await AdFlow.instance.appOpen.loadAd(
-  onAdLoaded: (_) => debugPrint('App Open ready!'),
-  onAdFailedToLoad: (error) => debugPrint('Failed: ${error.message}'),
-);
-```
-
-### Smart Preloading (Production Only)
-
-Use `preloadAds()` to automatically load only ad types with production IDs configured:
-
-```dart
-// Only loads ad types with real (non-test) IDs configured
-await AdFlow.instance.preloadAds();
-```
-
-### Preloading Comparison
-
-| Method | Pros | Cons | Best For |
-|--------|------|------|----------|
-| **Automatic** (`preloadInterstitial: true`) | Simple, runs in background | Less control | Most apps |
-| **Manual** (`loadAd()`) | Full control, custom callbacks | More code | Advanced use |
-| **Smart** (`preloadAds()`) | Only loads configured types | Needs production config | Production apps |
-
-### Check Preload Status
-
-```dart
-// Check if ads are loaded before showing
-if (AdFlow.instance.interstitial.isLoaded) {
+if (isReady) {
   await AdFlow.instance.interstitial.showAd();
 }
-
-if (AdFlow.instance.rewarded.isLoaded) {
-  await AdFlow.instance.rewarded.showAd(
-    onUserEarnedReward: (reward) => grantReward(reward),
-  );
-}
-
-if (AdFlow.instance.appOpen.isAdAvailable) {
-  await AdFlow.instance.appOpen.showAdIfAvailable();
-}
 ```
 
-### Best Practices
+Or subscribe to the stream:
 
-| ✅ Do | ❌ Don't |
-|-------|---------|
-| Start app immediately with `runApp()` | Block main() with `await initialize()` |
-| Use reactive widgets (`EasyBannerAd`) | Manually check `isInitialized` repeatedly |
-| Use `waitForInit()` for fullscreen ads | Call `showAd()` without checking init |
-| Cancel stream subscriptions in `dispose()` | Leave subscriptions open (memory leak) |
-| Handle `canRequestAds: false` case | Assume ads will always be available |
-
-### Migration from Blocking Init
-
-**Before (blocking):**
 ```dart
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  
-  // ❌ User waits here...
-  await AdFlow.instance.initialize(config: AdFlowConfig.testMode());
-  
-  runApp(MyApp());
-}
-```
+late StreamSubscription<bool> _initSub;
 
-**After (non-blocking):**
-```dart
-void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  
-  // ✅ App starts immediately!
-  runApp(MyApp());
+@override
+void initState() {
+  super.initState();
+  _initSub = AdFlow.instance.initStream.listen((canRequestAds) {
+    if (canRequestAds) {
+      // Safe to load/show ads
+    }
+  });
 }
 
-// In your first page:
-class _HomePageState extends State<HomePage> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Initialize in background - NO await!
-      AdFlow.instance.initializeWithExplainer(
-        context: context,
-        config: AdFlowConfig.testMode(),
-      );
-    });
-  }
-  
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: MyContent(),
-      bottomNavigationBar: const EasyBannerAd(),  // Auto-loads when ready!
-    );
-  }
+// Always cancel in dispose()!
+@override
+void dispose() {
+  _initSub.cancel();
+  super.dispose();
 }
 ```
 
 ---
 
-## 📱 Usage Examples
+## Step 4: Show Banner Ads
 
-### Banner Ads (Easiest Way)
+### The Easy Way
+
+Drop `EasyBannerAd` into any widget tree. It handles loading, lifecycle, and error recovery automatically:
 
 ```dart
-import 'package:ad_flow/ad_flow.dart';
-
-// Just drop this widget anywhere!
 @override
 Widget build(BuildContext context) {
   return Scaffold(
-    body: YourContent(),
-    
-    // One line for a banner ad:
+    body: const Center(child: Text('My App')),
     bottomNavigationBar: const EasyBannerAd(),
   );
 }
 ```
 
-### Banner Ads (With More Control)
+Collapsible banner:
 
 ```dart
-class MyPage extends StatefulWidget {
-  @override
-  State<MyPage> createState() => _MyPageState();
-}
+const EasyBannerAd(collapsible: true)
+```
 
+Fixed-size banner:
+
+```dart
+const EasyBannerAd(adSize: AdSize.mediumRectangle) // 300×250
+```
+
+### With More Control
+
+Use `BannerAdManager` directly when you need custom callbacks or manual load timing:
+
+```dart
 class _MyPageState extends State<MyPage> {
-  final BannerAdManager _bannerManager = BannerAdManager();
+  final _bannerManager = BannerAdManager();
 
   @override
   void initState() {
@@ -751,7 +299,7 @@ class _MyPageState extends State<MyPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: YourContent(),
+      body: const Text('Content'),
       bottomNavigationBar: _bannerManager.isLoaded
           ? _bannerManager.buildAdWidget()
           : const SizedBox.shrink(),
@@ -760,535 +308,394 @@ class _MyPageState extends State<MyPage> {
 }
 ```
 
-### Collapsible Banner Ads
+### Common Banner Sizes
+
+| Size | Constant | Best For |
+|------|----------|----------|
+| 320×50 | `AdSize.banner` | Phone footer |
+| 320×100 | `AdSize.largeBanner` | Tablets |
+| 300×250 | `AdSize.mediumRectangle` | In-feed, dialogs |
+| Adaptive | `loadAdaptiveBanner()` | Any screen (recommended) |
+
+---
+
+## Step 5: Show Interstitial Ads
+
+Interstitial ads are full-screen ads shown at natural transition points (e.g., between levels, after completing a task).
+
+### Show a preloaded interstitial
 
 ```dart
-// Using EasyBannerAd widget
-const EasyBannerAd(collapsible: true)
-
-// Or with BannerAdManager
-await _bannerManager.loadCollapsibleBanner(
-  context: context,
-  placement: CollapsibleBannerPlacement.bottom, // or .top
-  onAdLoaded: (ad) => setState(() {}),
-);
-```
-
-### Custom Size Banner Ads
-
-```dart
-// Load a specific size banner (great for dialogs)
-await _bannerManager.loadBanner(
-  size: AdSize.mediumRectangle, // 300x250
-  onAdLoaded: (ad) => setState(() {}),
-);
-
-// Other common sizes:
-// AdSize.banner           // 320x50
-// AdSize.largeBanner      // 320x100
-// AdSize.mediumRectangle  // 300x250 (best for dialogs)
-// AdSize.fullBanner       // 468x60
-// AdSize.leaderboard      // 728x90
-```
-
-### Interstitial Ads
-
-```dart
-// Show interstitial (auto-preloaded on init)
+// If you set preloadInterstitial: true during init, the ad is already loaded
 await AdFlow.instance.interstitial.showAd(
   onAdDismissed: () {
-    // Continue with your app
+    // User closed the ad — continue your flow
     Navigator.pushNamed(context, '/nextScreen');
   },
   onAdFailedToShow: () {
-    // Ad not ready, proceed anyway
+    // Ad wasn't ready — continue anyway
     Navigator.pushNamed(context, '/nextScreen');
   },
 );
+```
 
-// Check if ready before showing
+### Load and show manually
+
+```dart
+// Load
+await AdFlow.instance.interstitial.loadAd(
+  onAdLoaded: (_) => debugPrint('Interstitial ready'),
+  onAdFailedToLoad: (error) => debugPrint('Failed: ${error.message}'),
+);
+
+// Show when ready
 if (AdFlow.instance.interstitial.isLoaded) {
-  AdFlow.instance.interstitial.showAd();
+  await AdFlow.instance.interstitial.showAd();
 }
 ```
 
-### Interstitial with Frequency Control
+### Show every N actions
 
 ```dart
 int _actionCount = 0;
 
 void _onUserAction() {
   _actionCount++;
-  
-  // Show interstitial every 5 actions
-  if (_actionCount % 5 == 0) {
-    if (AdFlow.instance.interstitial.isLoaded) {
-      AdFlow.instance.interstitial.showAd();
-    }
+  if (_actionCount % 5 == 0 && AdFlow.instance.interstitial.isLoaded) {
+    AdFlow.instance.interstitial.showAd();
   }
 }
 ```
 
-### Rewarded Ads
+### Built-in cooldown
 
-Rewarded ads let users watch video ads in exchange for in-app rewards (coins, extra lives, etc.):
+Interstitials have a 30-second cooldown by default (configurable via `minInterstitialInterval` in `AdFlowConfig`). This prevents showing too many ads in a row. Check with:
 
 ```dart
-// Load a rewarded ad (usually done at app start or before needed)
+if (AdFlow.instance.interstitial.canShowAd) {
+  // Cooldown has passed, safe to show
+}
+```
+
+To bypass the cooldown for a specific show call:
+
+```dart
+await AdFlow.instance.interstitial.showAd(
+  ignoreCooldown: true, // Skip the 30s cooldown for this call
+  onAdDismissed: () => debugPrint('Ad dismissed'),
+);
+```
+
+---
+
+## Step 6: Show Rewarded Ads
+
+Rewarded ads let users watch a video in exchange for a reward (coins, extra lives, etc.).
+
+### Load and show
+
+```dart
+// Load
 await AdFlow.instance.rewarded.loadAd(
-  onAdLoaded: (ad) {
-    print('Rewarded ad ready!');
-  },
-  onAdFailedToLoad: (error) {
-    print('Failed to load rewarded ad: ${error.message}');
-  },
+  onAdLoaded: (_) => debugPrint('Rewarded ad ready'),
+  onAdFailedToLoad: (error) => debugPrint('Failed: ${error.message}'),
 );
 
-// Show the rewarded ad when user clicks "Watch Ad" button
+// Show
 await AdFlow.instance.rewarded.showAd(
   onUserEarnedReward: (reward) {
-    // Grant the reward to the user
     setState(() {
-      _userCoins += reward.amount.toInt();
+      _coins += reward.amount.toInt();
     });
-    print('User earned ${reward.amount} ${reward.type}');
+    debugPrint('Earned ${reward.amount} ${reward.type}');
   },
-  onAdDismissed: () {
-    // Ad closed (whether reward earned or not)
-    print('Rewarded ad dismissed');
-  },
+  onAdDismissed: () => debugPrint('Ad closed'),
   onAdFailedToShow: () {
-    // Ad not available
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('No reward available. Try again later!')),
+      const SnackBar(content: Text('No reward available right now')),
     );
   },
 );
 ```
 
-#### Preload Rewarded Ad on Init
+### Reactive "Watch Ad" button
+
+Use status listeners to show/hide the button based on ad availability:
 
 ```dart
-// Add to your initialization for faster ad display
+class _RewardButtonState extends State<RewardButton> {
+  @override
+  void initState() {
+    super.initState();
+    AdFlow.instance.rewarded.addStatusListener(_onStatusChanged);
+  }
+
+  void _onStatusChanged() => setState(() {});
+
+  @override
+  void dispose() {
+    AdFlow.instance.rewarded.removeStatusListener(_onStatusChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isReady = AdFlow.instance.rewarded.isLoaded;
+
+    return ElevatedButton(
+      onPressed: isReady ? _watchAd : null,
+      child: Text(isReady ? 'Watch Ad for 50 Coins' : 'Loading...'),
+    );
+  }
+
+  Future<void> _watchAd() async {
+    await AdFlow.instance.rewarded.showAd(
+      onUserEarnedReward: (reward) {
+        // Grant reward
+      },
+    );
+  }
+}
+```
+
+> Rewarded ads automatically reload after being shown. By default, they remain available even when the user has purchased "Remove Ads" (configurable via `rewardedAdsIgnoreRemoveAds` in `AdFlowConfig`).
+
+---
+
+## Step 7: Show App Open Ads
+
+App open ads appear when the user opens or returns to your app.
+
+### Automatic (recommended)
+
+Set these flags during initialization and ads will appear automatically:
+
+```dart
 await AdFlow.instance.initialize(
-  config: AdFlowConfig(...),
-  preloadRewarded: true,  // Preload rewarded ad
+  config: AdFlowConfig.testMode(),
+  preloadAppOpen: true,
+  showAppOpenOnColdStart: true,       // Show on first app launch
+  enableAppOpenOnForeground: true,    // Show when returning from background
+  maxForegroundAdsPerSession: 2,      // Max 2 per session
 );
 ```
 
-#### Check Load Status & Listen for Changes
+That's it — no other code needed.
+
+### Manual
 
 ```dart
-// Check if rewarded ad is ready
-if (AdFlow.instance.rewarded.isLoaded) {
-  // Show "Watch Ad" button
-  ElevatedButton(
-    onPressed: _watchAdForReward,
-    child: const Text('Watch Ad for 50 Coins'),
-  );
-}
+// Load
+await AdFlow.instance.appOpen.loadAd(
+  onAdLoaded: (_) => debugPrint('App open ad ready'),
+  onAdFailedToLoad: (error) => debugPrint('Failed: ${error.message}'),
+);
 
-// Listen for ad load status changes (for reactive UI)
-@override
-void initState() {
-  super.initState();
-  AdFlow.instance.rewarded.addStatusListener(_onAdStatusChanged);
-}
-
-void _onAdStatusChanged() {
-  setState(() {}); // Rebuild UI when ad loads/changes
-}
-
-@override
-void dispose() {
-  AdFlow.instance.rewarded.removeStatusListener(_onAdStatusChanged);
-  super.dispose();
-}
-```
-
-#### Manual Reload After Showing
-
-```dart
-// Rewarded ads auto-reload after being shown, but you can also manually reload:
-if (!AdFlow.instance.rewarded.isLoaded && 
-    !AdFlow.instance.rewarded.isLoading) {
-  await AdFlow.instance.rewarded.loadAd();
-}
-```
-
-### App Open Ads
-
-App open ads are **automatically handled** when you set `enableAppOpenOnForeground: true` during initialization. They show when the user brings your app to the foreground.
-
-```dart
-// Manual control (if needed)
+// Show if available (checks load status + 4-hour expiry)
 if (AdFlow.instance.appOpen.isAdAvailable) {
   await AdFlow.instance.appOpen.showAdIfAvailable(
-    onAdDismissed: () {
-      // App resumed
-    },
+    onAdDismissed: () => debugPrint('Resumed'),
+    onAdFailedToShow: () => debugPrint('Ad failed to show'),
   );
 }
 ```
 
-### Privacy Settings Button
+### Pause/resume
+
+Prevent app open ads from showing during sensitive flows (e.g., in-app purchase, onboarding):
 
 ```dart
-// Check if user needs privacy options (GDPR regions)
-if (AdFlow.instance.isPrivacyOptionsRequired) {
-  IconButton(
-    icon: const Icon(Icons.privacy_tip),
-    onPressed: () {
-      AdFlow.instance.showPrivacyOptions(
-        onComplete: () {
-          // User updated privacy settings
-        },
-      );
-    },
-  );
+// Pause (e.g., before opening a payment screen)
+AdFlow.instance.pauseAppOpenAds();
+
+// Resume
+AdFlow.instance.resumeAppOpenAds();
+```
+
+> App open ads expire after 4 hours. If the cached ad is expired, it will be discarded and a new one loaded.
+
+---
+
+## Step 8: Show Native Ads
+
+Native ads match your app's look and feel. They require platform-specific setup.
+
+> See the full guide: [doc/NATIVE_ADS_SETUP.md](doc/NATIVE_ADS_SETUP.md)
+
+### After platform setup
+
+Use `EasyNativeAd` for a drop-in widget:
+
+```dart
+const EasyNativeAd(
+  factoryId: 'medium_template', // Must match your registered factory ID
+  height: 300,
+)
+```
+
+With options:
+
+```dart
+EasyNativeAd(
+  factoryId: 'medium_template',
+  height: 300,
+  hideOnLoading: true,  // Collapse while loading (no blank space)
+  hideOnError: true,    // Collapse on error/no fill
+  backgroundColor: Colors.white,
+  borderRadius: BorderRadius.circular(12),
+  padding: const EdgeInsets.all(8),
+  onAdLoaded: () => debugPrint('Native ad loaded'),
+  onAdFailedToLoad: () => debugPrint('Native ad failed'),
+)
+```
+
+### With NativeAdManager
+
+For more control:
+
+```dart
+final _nativeManager = NativeAdManager();
+
+await _nativeManager.loadAd(
+  factoryId: 'medium_template',
+  onAdLoaded: (ad) => setState(() {}),
+  onAdFailedToLoad: (error) => debugPrint('Failed: ${error.message}'),
+);
+
+// In build:
+if (_nativeManager.isLoaded) {
+  SizedBox(
+    height: 300,
+    child: AdWidget(ad: _nativeManager.nativeAd!),
+  )
 }
+
+// Dispose when done
+_nativeManager.dispose();
 ```
 
-### Ad Inspector (Debug Mode)
+---
+
+## Step 9: Remove Ads (In-App Purchase)
+
+ad_flow has built-in "Remove Ads" support. When disabled, all ad widgets (`EasyBannerAd`, `EasyNativeAd`, etc.) automatically hide, and ad managers skip loading/showing.
+
+### After a successful purchase
 
 ```dart
-// Open the Ad Inspector for debugging
-AdFlow.instance.openAdInspector();
-```
-
-### Remove Ads (In-App Purchase)
-
-Built-in support for "Remove Ads" purchases:
-
-```dart
-// After successful IAP purchase
 await AdFlow.instance.disableAds();
-
-// All ad widgets automatically hide!
-// EasyBannerAd, EasyNativeAd, etc. respect this setting.
+// All ads stop immediately! Widgets collapse to SizedBox.shrink().
 ```
 
-```dart
-// Check if ads are enabled
-if (AdFlow.instance.isAdsEnabled) {
-  // Show ads
-}
+### Restore on refund or re-enable
 
-// Re-enable ads (e.g., restore purchase failed)
+```dart
 await AdFlow.instance.enableAds();
 ```
 
+### Check current state
+
 ```dart
-// Reactive UI with StreamBuilder
+if (AdFlow.instance.isAdsEnabled) {
+  // Show ads
+}
+```
+
+### React to changes
+
+```dart
+// Listen to changes (e.g., to toggle UI)
+AdsEnabledManager.instance.addListener(() {
+  setState(() {});
+});
+
+// Or use the stream
 StreamBuilder<bool>(
   stream: AdFlow.instance.adsEnabledStream,
   builder: (context, snapshot) {
     final adsEnabled = snapshot.data ?? true;
-    if (!adsEnabled) return const SizedBox.shrink();
-    return const EasyBannerAd();
+    return adsEnabled ? const EasyBannerAd() : const SizedBox.shrink();
   },
 )
 ```
 
-### Error Handling
+> The state is persisted in SharedPreferences and survives app restarts. Rewarded ads stay available by default (configurable via `rewardedAdsIgnoreRemoveAds`).
 
-Centralized error handling for all ad operations:
+---
 
-```dart
-// Stream-based (recommended for reactive apps)
-AdFlow.instance.errorStream.listen((error) {
-  print('Ad error: ${error.type} - ${error.message}');
-  
-  // Log to analytics
-  analytics.logEvent('ad_error', {
-    'type': error.type.name,      // bannerLoad, interstitialLoad, etc.
-    'code': error.code,           // Error code from SDK
-    'message': error.message,     // Human-readable message
-    'adUnitId': error.adUnitId,   // Which ad unit failed
-  });
-});
+## Step 10: Privacy & Consent
 
-// Callback-based (simpler alternative)
-AdFlow.instance.setErrorCallback((error) {
-  crashlytics.recordError(error.originalError ?? error.message);
-});
+ad_flow handles GDPR, US Privacy (CCPA), and iOS ATT automatically during initialization. You don't need to write any consent code — it's all built in.
 
-// Clear callback when done
-AdFlow.instance.clearErrorCallback();
-```
+### What happens automatically
 
-**Error Types:**
-| Type | Description |
-|------|-------------|
-| `consent` | Consent gathering failed |
-| `bannerLoad` | Banner ad failed to load |
-| `interstitialLoad` | Interstitial failed to load |
-| `interstitialShow` | Interstitial failed to show |
-| `appOpenLoad` | App open ad failed to load |
-| `appOpenShow` | App open ad failed to show |
-| `rewardedLoad` | Rewarded ad failed to load |
-| `rewardedShow` | Rewarded ad failed to show |
-| `nativeLoad` | Native ad failed to load |
-| `sdkInitialization` | SDK initialization failed |
+| Region | What ad_flow does |
+|--------|-------------------|
+| EU/UK | Shows Google's UMP consent form |
+| US (CCPA states) | Handles opt-out via UMP |
+| iOS (all regions) | Shows ATT permission prompt |
+| Other | Skips consent, proceeds to ads |
 
-### Native Ads Setup
+### Privacy settings button
 
-Native ads require platform-specific factory code. See the full guide:
-
-📖 **[Native Ads Setup Guide](doc/NATIVE_ADS_SETUP.md)**
-
-Quick overview:
-1. Create native ad factories (Kotlin for Android, Swift for iOS)
-2. Register factories in `MainActivity.kt` / `AppDelegate.swift`
-3. Create layout XML (Android) or XIB files (iOS)
-4. Use in Flutter with `factoryId`
+GDPR requires that users can change their consent at any time. Add a privacy button to your settings screen:
 
 ```dart
-// Load native ad
-await AdFlow.instance.native.loadAd(
-  factoryId: 'medium_template',  // Must match registered factory
-  onAdLoaded: (ad) => setState(() {}),
-);
+// Simple button — only visible in GDPR regions
+const EasyPrivacySettingsButton()
 
-// Display
-if (AdFlow.instance.native.isLoaded) {
-  SizedBox(
-    height: 300,
-    child: AdWidget(ad: AdFlow.instance.native.nativeAd!),
-  )
-}
-```
-
-### Privacy Settings Button (GDPR Requirement)
-
-GDPR requires providing users a way to modify their consent. Use these widgets in your settings screen:
-
-```dart
-// Simple button - auto shows/hides based on GDPR requirement
-EasyPrivacySettingsButton()
-
-// With custom text
+// Customized
 EasyPrivacySettingsButton(
   text: 'Manage Privacy',
   icon: Icons.shield,
+  onFormDismissed: () => debugPrint('User updated preferences'),
 )
 
-// For settings screens - ListTile version
-PrivacySettingsListTile(
+// ListTile for settings screens
+const PrivacySettingsListTile(
   title: 'Privacy Settings',
   subtitle: 'Manage your ad preferences',
 )
 
-// Always visible (ignores GDPR check)
-PrivacySettingsListTile(
-  alwaysShow: true,
-)
-
-// Fully custom widget
-EasyPrivacySettingsButton(
-  child: YourCustomWidget(),
-  onFormDismissed: () {
-    print('User updated privacy settings');
-  },
-)
+// Force visibility (even outside GDPR regions)
+const PrivacySettingsListTile(alwaysShow: true)
 ```
 
----
-
-## 📂 Package Structure
-
-```
-lib/
-├── ad_flow.dart                    # Barrel export (import this)
-└── src/
-    ├── ad_config.dart              # Configuration & ad unit IDs
-    ├── ad_error_handler.dart       # Centralized error handling
-    ├── ad_service.dart             # Main AdFlow service (singleton)
-    ├── ads_enabled_manager.dart    # Remove Ads feature
-    ├── consent_manager.dart        # GDPR/ATT consent handling
-    ├── consent_explainer_dialog.dart   # Pre-consent explainer dialogs
-    ├── consent_explainer_localizations.dart # Multi-language support
-    ├── banner_ad_manager.dart      # Banner ad management
-    ├── easy_banner_widget.dart     # Drop-in banner widget
-    ├── easy_privacy_settings_button.dart # GDPR privacy settings button
-    ├── interstitial_ad_manager.dart    # Interstitial ad management
-    ├── rewarded_ad_manager.dart    # Rewarded ad management
-    ├── app_open_ad_manager.dart    # App open ad management
-    ├── app_lifecycle_reactor.dart  # App state monitoring
-    ├── native_ad_manager.dart      # Native ad management
-    └── native_ad_widget.dart       # Drop-in native ad widgets
-```
-
----
-
-## ⚙️ Configuration
-
-### Behavior Settings
-
-Customize ad behavior via `AdFlowConfig`:
+### Manual privacy options
 
 ```dart
-await AdFlow.instance.initialize(
-  config: AdFlowConfig(
-    // Your ad unit IDs...
-    androidBannerAdUnitId: 'ca-app-pub-xxx/xxx',
-    iosBannerAdUnitId: 'ca-app-pub-xxx/xxx',
-    
-    // Behavior settings
-    appOpenAdMaxCacheDuration: Duration(hours: 4), // Google recommends max 4 hours
-    minInterstitialInterval: Duration(seconds: 30), // Cooldown between interstitials
-    maxLoadRetries: 3,                              // Retry failed loads
-    retryDelay: Duration(seconds: 5),               // Delay between retries
-    
-    // Initialization timeouts (for slow networks)
-    consentNetworkTimeout: Duration(seconds: 10),   // Consent info request timeout
-    sdkInitTimeout: Duration(seconds: 8),           // SDK init timeout (retries in bg)
-    coldStartAdTimeout: Duration(seconds: 3),       // Cold-start app open ad timeout
-    
-    // Testing & debug
-    testDeviceIds: ['YOUR_DEVICE_HASHED_ID'],       // Avoid invalid impressions
-    enableConsentDebug: false,                       // Test GDPR in non-EU regions
-  ),
-);
-```
-
-> **Note:** Timeouts only apply to network operations, NOT consent dialogs. User consent interactions always wait for the user to respond (required for GDPR/ATT compliance).
-
-### Test Device IDs
-
-Add your test device ID to avoid invalid impressions during development:
-
-```dart
-config: AdFlowConfig(
-  // ... ad unit IDs
-  testDeviceIds: ['YOUR_DEVICE_HASHED_ID'],
-),
-```
-
-Find your device ID in the console logs:
-```
-I/Ads: Use RequestConfiguration.Builder().setTestDeviceIds(Arrays.asList("YOUR_DEVICE_ID"))
-```
-
----
-
-## 🔒 Privacy & Compliance
-
-### GDPR (Europe)
-- ✅ Automatically shows consent form for EU/UK/Switzerland users
-- ✅ Uses Google's certified UMP SDK
-- ✅ Stores consent for future sessions
-- ✅ Respects user's privacy choices
-
-### US Privacy (CCPA)
-- ✅ Supports US state privacy regulations
-- ✅ Handles opt-out requests
-
-### iOS ATT (App Tracking Transparency)
-- ✅ Integrated with consent flow
-- ✅ Shows system permission dialog
-- ✅ Respects user's tracking choice
-
-### How It Works
-
-```
-App Start
-    │
-    ▼
-┌─────────────────────┐
-│ Check Consent Status │
-└─────────────────────┘
-    │
-    ▼ (if GDPR region)
-┌─────────────────────┐
-│ Show Consent Form   │
-└─────────────────────┘
-    │
-    ▼ (if iOS)
-┌─────────────────────┐
-│ ATT Permission      │
-└─────────────────────┘
-    │
-    ▼
-┌─────────────────────┐
-│ Initialize Ads SDK  │
-└─────────────────────┘
-    │
-    ▼
-┌─────────────────────┐
-│ Preload Ads         │
-└─────────────────────┘
-```
-
-### Pre-Consent Explainer (Better UX)
-
-For a friendlier user experience, you can show an explainer dialog **before** the official consent popups appear. This gives users context about why they're being asked for consent.
-
-```dart
-// Option 1: Initialize with explainer (recommended for better UX)
-class _MyHomePageState extends State<MyHomePage> {
-  @override
-  void initState() {
-    super.initState();
-    // Show explainer after first frame renders
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      AdFlow.instance.initializeWithExplainer(
-        context: context,
-        onComplete: (canRequestAds) {
-          debugPrint('Ads ready: $canRequestAds');
-        },
-      );
-    });
-  }
+if (AdFlow.instance.isPrivacyOptionsRequired) {
+  AdFlow.instance.showPrivacyOptions(
+    onComplete: () => debugPrint('Privacy form dismissed'),
+  );
 }
+```
 
-// Option 2: Standard initialization (consent popups appear immediately)
-await AdFlow.instance.initialize(
-  onComplete: (canRequestAds) {
-    // Ready
-  },
+### Pre-consent explainer
+
+`initializeWithExplainer` shows a friendly dialog *before* the system prompts, explaining *why* the user is being asked:
+
+```dart
+AdFlow.instance.initializeWithExplainer(
+  context: context,
+  config: AdFlowConfig.testMode(),
 );
 ```
 
-The explainer shows:
-- 🎯 **General privacy explainer** - "Your Privacy Matters" with benefits
-- 📱 **iOS ATT explainer** - Brief explanation before the system ATT popup
-
-You can also show the dialogs manually:
+Custom language:
 
 ```dart
-// Show the general consent explainer
-await ConsentExplainerDialog.show(context);
-
-// Show the iOS ATT explainer (iOS only)
-await ATTExplainerDialog.show(context);
-```
-
-### Multi-Language Support
-
-Built-in localized texts for consent explainers:
-
-| Language | Consent Texts | ATT Texts |
-|----------|---------------|-----------|
-| English (default) | `kDefaultConsentExplainerTexts` | `kDefaultATTExplainerTexts` |
-| Persian (فارسی) | `kPersianConsentExplainerTexts` | `kPersianATTExplainerTexts` |
-| Spanish (Español) | `kSpanishConsentExplainerTexts` | `kSpanishATTExplainerTexts` |
-
-```dart
-// Use pre-defined language texts
 AdFlow.instance.initializeWithExplainer(
   context: context,
   consentTexts: kPersianConsentExplainerTexts,
   attTexts: kPersianATTExplainerTexts,
-  onComplete: (canRequestAds) {
-    debugPrint('Ads ready: $canRequestAds');
-  },
 );
 ```
 
+Or by language code:
+
 ```dart
-// Or get texts by language code
-final (consentTexts, attTexts) = getExplainerTextsForLanguage('es');
+final (consentTexts, attTexts) = getExplainerTextsForLanguage('es'); // Spanish
 
 AdFlow.instance.initializeWithExplainer(
   context: context,
@@ -1297,14 +704,15 @@ AdFlow.instance.initializeWithExplainer(
 );
 ```
 
+Built-in languages: English (default), Persian, Spanish. You can also create fully custom texts:
+
 ```dart
-// Create custom texts for any language
-const myCustomTexts = ConsentExplainerTexts(
-  title: 'Your Title',
-  description: 'Your description...',
+const myTexts = ConsentExplainerTexts(
+  title: 'Your Privacy Matters',
+  description: 'We use ads to keep this app free.',
   benefitRelevantAds: 'Relevant ads',
   benefitDataSecure: 'Data stays secure',
-  benefitKeepFree: 'Keeps app free',
+  benefitKeepFree: 'Keeps the app free',
   settingsHint: 'Change anytime in Settings.',
   continueButton: 'Continue',
   skipButton: 'Decide later',
@@ -1313,320 +721,297 @@ const myCustomTexts = ConsentExplainerTexts(
 
 ---
 
-## 💰 Revenue Optimization Tips
+## Step 11: Error Handling
 
-### 1. Ad Placement Best Practices
+All ad errors flow through a centralized error stream. Subscribe to it for logging, analytics, or user-facing messages.
 
-| Do ✅ | Don't ❌ |
-|-------|---------|
-| Place banners at natural content breaks | Cover content with ads |
-| Show interstitials at natural pauses | Show interstitials during gameplay |
-| Use app open ads on cold start | Show too many app open ads |
-| Test different placements | Ignore user experience |
-
-### 2. Interstitial Frequency
+### Stream-based (recommended)
 
 ```dart
-// Default cooldown is 30 seconds (configurable via AdFlowConfig)
-// Recommended: Show at natural breaks, not too frequently
-minInterstitialInterval: Duration(seconds: 30),
+AdFlow.instance.errorStream.listen((error) {
+  debugPrint('${error.type.name}: ${error.message} (code: ${error.code})');
+
+  // Send to analytics
+  analytics.logEvent('ad_error', {
+    'type': error.type.name,
+    'code': error.code,
+    'message': error.message,
+  });
+});
 ```
 
-### 3. Banner Refresh
+### Callback-based (simpler)
 
-Banners automatically refresh every 60 seconds (AdMob default). Don't manually refresh more frequently.
+```dart
+AdFlow.instance.setErrorCallback((error) {
+  crashlytics.recordError(error.originalError ?? error.message);
+});
 
-### 4. Fill Rate Optimization
+// Clear when done
+AdFlow.instance.clearErrorCallback();
+```
 
-- ✅ Use adaptive banners (auto-sizes)
-- ✅ Keep HTTP timeout at 30 seconds
-- ✅ Implement retry logic (included)
-- ✅ Test on real devices
+### Error types
 
-### 5. eCPM Optimization
-
-- ✅ Enable all ad formats
-- ✅ Use mediation (see below)
-- ✅ Target appropriate content rating
-- ✅ Maintain high user engagement
+| Type | Meaning |
+|------|---------|
+| `bannerLoad` | Banner ad failed to load |
+| `interstitialLoad` | Interstitial failed to load |
+| `interstitialShow` | Interstitial failed to show |
+| `rewardedLoad` | Rewarded ad failed to load |
+| `rewardedShow` | Rewarded ad failed to show |
+| `appOpenLoad` | App open ad failed to load |
+| `appOpenShow` | App open ad failed to show |
+| `nativeLoad` | Native ad failed to load |
+| `consent` | Consent gathering failed |
+| `sdkInitialization` | SDK initialization failed |
 
 ---
 
-## 🔗 Mediation Support
+## Step 12: Mediation
 
-Maximize revenue by serving ads from multiple networks. ad_flow supports Unity Ads, AppLovin, and any other AdMob mediation network.
+Mediation serves ads from multiple networks (Unity Ads, AppLovin, Meta, etc.) to maximize fill rate and revenue.
 
-### Quick Setup
+### Quick setup
 
 ```dart
 import 'package:ad_flow/ad_flow.dart';
 import 'package:gma_mediation_unity/gma_mediation_unity.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Register BEFORE AdFlow.initialize()
+  // 1. Register adapters BEFORE initializing AdFlow
   final unity = GmaMediationUnity();
   MediationHelper.registerUnityWithCallbacks(
     setGDPRConsent: unity.setGDPRConsent,
     setCCPAConsent: unity.setCCPAConsent,
   );
 
-  // Consent is auto-forwarded during initialization
-  await AdFlow.instance.initialize(...);
+  // 2. Initialize — consent is auto-forwarded to registered networks
+  await AdFlow.instance.initialize(
+    config: AdFlowConfig(...),
+  );
+
+  runApp(const MyApp());
 }
 ```
 
-📖 **Full guide:** See [doc/MEDIATION_SETUP.md](doc/MEDIATION_SETUP.md) for complete setup instructions, supported networks, and troubleshooting.
+### Generic adapter
+
+```dart
+MediationHelper.registerAdapter(
+  name: 'MyNetwork',
+  forwarder: ({required gdprConsent, required ccpaOptOut}) async {
+    MyNetworkSdk.setConsent(gdpr: gdprConsent, ccpa: ccpaOptOut);
+  },
+);
+```
+
+> Full mediation guide: [doc/MEDIATION_SETUP.md](doc/MEDIATION_SETUP.md)
 
 ---
 
-## 🔍 API Reference
+## Step 13: Configuration Reference
 
-### AdFlow
+### AdFlowConfig
 
-```dart
-// Singleton instance
-AdFlow.instance
-
-// Properties
-bool isInitialized              // SDK initialized?
-bool isMobileAdsInitialized     // Mobile Ads ready?
-bool isPrivacyOptionsRequired   // Show privacy button?
-bool isAdsEnabled               // Ads enabled? (Remove Ads)
-bool isAdsDisabled              // Ads disabled?
-
-// Managers
-ConsentManager consent          // Consent handling
-BannerAdManager banner          // Banner ads
-InterstitialAdManager interstitial  // Interstitial ads
-RewardedAdManager rewarded      // Rewarded ads
-AppOpenAdManager appOpen        // App open ads
-NativeAdManager native          // Native ads
-
-// Initialization
-Future<void> initialize({...})              // Initialize (can be blocking or non-blocking)
-Future<void> initializeWithExplainer({...}) // Initialize with consent explainer
-
-// Non-Blocking Initialization Support
-Future<bool> waitForInit({Duration? timeout})  // Wait for init to complete
-Stream<bool> initStream                        // Emits when init completes
-
-// Ads Control
-Future<void> disableAds()       // Disable ads (Remove Ads)
-Future<void> enableAds()        // Re-enable ads
-void showPrivacyOptions({...})  // Show privacy form
-void openAdInspector()          // Debug tool
-void pauseAppOpenAds()          // Pause app open ads
-void resumeAppOpenAds()         // Resume app open ads
-
-// Streams
-Stream<bool> adsEnabledStream   // Reactive ads enabled state
-Stream<AdFlowError> errorStream // Reactive error stream
-```
-
-### BannerAdManager
+All fields are optional. Only provide the ad unit IDs for the ad types you use.
 
 ```dart
-// Properties
-bool isLoaded                   // Banner ready?
-bool isLoading                  // Loading in progress?
-BannerAd? bannerAd             // The ad object
+AdFlowConfig(
+  // Ad unit IDs (one pair per ad type, per platform)
+  androidBannerAdUnitId: 'ca-app-pub-xxx/xxx',
+  iosBannerAdUnitId: 'ca-app-pub-xxx/xxx',
+  androidInterstitialAdUnitId: 'ca-app-pub-xxx/xxx',
+  iosInterstitialAdUnitId: 'ca-app-pub-xxx/xxx',
+  androidRewardedAdUnitId: 'ca-app-pub-xxx/xxx',
+  iosRewardedAdUnitId: 'ca-app-pub-xxx/xxx',
+  androidAppOpenAdUnitId: 'ca-app-pub-xxx/xxx',
+  iosAppOpenAdUnitId: 'ca-app-pub-xxx/xxx',
+  androidNativeAdUnitId: 'ca-app-pub-xxx/xxx',
+  iosNativeAdUnitId: 'ca-app-pub-xxx/xxx',
 
-// Methods
-Future<void> loadAdaptiveBanner({...})    // Load adaptive banner
-Future<void> loadCollapsibleBanner({...}) // Load collapsible banner
-Widget? buildAdWidget()                    // Get AdWidget
-void dispose()                             // Clean up
-```
+  // Behavior
+  minInterstitialInterval: Duration(seconds: 30),    // Cooldown between interstitials
+  appOpenAdMaxCacheDuration: Duration(hours: 4),      // App open ad expiry
+  maxLoadRetries: 3,                                   // Retry failed loads
+  retryDelay: Duration(seconds: 5),                   // Delay between retries
+  retryCooldownAfterMaxAttempts: Duration(minutes: 5), // Cooldown after all retries fail
 
-### InterstitialAdManager
+  // Privacy
+  skipGdprConsentIfAttDenied: true,   // iOS: skip GDPR if ATT denied
+  rewardedAdsIgnoreRemoveAds: true,   // Rewarded available even after "Remove Ads"
 
-```dart
-// Properties
-bool isLoaded                   // Ad ready?
-bool isLoading                  // Loading in progress?
-bool isShowing                  // Currently displayed?
-bool canShowAd                  // Cooldown passed?
+  // Network
+  httpTimeoutMillis: 30000,                        // Ad request timeout (30s)
+  coldStartAdTimeout: Duration(seconds: 3),        // App open ad cold-start timeout
 
-// Methods
-Future<void> loadAd({...})     // Load interstitial
-Future<bool> showAd({...})     // Show interstitial
-void dispose()                  // Clean up
-```
-
-### AppOpenAdManager
-
-```dart
-// Properties
-bool isLoaded                   // Ad loaded?
-bool isAdAvailable             // Ready & not expired?
-
-// Methods
-Future<void> loadAd({...})           // Load app open ad
-Future<void> showAdIfAvailable({...}) // Show if available
-void dispose()                        // Clean up
-```
-
-### RewardedAdManager
-
-```dart
-// Properties
-bool isLoaded                   // Ad ready?
-bool isLoading                  // Loading in progress?
-bool isShowing                  // Currently displayed?
-
-// Methods
-Future<void> loadAd({...})     // Load rewarded ad
-Future<bool> showAd({...})     // Show rewarded ad
-void addStatusListener(cb)     // Listen for load status
-void removeStatusListener(cb)  // Remove listener
-void dispose()                  // Clean up
-```
-
-### EasyBannerAd Widget
-
-```dart
-const EasyBannerAd({
-  bool collapsible = false,  // Use collapsible format?
-})
-```
-
-### NativeAdManager
-
-```dart
-// Properties
-bool isLoaded                   // Ad loaded?
-bool isLoading                  // Loading in progress?
-NativeAd? nativeAd             // The ad object
-
-// Methods
-Future<void> loadAd({...})     // Load native ad
-void dispose()                  // Clean up
-```
-
-### EasyNativeAd Widget
-
-```dart
-const EasyNativeAd({
-  required String factoryId,   // Native ad factory ID
-  required double height,      // Ad height
-  double? width,               // Ad width (optional)
-  Widget? loadingWidget,       // Loading placeholder
-  Widget? errorWidget,         // Error placeholder
-  bool hideOnLoading = true,   // Collapse while loading
-  bool hideOnError = true,     // Collapse on error/no fill
-  EdgeInsets padding,          // Padding around ad
-  Color? backgroundColor,      // Background color
-  BorderRadius? borderRadius,  // Corner radius
-  VoidCallback? onAdLoaded,    // Callback when ad loads
-  VoidCallback? onAdFailedToLoad, // Callback on load failure
-})
-```
-
-**Collapse Behavior (v1.3.6+):** By default, `EasyNativeAd` collapses to zero height when loading or when an ad fails to load (e.g., no fill). This prevents empty white space in fixed-height layouts like `bottomNavigationBar`. Set `hideOnLoading: false` or `hideOnError: false` to show placeholder widgets instead.
-
-**Example with callbacks:**
-```dart
-EasyNativeAd(
-  factoryId: 'medium_template',
-  height: 300,
-  onAdLoaded: () => debugPrint('Native ad loaded!'),
-  onAdFailedToLoad: () => debugPrint('Native ad failed to load'),
+  // Testing
+  testDeviceIds: ['YOUR_DEVICE_ID'],               // Avoid invalid impressions
+  enableConsentDebug: false,                        // Test GDPR in non-EU regions
+  maxAdContentRating: MaxAdContentRating.g,        // Content restriction
+  tagForUnderAgeOfConsent: false,                   // COPPA
 )
 ```
 
-### AdsEnabledManager
+### Initialize parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `config` | `testMode()` | Ad unit IDs and settings |
+| `onComplete` | `null` | Called when init finishes: `(bool canRequestAds) => ...` |
+| `preloadInterstitial` | `false` | Preload an interstitial on init |
+| `preloadRewarded` | `false` | Preload a rewarded ad on init |
+| `preloadAppOpen` | `false` | Preload an app open ad on init |
+| `showAppOpenOnColdStart` | `false` | Show app open ad on first launch |
+| `enableAppOpenOnForeground` | `false` | Show app open ad when app returns from background |
+| `maxForegroundAdsPerSession` | `1` | Max foreground app open ads per session |
+
+### Manager API summary
+
+Every ad manager shares this contract:
+
+| Property / Method | Description |
+|-------------------|-------------|
+| `isLoaded` | Ad is ready to show |
+| `isLoading` | Load in progress |
+| `isShowing` | Fullscreen ad currently visible (interstitial/rewarded/app open) |
+| `loadAd(...)` | Load an ad |
+| `showAd(...)` | Show the ad (fullscreen types) |
+| `dispose()` | Clean up resources |
+| `addStatusListener(cb)` | Get notified when state changes |
+| `removeStatusListener(cb)` | Remove listener |
+
+### Callbacks per ad type
+
+Every `loadAd()` and `showAd()` method accepts optional callbacks. Here's the complete reference:
+
+**Banner** (`BannerAdManager`):
+
+| Method | Callback | Type | When |
+|--------|----------|------|------|
+| `loadAdaptiveBanner()` | `onAdLoaded` | `void Function(BannerAd)` | Ad loaded successfully |
+| | `onAdFailedToLoad` | `void Function(BannerAd, LoadAdError)` | Load failed |
+| `loadCollapsibleBanner()` | `onAdLoaded` | `void Function(BannerAd)` | Ad loaded successfully |
+| | `onAdFailedToLoad` | `void Function(BannerAd, LoadAdError)` | Load failed |
+
+**Interstitial** (`InterstitialAdManager`):
+
+| Method | Callback | Type | When |
+|--------|----------|------|------|
+| `loadAd()` | `onAdLoaded` | `void Function(InterstitialAd)` | Ad loaded successfully |
+| | `onAdFailedToLoad` | `void Function(LoadAdError)` | Load failed after retries |
+| `showAd()` | `onAdDismissed` | `VoidCallback` | User closed the ad |
+| | `onAdFailedToShow` | `VoidCallback` | Ad not ready or show error |
+| | `ignoreCooldown` | `bool` | Bypass the 30s cooldown (default: `false`) |
+
+**Rewarded** (`RewardedAdManager`):
+
+| Method | Callback | Type | When |
+|--------|----------|------|------|
+| `loadAd()` | `onAdLoaded` | `void Function(RewardedAd)` | Ad loaded successfully |
+| | `onAdFailedToLoad` | `void Function(LoadAdError)` | Load failed after retries |
+| `showAd()` | `onUserEarnedReward` | `void Function(RewardItem)` | **Required** — user completed the ad |
+| | `onAdDismissed` | `VoidCallback` | User closed the ad |
+| | `onAdFailedToShow` | `VoidCallback` | Ad not ready or show error |
+
+**App Open** (`AppOpenAdManager`):
+
+| Method | Callback | Type | When |
+|--------|----------|------|------|
+| `loadAd()` | `onAdLoaded` | `void Function(AppOpenAd)` | Ad loaded successfully |
+| | `onAdFailedToLoad` | `void Function(LoadAdError)` | Load failed after retries |
+| `showAdIfAvailable()` | `onAdDismissed` | `VoidCallback` | User closed the ad |
+| | `onAdFailedToShow` | `VoidCallback` | Ad expired, not loaded, or show error |
+
+**Native** (`NativeAdManager`):
+
+| Method | Callback | Type | When |
+|--------|----------|------|------|
+| `loadAd()` | `onAdLoaded` | `void Function(NativeAd)` | Ad loaded successfully |
+| | `onAdFailedToLoad` | `void Function(LoadAdError)` | Load failed after retries |
+
+**Self-contained widgets** (`EasyBannerAd`, `EasyNativeAd`):
+
+| Widget | Callback | Type | When |
+|--------|----------|------|------|
+| `EasyNativeAd` | `onAdLoaded` | `VoidCallback` | Ad loaded and displayed |
+| | `onAdFailedToLoad` | `VoidCallback` | Load failed |
+
+> `EasyBannerAd` handles all callbacks internally — no user callbacks needed.
+
+### Status listeners
+
+All managers support reactive status listeners. Use them to rebuild UI when ad state changes (loaded, loading, showing, etc.):
 
 ```dart
-// Singleton instance
-AdsEnabledManager.instance
+// Works with ANY manager: interstitial, rewarded, appOpen, banner, native
+AdFlow.instance.interstitial.addStatusListener(() {
+  setState(() {}); // Rebuild when ad state changes
+});
 
-// Properties
-bool isEnabled                 // Ads enabled?
-bool isDisabled                // Ads disabled?
+// Clean up in dispose()
+AdFlow.instance.interstitial.removeStatusListener(_onStatusChanged);
+```
 
-// Methods
-Future<void> disableAds()      // Disable all ads
-Future<void> enableAds()       // Re-enable ads
-void addListener(callback)     // Listen for changes
-void removeListener(callback)  // Remove listener
+Status listeners fire after **any** state change: load started, load completed, load failed, ad showing, ad dismissed. This makes them ideal for reactive UI like loading indicators, "Watch Ad" buttons, etc.
 
-// Stream
-Stream<bool> stream            // Reactive state changes
+---
+
+## Troubleshooting
+
+### Ads not loading
+
+1. Check internet connection.
+2. Verify ad unit IDs are correct.
+3. New ad units can take **24–48 hours** to start serving.
+4. Check logs for common error codes:
+   - `Error 0` — Internal error
+   - `Error 1` — Invalid request (wrong ad unit ID)
+   - `Error 2` — Network error
+   - `Error 3` — No fill (no ads available)
+
+### Consent form not showing
+
+- The form only shows in **GDPR regions** (EU/UK/Switzerland).
+- Use a VPN to test from a GDPR region, or set `enableConsentDebug: true` in `AdFlowConfig`.
+
+### iOS build errors
+
+1. Run `cd ios && pod install`.
+2. Ensure minimum iOS version is **13.0+**.
+3. Verify `Info.plist` has the `GADApplicationIdentifier` key.
+
+### Android build errors
+
+1. Ensure `minSdkVersion` is **21+**.
+2. Verify `AndroidManifest.xml` has the AdMob App ID.
+3. Run `flutter clean && flutter pub get`.
+
+### Ad Inspector
+
+Open the Ad Inspector for real-time debugging of ad requests and mediation:
+
+```dart
+AdFlow.instance.openAdInspector();
 ```
 
 ---
 
-## 🐛 Troubleshooting
+## Release Checklist
 
-### Ads Not Loading
-
-1. **Check internet connection**
-2. **Verify ad unit IDs** are correct
-3. **Wait 24-48 hours** after creating new ad units
-4. **Check logs** for error codes:
-   - Error 0: Internal error
-   - Error 1: Invalid request
-   - Error 2: Network error
-   - Error 3: No fill
-
-### Consent Form Not Showing
-
-1. Form only shows in **GDPR regions** (EU/UK/Switzerland)
-2. Use **VPN** to test from GDPR region
-3. Add test device ID for consent debugging
-
-### iOS Build Errors
-
-1. Run `pod install` in ios folder
-2. Update minimum iOS version to 13.0+
-3. Ensure Info.plist has all required keys
-
-### Android Build Errors
-
-1. Check `minSdkVersion` is 21+
-2. Ensure AndroidManifest.xml has App ID
-3. Run `flutter clean && flutter pub get`
-
----
-
-## 📋 Checklist Before Release
-
-- [ ] Use `AdFlowConfig` with your production ad unit IDs
-- [ ] Remove `testDeviceIds` or leave empty
+- [ ] Replace test IDs with production ad unit IDs in `AdFlowConfig`
+- [ ] Remove or empty `testDeviceIds`
 - [ ] Set `enableConsentDebug: false`
-- [ ] Test on real devices
-- [ ] Test consent flow in GDPR region (use VPN)
+- [ ] Test on real devices (not emulator)
+- [ ] Test consent flow from a GDPR region (use VPN)
 - [ ] Verify iOS ATT dialog appears
 - [ ] Test all ad formats load and display
-- [ ] Check ads don't block UI elements
-- [ ] Review AdMob policies compliance
-- [ ] Add privacy policy to app/store listing
+- [ ] Add a privacy policy to your app/store listing
 
 ---
 
-## 📜 License
+## License
 
-MIT License - Feel free to use in any project.
-
----
-
-## 🙏 Credits
-
-Built with:
-- [google_mobile_ads](https://pub.dev/packages/google_mobile_ads) - Official Google Mobile Ads SDK
-- [Flutter](https://flutter.dev) - Google's UI toolkit
-
----
-
-## 📞 Support
-
-For issues or questions:
-1. Check [AdMob Help Center](https://support.google.com/admob)
-2. Review [google_mobile_ads documentation](https://pub.dev/packages/google_mobile_ads)
-3. See [Flutter AdMob samples](https://github.com/googleads/googleads-mobile-flutter)
-
----
-
-**Happy Monetizing! 💰**
+MIT — see [LICENSE](LICENSE).

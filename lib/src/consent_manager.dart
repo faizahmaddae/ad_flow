@@ -3,14 +3,15 @@
 // Simplified to match Google's official samples
 
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/foundation.dart' show kReleaseMode, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'ad_config.dart';
 import 'ad_error_handler.dart';
+import 'ad_sdk.dart';
 import 'consent_explainer_dialog.dart';
 
 /// Callback signature for consent gathering completion
@@ -84,7 +85,7 @@ class ConsentManager {
     debugPrint('ConsentManager: Starting consent gathering...');
 
     // Step 1: iOS ATT - request only if not determined
-    if (Platform.isIOS) {
+    if (AdFlowPlatform.isIOS) {
       _lastAttStatus = await _requestIOSTrackingIfNeeded();
 
       // Check if we should skip GDPR consent after ATT denial
@@ -126,7 +127,7 @@ class ConsentManager {
     debugPrint('ConsentManager: Starting consent gathering with explainer...');
 
     // Step 1: iOS ATT flow (check → explainer → prompt) - sequential
-    if (Platform.isIOS) {
+    if (AdFlowPlatform.isIOS) {
       _lastAttStatus = await _handleIOSATTWithExplainer(
         context: context,
         showExplainer: showExplainer,
@@ -174,7 +175,7 @@ class ConsentManager {
 
   /// Checks if GDPR consent should be skipped based on ATT status and config.
   bool _shouldSkipGdprConsent() {
-    if (!Platform.isIOS) return false;
+    if (!AdFlowPlatform.isIOS) return false;
     if (!AdFlowConfig.current.skipGdprConsentIfAttDenied) return false;
     return isAttDenied;
   }
@@ -183,13 +184,13 @@ class ConsentManager {
   /// Returns the final ATT status.
   Future<TrackingStatus> _requestIOSTrackingIfNeeded() async {
     try {
-      var status = await AppTrackingTransparency.trackingAuthorizationStatus;
+      var status = await AdSdk.instance.getTrackingAuthorizationStatus();
       debugPrint('ConsentManager: ATT status: $status');
 
       if (status == TrackingStatus.notDetermined) {
         // Small delay recommended by Apple before showing ATT prompt
         await Future.delayed(_kATTPromptDelay);
-        status = await AppTrackingTransparency.requestTrackingAuthorization();
+        status = await AdSdk.instance.requestTrackingAuthorization();
         debugPrint('ConsentManager: ATT result: $status');
       }
       return status;
@@ -209,7 +210,7 @@ class ConsentManager {
   }) async {
     try {
       // Step 1: Check if ATT is needed
-      var status = await AppTrackingTransparency.trackingAuthorizationStatus;
+      var status = await AdSdk.instance.getTrackingAuthorizationStatus();
       debugPrint('ConsentManager: ATT status: $status');
 
       if (status != TrackingStatus.notDetermined) {
@@ -225,7 +226,7 @@ class ConsentManager {
 
       // Step 3: Show system ATT prompt
       await Future.delayed(_kATTPromptDelay);
-      status = await AppTrackingTransparency.requestTrackingAuthorization();
+      status = await AdSdk.instance.requestTrackingAuthorization();
       debugPrint('ConsentManager: ATT result: $status');
       return status;
     } catch (e) {
@@ -238,64 +239,66 @@ class ConsentManager {
   // UMP Consent Handling (GDPR/US Privacy)
   // ==========================================================================
 
-  /// Standard UMP consent flow with timeout for network request.
-  void _gatherUMPConsent(ConsentCallback onComplete) {
+  /// Core UMP consent flow, shared by both simple and explainer paths.
+  ///
+  /// [onBeforeForm] is called after the consent info update succeeds
+  /// but before the consent form is shown. The explainer path uses this to check
+  /// if the form is needed and show an explainer dialog first.
+  /// [onComplete] is the final consent callback.
+  ///
+  /// Returns a Future that completes when the entire flow finishes.
+  Future<void> _executeUMPConsentFlow({
+    required ConsentCallback onComplete,
+    Future<void> Function()? onBeforeForm,
+  }) async {
     final params = ConsentRequestParameters(
       tagForUnderAgeOfConsent: AdFlowConfig.current.tagForUnderAgeOfConsent,
       consentDebugSettings: _buildDebugSettings(),
     );
 
-    final timeout = AdFlowConfig.current.consentNetworkTimeout;
-    Timer? timeoutTimer;
-    bool hasCompleted = false;
+    final completer = Completer<void>();
 
-    void completeWithForm() {
-      if (hasCompleted) return;
-      hasCompleted = true;
-      timeoutTimer?.cancel();
+    Future<void> completeWithForm() async {
+      // Run pre-form hook (e.g. show explainer) if provided
+      if (onBeforeForm != null) {
+        await onBeforeForm();
+      }
 
       // loadAndShowConsentFormIfRequired handles the "if required" logic
-      ConsentForm.loadAndShowConsentFormIfRequired((FormError? error) async {
+      AdSdk.instance.loadAndShowConsentFormIfRequired((FormError? error) async {
         await _updateCanRequestAds();
         _isInitialized = true;
         onComplete(error);
+        if (!completer.isCompleted) completer.complete();
       });
     }
 
-    void completeWithError(FormError error) {
-      if (hasCompleted) return;
-      hasCompleted = true;
-      timeoutTimer?.cancel();
-
+    Future<void> completeWithError(FormError error) async {
       debugPrint('ConsentManager: Consent update failed: ${error.message}');
       AdFlowErrorHandler.instance.reportConsentError(error);
-      _updateCanRequestAds().then((_) {
-        _isInitialized = true;
-        onComplete(error);
-      });
-    }
-
-    // Set up timeout if configured
-    if (timeout != null) {
-      timeoutTimer = Timer(timeout, () {
-        if (hasCompleted) return;
-        debugPrint(
-          'ConsentManager: Consent network request timed out after ${timeout.inSeconds}s, using cached status',
-        );
-        completeWithForm(); // Proceed with cached consent status
-      });
+      await _updateCanRequestAds();
+      _isInitialized = true;
+      onComplete(error);
+      if (!completer.isCompleted) completer.complete();
     }
 
     // Request consent info update, then load/show form if required
-    ConsentInformation.instance.requestConsentInfoUpdate(
+    AdSdk.instance.requestConsentInfoUpdate(
       params,
       () async {
-        completeWithForm();
+        await completeWithForm();
       },
       (FormError error) async {
-        completeWithError(error);
+        await completeWithError(error);
       },
     );
+
+    return completer.future;
+  }
+
+  /// Standard UMP consent flow.
+  Future<void> _gatherUMPConsent(ConsentCallback onComplete) {
+    return _executeUMPConsentFlow(onComplete: onComplete);
   }
 
   /// UMP consent flow with optional explainer dialog.
@@ -305,94 +308,26 @@ class ConsentManager {
     required bool showExplainer,
     required ConsentExplainerTexts consentTexts,
     required ConsentCallback onComplete,
-  }) async {
-    final params = ConsentRequestParameters(
-      tagForUnderAgeOfConsent: AdFlowConfig.current.tagForUnderAgeOfConsent,
-      consentDebugSettings: _buildDebugSettings(),
-    );
-
-    // Use Completer for the callback-based API
-    final completer = Completer<void>();
-    final timeout = AdFlowConfig.current.consentNetworkTimeout;
-    Timer? timeoutTimer;
-    bool hasCompleted = false;
-
-    void completeWithForm() {
-      if (hasCompleted) return;
-      hasCompleted = true;
-      timeoutTimer?.cancel();
-
-      // Track if form callback has fired to prevent double completion
-      bool formCallbackFired = false;
-
-      // Run the form logic async
-      () async {
-        // Step 1: Check if consent form will be shown
-        final formStatus = await ConsentInformation.instance
-            .isConsentFormAvailable();
-        final consentStatus = await ConsentInformation.instance
-            .getConsentStatus();
-        final needsForm =
-            formStatus &&
+  }) {
+    return _executeUMPConsentFlow(
+      onComplete: onComplete,
+      onBeforeForm: () async {
+        // Check if consent form will be shown
+        final formStatus =
+            await AdSdk.instance.isConsentFormAvailable();
+        final consentStatus =
+            await AdSdk.instance.getConsentStatus();
+        final needsForm = formStatus &&
             (consentStatus == ConsentStatus.required ||
                 consentStatus == ConsentStatus.unknown);
 
-        // Step 2: Show explainer ONLY if form will be shown
+        // Show explainer ONLY if form will be shown
         if (needsForm && showExplainer && context.mounted) {
           debugPrint('ConsentManager: Showing GDPR explainer...');
           await ConsentExplainerDialog.show(context, texts: consentTexts);
         }
-
-        // Step 3: Show consent form if required
-        ConsentForm.loadAndShowConsentFormIfRequired((FormError? error) async {
-          // Guard against double callback (edge case with timeout)
-          if (formCallbackFired) return;
-          formCallbackFired = true;
-
-          await _updateCanRequestAds();
-          _isInitialized = true;
-          onComplete(error);
-          if (!completer.isCompleted) completer.complete();
-        });
-      }();
-    }
-
-    void completeWithError(FormError error) {
-      if (hasCompleted) return;
-      hasCompleted = true;
-      timeoutTimer?.cancel();
-
-      debugPrint('ConsentManager: Consent update failed: ${error.message}');
-      AdFlowErrorHandler.instance.reportConsentError(error);
-      _updateCanRequestAds().then((_) {
-        _isInitialized = true;
-        onComplete(error);
-        if (!completer.isCompleted) completer.complete();
-      });
-    }
-
-    // Set up timeout if configured
-    if (timeout != null) {
-      timeoutTimer = Timer(timeout, () {
-        if (hasCompleted) return;
-        debugPrint(
-          'ConsentManager: Consent network request timed out after ${timeout.inSeconds}s, using cached status',
-        );
-        completeWithForm(); // Proceed with cached consent status
-      });
-    }
-
-    ConsentInformation.instance.requestConsentInfoUpdate(
-      params,
-      () async {
-        completeWithForm();
-      },
-      (FormError error) async {
-        completeWithError(error);
       },
     );
-
-    return completer.future;
   }
 
   // ==========================================================================
@@ -401,16 +336,44 @@ class ConsentManager {
 
   /// Gets the current iOS ATT status.
   Future<TrackingStatus> getIOSTrackingStatus() async {
-    if (!Platform.isIOS) {
+    if (!AdFlowPlatform.isIOS) {
       return TrackingStatus.notSupported;
     }
-    return await AppTrackingTransparency.trackingAuthorizationStatus;
+    return await AdSdk.instance.getTrackingAuthorizationStatus();
+  }
+
+  /// Gets the IAB TCF v2.0 consent string from SharedPreferences.
+  ///
+  /// The UMP SDK stores the TC string under the standard
+  /// `IABTCF_TCString` key per the IAB specification. This is useful for:
+  /// - Sending consent info to your analytics backend
+  /// - Passing to third-party SDKs that don't auto-read it
+  /// - Auditing consent for compliance purposes
+  ///
+  /// Returns `null` if no TC string has been stored (e.g. non-GDPR region
+  /// or consent not yet gathered).
+  ///
+  /// See: https://github.com/InteractiveAdvertisingBureau/GDPR-Transparency-and-Consent-Framework
+  Future<String?> getTCFConsentString() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('IABTCF_TCString');
+  }
+
+  /// Gets the IAB US Privacy string (CCPA) from SharedPreferences.
+  ///
+  /// Stored under the standard `IABUSPrivacy_String` key.
+  /// Format: `1YNN` (version, notice, opt-out, LSPA).
+  ///
+  /// Returns `null` if no US Privacy string has been stored.
+  Future<String?> getUSPrivacyString() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('IABUSPrivacy_String');
   }
 
   /// Updates internal state for whether ads can be requested.
   Future<void> _updateCanRequestAds() async {
-    _canRequestAds = await ConsentInformation.instance.canRequestAds();
-    final status = await ConsentInformation.instance
+    _canRequestAds = await AdSdk.instance.canRequestAds();
+    final status = await AdSdk.instance
         .getPrivacyOptionsRequirementStatus();
     _isPrivacyOptionsRequired =
         status == PrivacyOptionsRequirementStatus.required;
@@ -422,7 +385,7 @@ class ConsentManager {
 
   /// Checks if privacy options form is required (async).
   Future<bool> isPrivacyOptionsRequiredAsync() async {
-    final status = await ConsentInformation.instance
+    final status = await AdSdk.instance
         .getPrivacyOptionsRequirementStatus();
     return status == PrivacyOptionsRequirementStatus.required;
   }
@@ -436,7 +399,7 @@ class ConsentManager {
   ///
   /// Call this from a "Privacy Settings" button in your app.
   void showPrivacyOptionsForm({required ConsentCallback onComplete}) {
-    ConsentForm.showPrivacyOptionsForm((FormError? formError) async {
+    AdSdk.instance.showPrivacyOptionsForm((FormError? formError) async {
       if (formError != null) {
         debugPrint('ConsentManager: Privacy form error: ${formError.message}');
       }
@@ -451,7 +414,7 @@ class ConsentManager {
   @visibleForTesting
   void resetConsent() {
     debugPrint('ConsentManager: Resetting consent');
-    ConsentInformation.instance.reset();
+    AdSdk.instance.resetConsentInfo();
     _isInitialized = false;
     _canRequestAds = false;
     _isPrivacyOptionsRequired = false;
@@ -460,7 +423,7 @@ class ConsentManager {
 
   /// Gets the current consent status.
   Future<ConsentStatus> getConsentStatus() async {
-    return await ConsentInformation.instance.getConsentStatus();
+    return await AdSdk.instance.getConsentStatus();
   }
 
   /// Gets a human-readable consent status description.

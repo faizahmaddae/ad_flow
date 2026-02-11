@@ -7,6 +7,8 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'ad_config.dart';
 import 'ad_error_handler.dart';
+import 'ad_manager_mixin.dart';
+import 'ad_sdk.dart';
 import 'ads_enabled_manager.dart';
 
 /// Callback for banner ad events
@@ -40,45 +42,29 @@ typedef BannerAdErrorCallback = void Function(BannerAd ad, LoadAdError error);
 ///   AdWidget(ad: bannerManager.bannerAd!);
 /// }
 /// ```
-class BannerAdManager {
+class BannerAdManager
+    with AdStatusNotifier, AdRetryHandler
+    implements AdManager {
   BannerAd? _bannerAd;
   bool _isLoaded = false;
   bool _isLoading = false;
-  bool _isDisposed = false;
   AdSize? _currentSize;
-  int _loadAttempts = 0;
-  DateTime? _lastMaxRetryFailureTime;
   String? _pendingAdUnitId;
-
-  /// Status listeners for reactive UI updates
-  final List<VoidCallback> _statusListeners = [];
-
-  /// Add a listener that will be called when the ad status changes
-  void addStatusListener(VoidCallback listener) {
-    _statusListeners.add(listener);
-  }
-
-  /// Remove a previously added listener
-  void removeStatusListener(VoidCallback listener) {
-    _statusListeners.remove(listener);
-  }
-
-  /// Notify all listeners of a status change
-  void _notifyStatusListeners() {
-    if (_isDisposed) return;
-    for (final listener in List.of(_statusListeners)) {
-      listener();
-    }
-  }
 
   /// The currently loaded banner ad
   BannerAd? get bannerAd => _bannerAd;
 
   /// Whether a banner ad is currently loaded
+  @override
   bool get isLoaded => _isLoaded;
 
   /// Whether a banner ad is currently loading
+  @override
   bool get isLoading => _isLoading;
+
+  /// Not applicable to banner ads (non-fullscreen)
+  @override
+  bool get isShowing => false;
 
   /// The size of the current banner ad
   AdSize? get currentSize => _currentSize;
@@ -107,17 +93,11 @@ class BannerAdManager {
     String? adUnitId,
   }) async {
     // Reset disposed flag to allow reuse (manager is accessed via lazy getter)
-    _isDisposed = false;
+    resetDisposedState();
 
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
       debugPrint('BannerAdManager: Ads disabled, skipping load');
-      return;
-    }
-
-    // Check consent before loading (Google best practice)
-    if (!await ConsentInformation.instance.canRequestAds()) {
-      debugPrint('BannerAdManager: Cannot request ads (no consent)');
       return;
     }
 
@@ -126,25 +106,24 @@ class BannerAdManager {
       return;
     }
 
-    // Check retry cooldown after max attempts
-    if (_loadAttempts >= AdFlowConfig.current.maxLoadRetries &&
-        _lastMaxRetryFailureTime != null) {
-      final elapsed = DateTime.now().difference(_lastMaxRetryFailureTime!);
-      if (elapsed < AdFlowConfig.current.retryCooldownAfterMaxAttempts) {
-        final remaining =
-            AdFlowConfig.current.retryCooldownAfterMaxAttempts - elapsed;
-        debugPrint(
-          'BannerAdManager: In cooldown after max retries (${remaining.inSeconds}s remaining)',
-        );
-        return;
-      } else {
-        // Cooldown expired, reset attempts
-        _loadAttempts = 0;
-        _lastMaxRetryFailureTime = null;
-      }
+    _isLoading = true;
+    notifyStatusListeners();
+
+    // Check consent before loading (Google best practice)
+    if (!await AdSdk.instance.canRequestAds()) {
+      debugPrint('BannerAdManager: Cannot request ads (no consent)');
+      _isLoading = false;
+      notifyStatusListeners();
+      return;
     }
 
-    _isLoading = true;
+    // Check retry cooldown after max attempts
+    if (isInRetryCooldown(managerName: 'BannerAdManager')) {
+      _isLoading = false;
+      notifyStatusListeners();
+      return;
+    }
+
     _currentSize = size;
 
     await _loadBanner(
@@ -172,7 +151,7 @@ class BannerAdManager {
     String? adUnitId,
   }) async {
     // Reset disposed flag to allow reuse (manager is accessed via lazy getter)
-    _isDisposed = false;
+    resetDisposedState();
 
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
@@ -183,45 +162,36 @@ class BannerAdManager {
     // Capture width before async gap to avoid use_build_context_synchronously
     final screenWidth = MediaQuery.sizeOf(context).width.truncate();
 
-    // Check consent before loading (Google best practice)
-    if (!await ConsentInformation.instance.canRequestAds()) {
-      debugPrint('BannerAdManager: Cannot request ads (no consent)');
-      return;
-    }
-
     if (_isLoading) {
       debugPrint('BannerAdManager: Already loading, skipping...');
       return;
     }
 
-    // Check retry cooldown after max attempts
-    if (_loadAttempts >= AdFlowConfig.current.maxLoadRetries &&
-        _lastMaxRetryFailureTime != null) {
-      final elapsed = DateTime.now().difference(_lastMaxRetryFailureTime!);
-      if (elapsed < AdFlowConfig.current.retryCooldownAfterMaxAttempts) {
-        final remaining =
-            AdFlowConfig.current.retryCooldownAfterMaxAttempts - elapsed;
-        debugPrint(
-          'BannerAdManager: In cooldown after max retries (${remaining.inSeconds}s remaining)',
-        );
-        return;
-      } else {
-        // Cooldown expired, reset attempts
-        _loadAttempts = 0;
-        _lastMaxRetryFailureTime = null;
-      }
+    _isLoading = true;
+    notifyStatusListeners();
+
+    // Check consent before loading (Google best practice)
+    if (!await AdSdk.instance.canRequestAds()) {
+      debugPrint('BannerAdManager: Cannot request ads (no consent)');
+      _isLoading = false;
+      notifyStatusListeners();
+      return;
     }
 
-    _isLoading = true;
+    // Check retry cooldown after max attempts
+    if (isInRetryCooldown(managerName: 'BannerAdManager')) {
+      _isLoading = false;
+      notifyStatusListeners();
+      return;
+    }
 
     // Get adaptive banner size
-    final size = await AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
-      screenWidth,
-    );
+    final size = await AdSdk.instance.getAdaptiveBannerSize(screenWidth);
 
     if (size == null) {
       debugPrint('BannerAdManager: Unable to get adaptive banner size');
       _isLoading = false;
+      notifyStatusListeners();
       return;
     }
 
@@ -263,7 +233,7 @@ class BannerAdManager {
     String? adUnitId,
   }) async {
     // Reset disposed flag to allow reuse (manager is accessed via lazy getter)
-    _isDisposed = false;
+    resetDisposedState();
 
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
@@ -274,45 +244,36 @@ class BannerAdManager {
     // Capture width before async gap to avoid use_build_context_synchronously
     final screenWidth = MediaQuery.sizeOf(context).width.truncate();
 
-    // Check consent before loading (Google best practice)
-    if (!await ConsentInformation.instance.canRequestAds()) {
-      debugPrint('BannerAdManager: Cannot request ads (no consent)');
-      return;
-    }
-
     if (_isLoading) {
       debugPrint('BannerAdManager: Already loading, skipping...');
       return;
     }
 
-    // Check retry cooldown after max attempts
-    if (_loadAttempts >= AdFlowConfig.current.maxLoadRetries &&
-        _lastMaxRetryFailureTime != null) {
-      final elapsed = DateTime.now().difference(_lastMaxRetryFailureTime!);
-      if (elapsed < AdFlowConfig.current.retryCooldownAfterMaxAttempts) {
-        final remaining =
-            AdFlowConfig.current.retryCooldownAfterMaxAttempts - elapsed;
-        debugPrint(
-          'BannerAdManager: In cooldown after max retries (${remaining.inSeconds}s remaining)',
-        );
-        return;
-      } else {
-        // Cooldown expired, reset attempts
-        _loadAttempts = 0;
-        _lastMaxRetryFailureTime = null;
-      }
+    _isLoading = true;
+    notifyStatusListeners();
+
+    // Check consent before loading (Google best practice)
+    if (!await AdSdk.instance.canRequestAds()) {
+      debugPrint('BannerAdManager: Cannot request ads (no consent)');
+      _isLoading = false;
+      notifyStatusListeners();
+      return;
     }
 
-    _isLoading = true;
+    // Check retry cooldown after max attempts
+    if (isInRetryCooldown(managerName: 'BannerAdManager')) {
+      _isLoading = false;
+      notifyStatusListeners();
+      return;
+    }
 
     // Get adaptive banner size
-    final size = await AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
-      screenWidth,
-    );
+    final size = await AdSdk.instance.getAdaptiveBannerSize(screenWidth);
 
     if (size == null) {
       debugPrint('BannerAdManager: Unable to get adaptive banner size');
       _isLoading = false;
+      notifyStatusListeners();
       return;
     }
 
@@ -344,77 +305,53 @@ class BannerAdManager {
 
     debugPrint('BannerAdManager: Loading banner ad...');
 
-    _bannerAd = BannerAd(
+    await AdSdk.instance.loadBannerAd(
       adUnitId: adUnitId,
       size: size,
       request: request,
-      listener: BannerAdListener(
-        onAdLoaded: (Ad ad) {
-          debugPrint('BannerAdManager: Ad loaded successfully');
-          _isLoaded = true;
-          _isLoading = false;
-          _notifyStatusListeners();
-          onAdLoaded?.call(ad as BannerAd);
-        },
-        onAdFailedToLoad: (Ad ad, LoadAdError error) {
-          debugPrint('BannerAdManager: Ad failed to load: ${error.message}');
-          _isLoaded = false;
-          _isLoading = false;
-          _loadAttempts++;
-          ad.dispose();
-          _bannerAd = null;
-          _notifyStatusListeners();
+      onAdLoaded: (BannerAd ad) {
+        debugPrint('BannerAdManager: Ad loaded successfully');
+        _bannerAd = ad;
+        _isLoaded = true;
+        _isLoading = false;
+        resetRetryAttempts();
+        notifyStatusListeners();
+        onAdLoaded?.call(ad);
+      },
+      onAdFailedToLoad: (BannerAd ad, LoadAdError error) {
+        debugPrint('BannerAdManager: Ad failed to load: ${error.message}');
+        _isLoaded = false;
+        _isLoading = false;
+        ad.dispose();
+        _bannerAd = null;
+        notifyStatusListeners();
 
-          // Report error to centralized handler
-          AdFlowErrorHandler.instance.reportLoadError(
-            error,
-            type: AdErrorType.bannerLoad,
-            adUnitId: adUnitId,
-          );
+        // Report error to centralized handler
+        AdFlowErrorHandler.instance.reportLoadError(
+          error,
+          type: AdErrorType.bannerLoad,
+          adUnitId: adUnitId,
+        );
 
-          // Retry loading if under max attempts
-          if (_loadAttempts < AdFlowConfig.current.maxLoadRetries) {
-            debugPrint(
-              'BannerAdManager: Retrying load (attempt $_loadAttempts)...',
-            );
-            Future.delayed(AdFlowConfig.current.retryDelay * _loadAttempts, () {
-              // Guard against retry after dispose
-              if (_isDisposed) return;
-              // Retry with same parameters
-              _loadBanner(
-                adUnitId: _pendingAdUnitId ?? adUnitId,
-                size: size,
-                request: request,
-                onAdLoaded: onAdLoaded,
-                onAdFailedToLoad: onAdFailedToLoad,
-              );
-            });
-          } else {
-            // Max retries exhausted, start cooldown
-            _lastMaxRetryFailureTime = DateTime.now();
-            debugPrint(
-              'BannerAdManager: Max retries exhausted, entering ${AdFlowConfig.current.retryCooldownAfterMaxAttempts.inMinutes}min cooldown',
-            );
-          }
+        // Retry loading with linear backoff
+        final retried = handleLoadFailure(
+          checkDisposed: () => isDisposed,
+          onRetry: () => _loadBanner(
+            adUnitId: _pendingAdUnitId ?? adUnitId,
+            size: size,
+            request: request,
+            onAdLoaded: onAdLoaded,
+            onAdFailedToLoad: onAdFailedToLoad,
+          ),
+          managerName: 'BannerAdManager',
+        );
 
-          onAdFailedToLoad?.call(ad as BannerAd, error);
-        },
-        onAdOpened: (Ad ad) {
-          debugPrint('BannerAdManager: Ad opened');
-        },
-        onAdClosed: (Ad ad) {
-          debugPrint('BannerAdManager: Ad closed');
-        },
-        onAdClicked: (Ad ad) {
-          debugPrint('BannerAdManager: Ad clicked');
-        },
-        onAdImpression: (Ad ad) {
-          debugPrint('BannerAdManager: Ad impression recorded');
-        },
-      ),
+        // Only report to callback when all retries exhausted
+        if (!retried) {
+          onAdFailedToLoad?.call(ad, error);
+        }
+      },
     );
-
-    await _bannerAd!.load();
   }
 
   /// Handles orientation changes by reloading the banner.
@@ -501,13 +438,12 @@ class BannerAdManager {
 
   /// Disposes of the manager completely.
   /// Call this when the manager is no longer needed.
+  @override
   Future<void> dispose() async {
-    _isDisposed = true;
-    _statusListeners.clear();
+    disposeNotifier();
+    resetRetryState();
     await _disposeCurrentAd();
     _isLoading = false;
-    _loadAttempts = 0;
-    _lastMaxRetryFailureTime = null;
     _pendingAdUnitId = null;
   }
 }

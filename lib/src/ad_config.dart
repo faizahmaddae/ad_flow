@@ -3,6 +3,47 @@
 
 import 'dart:io';
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugPrint, visibleForTesting;
+
+// ============================================================
+// PLATFORM DETECTION (testable)
+// ============================================================
+
+/// Testable platform detection for ad_flow.
+///
+/// Consolidates `dart:io` `Platform.isAndroid`/`Platform.isIOS` checks
+/// behind an overridable interface, enabling unit tests to simulate
+/// either platform.
+///
+/// ```dart
+/// // In test setUp:
+/// AdFlowPlatform.platformOverride = TargetPlatform.android;
+/// // In test tearDown:
+/// AdFlowPlatform.reset();
+/// ```
+class AdFlowPlatform {
+  AdFlowPlatform._();
+
+  /// Override for platform detection in unit tests.
+  @visibleForTesting
+  static TargetPlatform? platformOverride;
+
+  /// Whether the current platform is Android (testable).
+  static bool get isAndroid =>
+      platformOverride == TargetPlatform.android ||
+      (platformOverride == null && Platform.isAndroid);
+
+  /// Whether the current platform is iOS (testable).
+  static bool get isIOS =>
+      platformOverride == TargetPlatform.iOS ||
+      (platformOverride == null && Platform.isIOS);
+
+  /// Resets the platform override.
+  @visibleForTesting
+  static void reset() => platformOverride = null;
+}
+
 // ============================================================
 // GOOGLE TEST AD UNIT IDs (for development/testing)
 // ============================================================
@@ -18,9 +59,11 @@ class TestAdUnitIds {
 
   /// Helper to get platform-specific ad unit ID
   static String _getPlatformId(String androidId, String iosId) {
-    if (Platform.isAndroid) return androidId;
-    if (Platform.isIOS) return iosId;
-    throw UnsupportedError('Unsupported platform: ${Platform.operatingSystem}');
+    if (AdFlowPlatform.isAndroid) return androidId;
+    if (AdFlowPlatform.isIOS) return iosId;
+    // Return empty string for unsupported platforms (web, desktop)
+    // to avoid crashes during testing or multi-platform development
+    return '';
   }
 
   /// Test banner ad unit ID
@@ -126,7 +169,12 @@ class AdFlowConfig {
   /// Minimum interval between interstitial ads
   final Duration minInterstitialInterval;
 
-  /// Number of retries for failed ad loads
+  /// Maximum number of load failures before entering cooldown.
+  ///
+  /// Each failed load counts as one attempt. With the default of 3,
+  /// the ad loads once initially, then retries twice more (3 total
+  /// attempts) before entering the cooldown period defined by
+  /// [retryCooldownAfterMaxAttempts]. Set to 0 to disable retries.
   final int maxLoadRetries;
 
   /// Delay between load retries
@@ -168,36 +216,22 @@ class AdFlowConfig {
   /// Default is 5 minutes.
   final Duration retryCooldownAfterMaxAttempts;
 
-  /// Banner ad refresh interval (placeholder for future implementation).
+
+
+  /// Maximum ad content rating for all ad requests.
   ///
-  /// **Note:** This config option is defined but auto-refresh is NOT yet
-  /// implemented in `EasyBannerAd`. For now, banners refresh on orientation
-  /// change only. This field is reserved for future use.
+  /// Use [MaxAdContentRating] constants to restrict ad content:
+  /// - `MaxAdContentRating.g` — General audiences
+  /// - `MaxAdContentRating.pg` — Parental guidance
+  /// - `MaxAdContentRating.t` — Teen
+  /// - `MaxAdContentRating.ma` — Mature audiences
   ///
-  /// When implemented, Google recommends refreshing every 60-120 seconds
-  /// for optimal revenue. Set to `null` to disable auto-refresh (default).
-  final Duration? bannerRefreshInterval;
+  /// Default: `null` (no restriction).
+  final String? maxAdContentRating;
 
   // ============================================================
   // INITIALIZATION TIMEOUTS
   // ============================================================
-
-  /// Timeout for consent network request (requestConsentInfoUpdate).
-  ///
-  /// If the network request takes longer than this, the SDK will fall back
-  /// to cached consent status. This does NOT affect consent dialogs - those
-  /// always wait for user interaction.
-  ///
-  /// Default: 10 seconds. Set to `null` to disable timeout (not recommended).
-  final Duration? consentNetworkTimeout;
-
-  /// Timeout for Mobile Ads SDK initialization.
-  ///
-  /// If initialization takes longer than this, the app will proceed without ads
-  /// and retry SDK initialization in the background.
-  ///
-  /// Default: 8 seconds. Set to `null` to disable timeout (not recommended).
-  final Duration? sdkInitTimeout;
 
   /// Timeout for cold-start app open ad loading.
   ///
@@ -233,9 +267,7 @@ class AdFlowConfig {
     this.rewardedAdsIgnoreRemoveAds = true,
     this.httpTimeoutMillis = 30000,
     this.retryCooldownAfterMaxAttempts = const Duration(minutes: 5),
-    this.bannerRefreshInterval,
-    this.consentNetworkTimeout = const Duration(seconds: 10),
-    this.sdkInitTimeout = const Duration(seconds: 8),
+    this.maxAdContentRating,
     this.coldStartAdTimeout = const Duration(seconds: 3),
   });
 
@@ -250,8 +282,6 @@ class AdFlowConfig {
   factory AdFlowConfig.testMode({
     List<String> testDeviceIds = const [],
     bool enableConsentDebug = true,
-    Duration? consentNetworkTimeout = const Duration(seconds: 10),
-    Duration? sdkInitTimeout = const Duration(seconds: 8),
     Duration? coldStartAdTimeout = const Duration(seconds: 3),
   }) {
     return AdFlowConfig(
@@ -267,9 +297,79 @@ class AdFlowConfig {
       iosRewardedAdUnitId: TestAdUnitIds.rewarded,
       testDeviceIds: testDeviceIds,
       enableConsentDebug: enableConsentDebug,
-      consentNetworkTimeout: consentNetworkTimeout,
-      sdkInitTimeout: sdkInitTimeout,
       coldStartAdTimeout: coldStartAdTimeout,
+    );
+  }
+
+  /// Creates a copy of this config with the given fields replaced.
+  ///
+  /// ```dart
+  /// final custom = baseConfig.copyWith(
+  ///   maxLoadRetries: 5,
+  ///   minInterstitialInterval: Duration(seconds: 90),
+  /// );
+  /// ```
+  AdFlowConfig copyWith({
+    String? androidBannerAdUnitId,
+    String? iosBannerAdUnitId,
+    String? androidInterstitialAdUnitId,
+    String? iosInterstitialAdUnitId,
+    String? androidAppOpenAdUnitId,
+    String? iosAppOpenAdUnitId,
+    String? androidNativeAdUnitId,
+    String? iosNativeAdUnitId,
+    String? androidRewardedAdUnitId,
+    String? iosRewardedAdUnitId,
+    List<String>? testDeviceIds,
+    bool? enableConsentDebug,
+    bool? tagForUnderAgeOfConsent,
+    Duration? appOpenAdMaxCacheDuration,
+    Duration? minInterstitialInterval,
+    int? maxLoadRetries,
+    Duration? retryDelay,
+    bool? skipGdprConsentIfAttDenied,
+    bool? rewardedAdsIgnoreRemoveAds,
+    int? httpTimeoutMillis,
+    Duration? retryCooldownAfterMaxAttempts,
+    String? maxAdContentRating,
+    Duration? coldStartAdTimeout,
+  }) {
+    return AdFlowConfig(
+      androidBannerAdUnitId:
+          androidBannerAdUnitId ?? this.androidBannerAdUnitId,
+      iosBannerAdUnitId: iosBannerAdUnitId ?? this.iosBannerAdUnitId,
+      androidInterstitialAdUnitId:
+          androidInterstitialAdUnitId ?? this.androidInterstitialAdUnitId,
+      iosInterstitialAdUnitId:
+          iosInterstitialAdUnitId ?? this.iosInterstitialAdUnitId,
+      androidAppOpenAdUnitId:
+          androidAppOpenAdUnitId ?? this.androidAppOpenAdUnitId,
+      iosAppOpenAdUnitId: iosAppOpenAdUnitId ?? this.iosAppOpenAdUnitId,
+      androidNativeAdUnitId:
+          androidNativeAdUnitId ?? this.androidNativeAdUnitId,
+      iosNativeAdUnitId: iosNativeAdUnitId ?? this.iosNativeAdUnitId,
+      androidRewardedAdUnitId:
+          androidRewardedAdUnitId ?? this.androidRewardedAdUnitId,
+      iosRewardedAdUnitId: iosRewardedAdUnitId ?? this.iosRewardedAdUnitId,
+      testDeviceIds: testDeviceIds ?? this.testDeviceIds,
+      enableConsentDebug: enableConsentDebug ?? this.enableConsentDebug,
+      tagForUnderAgeOfConsent:
+          tagForUnderAgeOfConsent ?? this.tagForUnderAgeOfConsent,
+      appOpenAdMaxCacheDuration:
+          appOpenAdMaxCacheDuration ?? this.appOpenAdMaxCacheDuration,
+      minInterstitialInterval:
+          minInterstitialInterval ?? this.minInterstitialInterval,
+      maxLoadRetries: maxLoadRetries ?? this.maxLoadRetries,
+      retryDelay: retryDelay ?? this.retryDelay,
+      skipGdprConsentIfAttDenied:
+          skipGdprConsentIfAttDenied ?? this.skipGdprConsentIfAttDenied,
+      rewardedAdsIgnoreRemoveAds:
+          rewardedAdsIgnoreRemoveAds ?? this.rewardedAdsIgnoreRemoveAds,
+      httpTimeoutMillis: httpTimeoutMillis ?? this.httpTimeoutMillis,
+      retryCooldownAfterMaxAttempts:
+          retryCooldownAfterMaxAttempts ?? this.retryCooldownAfterMaxAttempts,
+      maxAdContentRating: maxAdContentRating ?? this.maxAdContentRating,
+      coldStartAdTimeout: coldStartAdTimeout ?? this.coldStartAdTimeout,
     );
   }
 
@@ -283,9 +383,10 @@ class AdFlowConfig {
     String? iosId,
     String fallback,
   ) {
-    if (Platform.isAndroid) return androidId ?? fallback;
-    if (Platform.isIOS) return iosId ?? fallback;
-    throw UnsupportedError('Unsupported platform: ${Platform.operatingSystem}');
+    if (AdFlowPlatform.isAndroid) return androidId ?? fallback;
+    if (AdFlowPlatform.isIOS) return iosId ?? fallback;
+    // Return fallback for unsupported platforms (web, desktop)
+    return fallback;
   }
 
   /// Get banner ad unit ID for current platform
@@ -375,7 +476,15 @@ class AdFlowConfig {
   ///
   /// Falls back to test mode if not set (safe default for development).
   /// This is used internally by ad managers.
-  static AdFlowConfig get current => _current ?? AdFlowConfig.testMode();
+  static AdFlowConfig get current {
+    if (_current == null) {
+      debugPrint(
+        '\u26a0\ufe0f AdFlowConfig.current accessed before AdFlow.initialize(). '
+        'Falling back to test mode \u2014 ensure this is intentional in production.',
+      );
+    }
+    return _current ?? AdFlowConfig.testMode();
+  }
 
   /// Sets the current configuration (called by AdFlow.initialize).
   static void setCurrent(AdFlowConfig config) {

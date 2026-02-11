@@ -2,7 +2,7 @@
 // Easy Privacy Settings Button Widget
 
 import 'package:flutter/material.dart';
-import 'consent_manager.dart';
+import 'privacy_requirement_mixin.dart';
 
 /// A convenience widget that shows a privacy settings button when required.
 ///
@@ -88,60 +88,30 @@ class EasyPrivacySettingsButton extends StatefulWidget {
       _EasyPrivacySettingsButtonState();
 }
 
-class _EasyPrivacySettingsButtonState extends State<EasyPrivacySettingsButton> {
-  bool _isRequired = false;
-  bool _isLoading = true;
-
+class _EasyPrivacySettingsButtonState extends State<EasyPrivacySettingsButton>
+    with PrivacyRequirementMixin {
   @override
   void initState() {
     super.initState();
-    _checkPrivacyRequirement();
-  }
-
-  Future<void> _checkPrivacyRequirement() async {
-    // First check cached value for instant display
-    final cachedValue = ConsentManager.instance.isPrivacyOptionsRequired();
-    if (mounted) {
-      setState(() {
-        _isRequired = cachedValue;
-        _isLoading = false;
-      });
-    }
-
-    // Then verify with async check for accuracy
-    final asyncValue = await ConsentManager.instance
-        .isPrivacyOptionsRequiredAsync();
-    if (mounted && asyncValue != _isRequired) {
-      setState(() {
-        _isRequired = asyncValue;
-      });
-    }
+    checkPrivacyRequirement();
   }
 
   void _showPrivacyForm() {
-    widget.onPressed?.call();
-
-    ConsentManager.instance.showPrivacyOptionsForm(
-      onComplete: (error) {
-        if (error != null) {
-          debugPrint('Privacy form error: ${error.message}');
-        }
-        widget.onFormDismissed?.call();
-        // Re-check requirement after form dismissal
-        _checkPrivacyRequirement();
-      },
+    showPrivacyForm(
+      onTapCallback: widget.onPressed,
+      onDismissedCallback: widget.onFormDismissed,
     );
   }
 
   @override
   Widget build(BuildContext context) {
     // Don't show while loading (unless alwaysShow is true)
-    if (_isLoading && !widget.alwaysShow) {
+    if (privacyIsLoading && !widget.alwaysShow) {
       return const SizedBox.shrink();
     }
 
     // Don't show if not required (unless alwaysShow is true)
-    if (!_isRequired && !widget.alwaysShow) {
+    if (!privacyIsRequired && !widget.alwaysShow) {
       return const SizedBox.shrink();
     }
 
@@ -206,55 +176,28 @@ class PrivacySettingsListTile extends StatefulWidget {
       _PrivacySettingsListTileState();
 }
 
-class _PrivacySettingsListTileState extends State<PrivacySettingsListTile> {
-  bool _isRequired = false;
-  bool _isLoading = true;
-
+class _PrivacySettingsListTileState extends State<PrivacySettingsListTile>
+    with PrivacyRequirementMixin {
   @override
   void initState() {
     super.initState();
-    _checkPrivacyRequirement();
-  }
-
-  Future<void> _checkPrivacyRequirement() async {
-    final cachedValue = ConsentManager.instance.isPrivacyOptionsRequired();
-    if (mounted) {
-      setState(() {
-        _isRequired = cachedValue;
-        _isLoading = false;
-      });
-    }
-
-    final asyncValue = await ConsentManager.instance
-        .isPrivacyOptionsRequiredAsync();
-    if (mounted && asyncValue != _isRequired) {
-      setState(() {
-        _isRequired = asyncValue;
-      });
-    }
+    checkPrivacyRequirement();
   }
 
   void _showPrivacyForm() {
-    widget.onTap?.call();
-
-    ConsentManager.instance.showPrivacyOptionsForm(
-      onComplete: (error) {
-        if (error != null) {
-          debugPrint('Privacy form error: ${error.message}');
-        }
-        widget.onFormDismissed?.call();
-        _checkPrivacyRequirement();
-      },
+    showPrivacyForm(
+      onTapCallback: widget.onTap,
+      onDismissedCallback: widget.onFormDismissed,
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading && !widget.alwaysShow) {
+    if (privacyIsLoading && !widget.alwaysShow) {
       return const SizedBox.shrink();
     }
 
-    if (!_isRequired && !widget.alwaysShow) {
+    if (!privacyIsRequired && !widget.alwaysShow) {
       return const SizedBox.shrink();
     }
 

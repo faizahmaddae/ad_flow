@@ -7,6 +7,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'ad_config.dart';
 import 'ad_error_handler.dart';
+import 'ad_sdk.dart';
 import 'consent_manager.dart';
 import 'consent_explainer_dialog.dart';
 import 'banner_ad_manager.dart';
@@ -80,7 +81,6 @@ class AdFlow {
   bool _isInitialized = false;
   bool _isInitializing = false;
   bool _isMobileAdsInitialized = false;
-  bool _pendingMobileAdsInit = false;
   int _maxForegroundAdsPerSession = _kDefaultMaxForegroundAds;
   AdFlowConfig? _config;
 
@@ -468,8 +468,9 @@ class AdFlow {
     // Prevent concurrent initialization calls
     if (_isInitializing) {
       debugPrint('AdFlow: Initialization already in progress');
-      // Wait for existing initialization to complete
-      waitForInit().then((canRequestAds) => onComplete?.call(canRequestAds));
+      // Wait for existing initialization to complete and then notify caller
+      final canRequestAds = await waitForInit();
+      onComplete?.call(canRequestAds);
       return;
     }
     _isInitializing = true;
@@ -478,47 +479,76 @@ class AdFlow {
     // This allows other parts of the code to wait for initialization
     _initCompleter ??= Completer<bool>();
 
-    // Set config (defaults to test mode if not provided)
-    _config = config ?? AdFlowConfig.testMode();
-    AdFlowConfig.setCurrent(_config!);
+    try {
+      // Set config (defaults to test mode if not provided)
+      _config = config ?? AdFlowConfig.testMode();
+      AdFlowConfig.setCurrent(_config!);
 
-    debugPrint(
-      'AdFlow: Starting initialization${useExplainer ? ' with explainer' : ''}...',
-    );
-    debugPrint(
-      'AdFlow: Using test ads: ${AdFlowConfig.current.isUsingTestAds}',
-    );
+      debugPrint(
+        'AdFlow: Starting initialization${useExplainer ? ' with explainer' : ''}...',
+      );
+      debugPrint(
+        'AdFlow: Using test ads: ${AdFlowConfig.current.isUsingTestAds}',
+      );
 
-    // Policy warning: Alert developers if using test IDs in release build
-    if (AdFlowConfig.current.isUsingTestAds) {
-      assert(() {
-        debugPrint(
-          '⚠️ AdFlow WARNING: Using test ad unit IDs. '
-          'Replace with production IDs before release!',
+      // Policy warning: Alert developers if using test IDs in release build
+      if (AdFlowConfig.current.isUsingTestAds) {
+        assert(() {
+          debugPrint(
+            '⚠️ AdFlow WARNING: Using test ad unit IDs. '
+            'Replace with production IDs before release!',
+          );
+          return true;
+        }());
+      }
+      _maxForegroundAdsPerSession = maxForegroundAdsPerSession;
+
+      // Step 0: Initialize AdsEnabledManager (for Remove Ads feature)
+      // Always initialize first to load persisted "Remove Ads" state
+      await AdsEnabledManager.instance.initialize();
+
+      // Check if ads are disabled (user purchased Remove Ads)
+      // Skip this check for explainer path - it will be handled after dialog
+      if (!useExplainer && AdsEnabledManager.instance.isDisabled) {
+        debugPrint('AdFlow: Ads are disabled (Remove Ads purchased)');
+        _isInitialized = true;
+        _completeInit(false);
+        onComplete?.call(false);
+        return;
+      }
+
+      // Step 1: Gather consent (with or without explainer)
+      // Use a sync callback to capture the error. Post-consent work runs
+      // inline after gatherConsent returns — this avoids the async-callback-
+      // as-void bug where ConsentCallback (void Function(FormError?)) cannot
+      // await an async callback, causing the completer to resolve before
+      // the callback finishes.
+      FormError? consentError;
+
+      if (useExplainer) {
+        // Context was already validated as non-null via useExplainer check
+        await consent.gatherConsentWithExplainer(
+          // ignore: use_build_context_synchronously
+          context: context,
+          showExplainer: showExplainer,
+          consentTexts: consentTexts,
+          attTexts: attTexts,
+          onConsentGatheringComplete: (error) {
+            consentError = error;
+          },
         );
-        return true;
-      }());
-    }
-    _maxForegroundAdsPerSession = maxForegroundAdsPerSession;
+      } else {
+        await consent.gatherConsent(
+          onConsentGatheringComplete: (error) {
+            consentError = error;
+          },
+        );
+      }
 
-    // Step 0: Initialize AdsEnabledManager (for Remove Ads feature)
-    // Always initialize first to load persisted "Remove Ads" state
-    await AdsEnabledManager.instance.initialize();
+      // ── Post-consent work ──
 
-    // Check if ads are disabled (user purchased Remove Ads)
-    // Skip this check for explainer path - it will be handled after dialog
-    if (!useExplainer && AdsEnabledManager.instance.isDisabled) {
-      debugPrint('AdFlow: Ads are disabled (Remove Ads purchased)');
-      _isInitialized = true;
-      _completeInit(false);
-      onComplete?.call(false);
-      return;
-    }
-
-    // Create the shared post-consent callback
-    Future<void> onConsentComplete(FormError? error) async {
-      if (error != null) {
-        debugPrint('AdFlow: Consent error: ${error.message}');
+      if (consentError != null) {
+        debugPrint('AdFlow: Consent error: ${consentError!.message}');
       }
 
       // Step 2: Forward consent to mediation networks (if any registered)
@@ -562,23 +592,11 @@ class AdFlow {
       debugPrint('AdFlow: Can request ads: $canRequestAds');
 
       onComplete?.call(canRequestAds);
-    }
-
-    // Step 1: Gather consent (with or without explainer)
-    if (useExplainer) {
-      // Context was already validated as non-null via useExplainer check
-      await consent.gatherConsentWithExplainer(
-        // ignore: use_build_context_synchronously
-        context: context,
-        showExplainer: showExplainer,
-        consentTexts: consentTexts,
-        attTexts: attTexts,
-        onConsentGatheringComplete: onConsentComplete,
-      );
-    } else {
-      await consent.gatherConsent(
-        onConsentGatheringComplete: onConsentComplete,
-      );
+    } catch (e) {
+      debugPrint('AdFlow: Initialization failed with error: $e');
+      _isInitialized = true;
+      _completeInit(false);
+      onComplete?.call(false);
     }
   }
 
@@ -634,77 +652,30 @@ class AdFlow {
   /// Initializes the Mobile Ads SDK.
   ///
   /// Returns `true` if initialization succeeded, `false` otherwise.
-  /// If timeout occurs, will retry in background.
   Future<bool> _initializeMobileAds() async {
     debugPrint('AdFlow: Initializing Mobile Ads SDK...');
 
     try {
-      final timeout = AdFlowConfig.current.sdkInitTimeout;
-
-      if (timeout != null) {
-        await MobileAds.instance.initialize().timeout(
-          timeout,
-          onTimeout: () {
-            debugPrint(
-              'AdFlow: SDK initialization timed out after ${timeout.inSeconds}s',
-            );
-            _pendingMobileAdsInit = true;
-            _retryMobileAdsInitInBackground();
-            throw TimeoutException('SDK init timeout', timeout);
-          },
-        );
-      } else {
-        await MobileAds.instance.initialize();
-      }
+      await AdSdk.instance.initializeMobileAds();
 
       _isMobileAdsInitialized = true;
-      _pendingMobileAdsInit = false;
       debugPrint('AdFlow: Mobile Ads SDK initialized');
 
       // Set request configuration
       final config = RequestConfiguration(
+        maxAdContentRating: AdFlowConfig.current.maxAdContentRating,
         testDeviceIds: AdFlowConfig.current.testDeviceIds,
         tagForUnderAgeOfConsent: AdFlowConfig.current.tagForUnderAgeOfConsent
             ? TagForUnderAgeOfConsent.yes
             : TagForUnderAgeOfConsent.no,
       );
-      await MobileAds.instance.updateRequestConfiguration(config);
+      await AdSdk.instance.updateRequestConfiguration(config);
       return true;
-    } on TimeoutException {
-      // Timeout handled above, don't log again
-      return false;
     } catch (e) {
       debugPrint('AdFlow: Failed to initialize Mobile Ads SDK: $e');
       _isMobileAdsInitialized = false;
       return false;
     }
-  }
-
-  /// Retries Mobile Ads SDK initialization in background.
-  void _retryMobileAdsInitInBackground() {
-    Future.delayed(const Duration(seconds: 2), () async {
-      if (_isMobileAdsInitialized || !_pendingMobileAdsInit) return;
-
-      debugPrint('AdFlow: Retrying Mobile Ads SDK initialization...');
-      try {
-        await MobileAds.instance.initialize();
-        _isMobileAdsInitialized = true;
-        _pendingMobileAdsInit = false;
-        debugPrint('AdFlow: Mobile Ads SDK initialized (background retry)');
-
-        // Set request configuration
-        final config = RequestConfiguration(
-          testDeviceIds: AdFlowConfig.current.testDeviceIds,
-          tagForUnderAgeOfConsent: AdFlowConfig.current.tagForUnderAgeOfConsent
-              ? TagForUnderAgeOfConsent.yes
-              : TagForUnderAgeOfConsent.no,
-        );
-        await MobileAds.instance.updateRequestConfiguration(config);
-      } catch (e) {
-        debugPrint('AdFlow: Background SDK init retry failed: $e');
-        // Could retry again with exponential backoff if needed
-      }
-    });
   }
 
   /// Forwards consent to registered mediation networks.
@@ -810,7 +781,7 @@ class AdFlow {
   ///
   /// This is useful during development to inspect ad behavior.
   void openAdInspector() {
-    MobileAds.instance.openAdInspector((error) {
+    AdSdk.instance.openAdInspector((error) {
       if (error != null) {
         debugPrint('AdFlow: Ad Inspector error: ${error.message}');
       }
@@ -872,7 +843,6 @@ class AdFlow {
     _lifecycleReactor = null;
     _isMobileAdsInitialized = false;
     _isInitializing = false;
-    _pendingMobileAdsInit = false;
     _maxForegroundAdsPerSession = _kDefaultMaxForegroundAds;
     _config = null;
     _initCompleter = null; // Reset completer for re-initialization
@@ -880,6 +850,7 @@ class AdFlow {
     await _initStreamController.close();
     _initStreamController = StreamController<bool>.broadcast();
     AdFlowConfig.resetCurrent();
+    MediationHelper.reset();
     debugPrint('AdFlow: State reset complete');
   }
 }

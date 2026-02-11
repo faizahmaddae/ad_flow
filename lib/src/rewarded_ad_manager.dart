@@ -7,6 +7,8 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'ad_config.dart';
 import 'ad_error_handler.dart';
+import 'ad_manager_mixin.dart';
+import 'ad_sdk.dart';
 import 'ads_enabled_manager.dart';
 
 /// Callback for rewarded ad events
@@ -18,10 +20,6 @@ typedef RewardedAdErrorCallback = void Function(LoadAdError error);
 /// Simplified callback for when user earns a reward (just the reward)
 typedef OnRewardEarnedCallback = void Function(RewardItem reward);
 
-/// Full callback for when user earns a reward (includes ad reference)
-typedef OnUserEarnedRewardCallback =
-    void Function(AdWithoutView ad, RewardItem reward);
-
 /// Manages rewarded ads with automatic loading and reward handling.
 ///
 /// Rewarded ads are full-screen ads that users can choose to watch
@@ -30,7 +28,7 @@ typedef OnUserEarnedRewardCallback =
 /// Features:
 /// - Automatic ad preloading
 /// - Reward callback handling
-/// - Load retry with exponential backoff
+/// - Load retry with linear backoff
 /// - FullScreenContentCallback handling
 ///
 /// Example usage:
@@ -43,7 +41,7 @@ typedef OnUserEarnedRewardCallback =
 /// // Show when ready and handle reward
 /// if (rewardedManager.isLoaded) {
 ///   await rewardedManager.showAd(
-///     onUserEarnedReward: (ad, reward) {
+///     onUserEarnedReward: (reward) {
 ///       print('User earned ${reward.amount} ${reward.type}');
 ///       // Grant the reward to user
 ///     },
@@ -53,47 +51,44 @@ typedef OnUserEarnedRewardCallback =
 ///   );
 /// }
 /// ```
-class RewardedAdManager {
+class RewardedAdManager
+    with AdStatusNotifier, AdRetryHandler
+    implements AdManager {
   RewardedAd? _rewardedAd;
   bool _isLoaded = false;
   bool _isLoading = false;
   bool _isShowing = false;
-  bool _isDisposed = false;
-  int _loadAttempts = 0;
-  DateTime? _lastMaxRetryFailureTime;
-
-  /// Status listeners for reactive UI updates
-  final List<VoidCallback> _statusListeners = [];
-
-  /// Add a listener that will be called when the ad status changes
-  void addStatusListener(VoidCallback listener) {
-    _statusListeners.add(listener);
-  }
-
-  /// Remove a previously added listener
-  void removeStatusListener(VoidCallback listener) {
-    _statusListeners.remove(listener);
-  }
-
-  /// Notify all listeners of a status change
-  void _notifyStatusListeners() {
-    if (_isDisposed) return;
-    for (final listener in List.of(_statusListeners)) {
-      listener();
-    }
-  }
 
   /// The currently loaded rewarded ad
   RewardedAd? get rewardedAd => _rewardedAd;
 
   /// Whether a rewarded ad is currently loaded
+  @override
   bool get isLoaded => _isLoaded;
 
   /// Whether a rewarded ad is currently loading
+  @override
   bool get isLoading => _isLoading;
 
   /// Whether a rewarded ad is currently being shown
+  @override
   bool get isShowing => _isShowing;
+
+  /// Server-side verification options for reward validation.
+  ///
+  /// Set this before calling [showAd] to enable server-side reward verification.
+  /// Your server will receive a callback from Google with these parameters
+  /// to validate that the reward was legitimately earned.
+  ///
+  /// Example:
+  /// ```dart
+  /// rewardedManager.serverSideVerificationOptions =
+  ///     ServerSideVerificationOptions(
+  ///       userId: currentUser.id,
+  ///       customData: jsonEncode({'level': 5, 'item': 'coins'}),
+  ///     );
+  /// ```
+  ServerSideVerificationOptions? serverSideVerificationOptions;
 
   /// Loads a rewarded ad.
   ///
@@ -106,7 +101,7 @@ class RewardedAdManager {
     RewardedAdErrorCallback? onAdFailedToLoad,
   }) async {
     // Reset disposed flag to allow reuse (manager is accessed via lazy getter)
-    _isDisposed = false;
+    resetDisposedState();
 
     // Check if ads are disabled (Remove Ads feature)
     // By default, rewarded ads ignore Remove Ads setting since users may still want rewards
@@ -116,65 +111,60 @@ class RewardedAdManager {
       return;
     }
 
-    // Check consent before loading (Google best practice)
-    if (!await ConsentInformation.instance.canRequestAds()) {
-      debugPrint('RewardedAdManager: Cannot request ads (no consent)');
-      return;
-    }
-
-    // Check if already loading or loaded (before cooldown check to avoid unnecessary work)
+    // Check if already loading or loaded (before async work to prevent races)
     if (_isLoading || _isLoaded) {
       debugPrint('RewardedAdManager: Already loading or loaded, skipping...');
       return;
     }
 
-    // Check retry cooldown after max attempts
-    if (_loadAttempts >= AdFlowConfig.current.maxLoadRetries &&
-        _lastMaxRetryFailureTime != null) {
-      final elapsed = DateTime.now().difference(_lastMaxRetryFailureTime!);
-      if (elapsed < AdFlowConfig.current.retryCooldownAfterMaxAttempts) {
-        final remaining =
-            AdFlowConfig.current.retryCooldownAfterMaxAttempts - elapsed;
-        debugPrint(
-          'RewardedAdManager: In cooldown after max retries (${remaining.inSeconds}s remaining)',
-        );
-        return;
-      } else {
-        // Cooldown expired, reset attempts
-        _loadAttempts = 0;
-        _lastMaxRetryFailureTime = null;
-      }
+    _isLoading = true;
+    notifyStatusListeners();
+
+    // Check consent before loading (Google best practice)
+    if (!await AdSdk.instance.canRequestAds()) {
+      debugPrint('RewardedAdManager: Cannot request ads (no consent)');
+      _isLoading = false;
+      notifyStatusListeners();
+      return;
     }
 
-    _isLoading = true;
-    _notifyStatusListeners();
+    // Check retry cooldown after max attempts
+    if (isInRetryCooldown(managerName: 'RewardedAdManager')) {
+      _isLoading = false;
+      notifyStatusListeners();
+      return;
+    }
+
     debugPrint('RewardedAdManager: Loading rewarded ad...');
 
-    await RewardedAd.load(
+    await AdSdk.instance.loadRewardedAd(
       adUnitId: adUnitId ?? AdFlowConfig.current.rewardedAdUnitId,
       request: AdRequest(
         httpTimeoutMillis: AdFlowConfig.current.httpTimeoutMillis,
       ),
-      rewardedAdLoadCallback: RewardedAdLoadCallback(
-        onAdLoaded: (RewardedAd ad) {
+      onLoaded: (RewardedAd ad) {
           debugPrint('RewardedAdManager: Ad loaded successfully');
           _rewardedAd = ad;
           _isLoaded = true;
           _isLoading = false;
-          _loadAttempts = 0;
+          resetRetryAttempts();
 
           // Set up full screen content callbacks
           _setupFullScreenContentCallback();
 
+          // Apply server-side verification if configured
+          if (serverSideVerificationOptions != null) {
+            ad.setServerSideOptions(serverSideVerificationOptions!);
+          }
+
           onAdLoaded?.call(ad);
-          _notifyStatusListeners();
+          notifyStatusListeners();
         },
-        onAdFailedToLoad: (LoadAdError error) {
+        onFailed: (LoadAdError error) {
           debugPrint('RewardedAdManager: Ad failed to load: ${error.message}');
           _isLoaded = false;
           _isLoading = false;
-          _loadAttempts++;
-          _notifyStatusListeners();
+          notifyStatusListeners();
 
           // Report error to centralized handler
           AdFlowErrorHandler.instance.reportLoadError(
@@ -183,28 +173,19 @@ class RewardedAdManager {
             adUnitId: adUnitId ?? AdFlowConfig.current.rewardedAdUnitId,
           );
 
-          // Retry loading if under max attempts
-          if (_loadAttempts < AdFlowConfig.current.maxLoadRetries) {
-            debugPrint(
-              'RewardedAdManager: Retrying load (attempt $_loadAttempts)...',
-            );
-            Future.delayed(AdFlowConfig.current.retryDelay * _loadAttempts, () {
-              // Guard against retry after dispose
-              if (_isDisposed) return;
-              loadAd(adUnitId: adUnitId);
-            });
-          } else {
-            // Max retries exhausted, start cooldown
-            _lastMaxRetryFailureTime = DateTime.now();
-            debugPrint(
-              'RewardedAdManager: Max retries exhausted, entering ${AdFlowConfig.current.retryCooldownAfterMaxAttempts.inMinutes}min cooldown',
-            );
-          }
+          // Retry loading with linear backoff
+          final retried = handleLoadFailure(
+            checkDisposed: () => isDisposed,
+            onRetry: () => loadAd(adUnitId: adUnitId),
+            managerName: 'RewardedAdManager',
+          );
 
-          onAdFailedToLoad?.call(error);
+          // Only report to callback when all retries exhausted
+          if (!retried) {
+            onAdFailedToLoad?.call(error);
+          }
         },
-      ),
-    );
+      );
   }
 
   /// Sets up the full screen content callbacks.
@@ -219,7 +200,7 @@ class RewardedAdManager {
       onAdShowedFullScreenContent: (Ad ad) {
         debugPrint('RewardedAdManager: Ad showed full screen content');
         _isShowing = true;
-        _notifyStatusListeners();
+        notifyStatusListeners();
       },
       onAdDismissedFullScreenContent: (Ad ad) {
         debugPrint('RewardedAdManager: Ad dismissed');
@@ -227,7 +208,7 @@ class RewardedAdManager {
         ad.dispose();
         _rewardedAd = null;
         _isLoaded = false;
-        _notifyStatusListeners();
+        notifyStatusListeners();
         onAdDismissed?.call();
 
         // Preload next ad
@@ -239,7 +220,15 @@ class RewardedAdManager {
         ad.dispose();
         _rewardedAd = null;
         _isLoaded = false;
-        _notifyStatusListeners();
+        notifyStatusListeners();
+
+        // Report show error to centralized handler
+        AdFlowErrorHandler.instance.reportError(AdFlowError(
+          type: AdErrorType.rewardedShow,
+          code: error.code,
+          message: error.message,
+        ));
+
         onAdFailedToShow?.call();
 
         // Try to load another ad
@@ -273,7 +262,9 @@ class RewardedAdManager {
     VoidCallback? onAdFailedToShow,
   }) async {
     // Check if ads are disabled (Remove Ads feature)
-    if (AdsEnabledManager.instance.isDisabled) {
+    // Respect rewardedAdsIgnoreRemoveAds config—same guard as loadAd()
+    if (!AdFlowConfig.current.rewardedAdsIgnoreRemoveAds &&
+        AdsEnabledManager.instance.isDisabled) {
       debugPrint('RewardedAdManager: Ads disabled, not showing');
       onAdFailedToShow?.call();
       return false;
@@ -296,8 +287,10 @@ class RewardedAdManager {
       onAdFailedToShow: onAdFailedToShow,
     );
 
-    // Set immersive mode for a better fullscreen experience (Google best practice)
-    _rewardedAd!.setImmersiveMode(true);
+    // Set immersive mode for a better fullscreen experience (Android only)
+    if (AdFlowPlatform.isAndroid) {
+      _rewardedAd!.setImmersiveMode(true);
+    }
 
     debugPrint('RewardedAdManager: Showing ad...');
     // Wrap the simplified callback to match the SDK's expected signature
@@ -310,13 +303,15 @@ class RewardedAdManager {
   }
 
   /// Disposes of the current rewarded ad.
+  @override
   Future<void> dispose() async {
-    _isDisposed = true;
-    _statusListeners.clear();
+    disposeNotifier();
+    cancelRetryTimer();
     await _rewardedAd?.dispose();
     _rewardedAd = null;
     _isLoaded = false;
     _isLoading = false;
     _isShowing = false;
+    serverSideVerificationOptions = null;
   }
 }

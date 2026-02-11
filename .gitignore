@@ -56,3 +56,8 @@ coverage/
 
 # Test outputs
 .test_coverage.dart
+test_output.log
+
+# Dev-only scripts
+coverage_gaps.py
+coverage_report.py

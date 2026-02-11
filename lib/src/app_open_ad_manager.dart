@@ -7,6 +7,8 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'ad_config.dart';
 import 'ad_error_handler.dart';
+import 'ad_manager_mixin.dart';
+import 'ad_sdk.dart';
 import 'ads_enabled_manager.dart';
 
 /// Callback for app open ad events
@@ -35,48 +37,29 @@ typedef AppOpenAdErrorCallback = void Function(LoadAdError error);
 ///   await appOpenManager.showAdIfAvailable();
 /// }
 /// ```
-class AppOpenAdManager {
+class AppOpenAdManager
+    with AdStatusNotifier, AdRetryHandler
+    implements AdManager {
   AppOpenAd? _appOpenAd;
   bool _isLoaded = false;
   bool _isLoading = false;
   bool _isShowing = false;
-  bool _isDisposed = false;
   DateTime? _loadTime;
-  int _loadAttempts = 0;
-  DateTime? _lastMaxRetryFailureTime;
   Completer<bool>? _loadCompleter;
-
-  /// Status listeners for reactive UI updates
-  final List<VoidCallback> _statusListeners = [];
-
-  /// Add a listener that will be called when the ad status changes
-  void addStatusListener(VoidCallback listener) {
-    _statusListeners.add(listener);
-  }
-
-  /// Remove a previously added listener
-  void removeStatusListener(VoidCallback listener) {
-    _statusListeners.remove(listener);
-  }
-
-  /// Notify all listeners of a status change
-  void _notifyStatusListeners() {
-    if (_isDisposed) return;
-    for (final listener in List.of(_statusListeners)) {
-      listener();
-    }
-  }
 
   /// The currently loaded app open ad
   AppOpenAd? get appOpenAd => _appOpenAd;
 
   /// Whether an app open ad is currently loaded
+  @override
   bool get isLoaded => _isLoaded;
 
   /// Whether an app open ad is currently loading
+  @override
   bool get isLoading => _isLoading;
 
   /// Whether an app open ad is currently being shown
+  @override
   bool get isShowing => _isShowing;
 
   /// Whether an ad is available to show (loaded and not expired)
@@ -103,17 +86,11 @@ class AppOpenAdManager {
     AppOpenAdErrorCallback? onAdFailedToLoad,
   }) async {
     // Reset disposed flag to allow reuse (manager is accessed via lazy getter)
-    _isDisposed = false;
+    resetDisposedState();
 
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
       debugPrint('AppOpenAdManager: Ads disabled, skipping load');
-      return;
-    }
-
-    // Check consent before loading (Google best practice)
-    if (!await ConsentInformation.instance.canRequestAds()) {
-      debugPrint('AppOpenAdManager: Cannot request ads (no consent)');
       return;
     }
 
@@ -137,41 +114,43 @@ class AppOpenAdManager {
       await dispose();
     }
 
-    // Check retry cooldown after max attempts
-    if (_loadAttempts >= AdFlowConfig.current.maxLoadRetries &&
-        _lastMaxRetryFailureTime != null) {
-      final elapsed = DateTime.now().difference(_lastMaxRetryFailureTime!);
-      if (elapsed < AdFlowConfig.current.retryCooldownAfterMaxAttempts) {
-        final remaining =
-            AdFlowConfig.current.retryCooldownAfterMaxAttempts - elapsed;
-        debugPrint(
-          'AppOpenAdManager: In cooldown after max retries (${remaining.inSeconds}s remaining)',
-        );
-        return;
-      } else {
-        // Cooldown expired, reset attempts
-        _loadAttempts = 0;
-        _lastMaxRetryFailureTime = null;
-      }
-    }
-
     _isLoading = true;
     _loadCompleter = Completer<bool>();
+    notifyStatusListeners();
+
+    // Check consent before loading (Google best practice)
+    if (!await AdSdk.instance.canRequestAds()) {
+      debugPrint('AppOpenAdManager: Cannot request ads (no consent)');
+      _isLoading = false;
+      _loadCompleter?.complete(false);
+      _loadCompleter = null;
+      notifyStatusListeners();
+      return;
+    }
+
+    // Check retry cooldown after max attempts
+    if (isInRetryCooldown(managerName: 'AppOpenAdManager')) {
+      _isLoading = false;
+      _loadCompleter?.complete(false);
+      _loadCompleter = null;
+      notifyStatusListeners();
+      return;
+    }
+
     debugPrint('AppOpenAdManager: Loading app open ad...');
 
-    await AppOpenAd.load(
+    await AdSdk.instance.loadAppOpenAd(
       adUnitId: adUnitId ?? AdFlowConfig.current.appOpenAdUnitId,
       request: AdRequest(
         httpTimeoutMillis: AdFlowConfig.current.httpTimeoutMillis,
       ),
-      adLoadCallback: AppOpenAdLoadCallback(
-        onAdLoaded: (AppOpenAd ad) {
+      onLoaded: (AppOpenAd ad) {
           debugPrint('AppOpenAdManager: Ad loaded successfully');
           _appOpenAd = ad;
           _isLoaded = true;
           _isLoading = false;
           _loadTime = DateTime.now();
-          _loadAttempts = 0;
+          resetRetryAttempts();
 
           // Set up full screen content callbacks
           _setupFullScreenContentCallback();
@@ -182,13 +161,12 @@ class AppOpenAdManager {
           }
 
           onAdLoaded?.call(ad);
-          _notifyStatusListeners();
+          notifyStatusListeners();
         },
-        onAdFailedToLoad: (LoadAdError error) {
+        onFailed: (LoadAdError error) {
           debugPrint('AppOpenAdManager: Ad failed to load: ${error.message}');
           _isLoaded = false;
           _isLoading = false;
-          _loadAttempts++;
 
           // Complete the load completer with failure
           if (_loadCompleter != null && !_loadCompleter!.isCompleted) {
@@ -202,30 +180,21 @@ class AppOpenAdManager {
             adUnitId: adUnitId ?? AdFlowConfig.current.appOpenAdUnitId,
           );
 
-          _notifyStatusListeners();
+          notifyStatusListeners();
 
-          // Retry loading if under max attempts
-          if (_loadAttempts < AdFlowConfig.current.maxLoadRetries) {
-            debugPrint(
-              'AppOpenAdManager: Retrying load (attempt $_loadAttempts)...',
-            );
-            Future.delayed(AdFlowConfig.current.retryDelay * _loadAttempts, () {
-              // Guard against retry after dispose
-              if (_isDisposed) return;
-              loadAd(adUnitId: adUnitId);
-            });
-          } else {
-            // Max retries exhausted, start cooldown
-            _lastMaxRetryFailureTime = DateTime.now();
-            debugPrint(
-              'AppOpenAdManager: Max retries exhausted, entering ${AdFlowConfig.current.retryCooldownAfterMaxAttempts.inMinutes}min cooldown',
-            );
+          // Retry loading with linear backoff
+          final retried = handleLoadFailure(
+            checkDisposed: () => isDisposed,
+            onRetry: () => loadAd(adUnitId: adUnitId),
+            managerName: 'AppOpenAdManager',
+          );
+
+          // Only report to callback when all retries exhausted
+          if (!retried) {
+            onAdFailedToLoad?.call(error);
           }
-
-          onAdFailedToLoad?.call(error);
         },
-      ),
-    );
+      );
   }
 
   /// Loads an app open ad and waits for it to complete.
@@ -272,7 +241,7 @@ class AppOpenAdManager {
       onAdShowedFullScreenContent: (Ad ad) {
         debugPrint('AppOpenAdManager: Ad showed full screen content');
         _isShowing = true;
-        _notifyStatusListeners();
+        notifyStatusListeners();
       },
       onAdDismissedFullScreenContent: (Ad ad) {
         debugPrint('AppOpenAdManager: Ad dismissed');
@@ -281,7 +250,7 @@ class AppOpenAdManager {
         _appOpenAd = null;
         _isLoaded = false;
         _loadTime = null;
-        _notifyStatusListeners();
+        notifyStatusListeners();
         onAdDismissed?.call();
 
         // Preload next ad
@@ -294,7 +263,15 @@ class AppOpenAdManager {
         _appOpenAd = null;
         _isLoaded = false;
         _loadTime = null;
-        _notifyStatusListeners();
+        notifyStatusListeners();
+
+        // Report show error to centralized handler
+        AdFlowErrorHandler.instance.reportError(AdFlowError(
+          type: AdErrorType.appOpenShow,
+          code: error.code,
+          message: error.message,
+        ));
+
         onAdFailedToShow?.call();
 
         // Try to load another ad
@@ -364,14 +341,16 @@ class AppOpenAdManager {
   }
 
   /// Disposes of the current app open ad.
+  @override
   Future<void> dispose() async {
-    _isDisposed = true;
-    _statusListeners.clear();
+    disposeNotifier();
+    cancelRetryTimer();
     await _appOpenAd?.dispose();
     _appOpenAd = null;
     _isLoaded = false;
     _isLoading = false;
     _isShowing = false;
     _loadTime = null;
+    _loadCompleter = null;
   }
 }

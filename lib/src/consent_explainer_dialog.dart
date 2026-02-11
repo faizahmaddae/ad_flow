@@ -322,7 +322,7 @@ class _ConsentExplainerContent extends StatelessWidget {
 
             // Skip text
             TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
+              onPressed: () => Navigator.of(context).pop(false),
               child: Text(
                 texts.skipButton,
                 style: TextStyle(

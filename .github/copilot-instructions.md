@@ -245,21 +245,20 @@ await MediationHelper.forwardConsent(
 
 ## Common Gotchas
 - **App Open ads expire:** Check `_isAdExpired()` before showing (4-hour cache limit)
-- **Interstitial cooldown:** Use `minInterstitialInterval` (default 60s) to prevent ad spam
+- **Interstitial cooldown:** Use `minInterstitialInterval` (default 30s) to prevent ad spam
 - **Adaptive banners:** Must get width from context—call `AdSize.getAnchoredAdaptiveBannerAdSize()` in build method
 - **Collapsible banners:** Set `collapsiblePlacement` in `AdRequest.extras` (see `BannerAdManager.loadCollapsibleBanner()`)
 - **Test mode:** Use `AdFlowConfig.testMode()` for development—uses Google test ad unit IDs
 - **Consent required check:** `ConsentManager.isConsentFormAvailable` only returns `true` in GDPR regions
 - **ATT denial handling:** If `TrackingStatus.denied`, can skip GDPR with `skipGdprConsentIfAttDenied: true` in `AdFlowConfig`
-- **Slow network handling:** Smart timeouts are built-in (consent: 10s, SDK: 8s, cold-start ad: 3s) - dialogs always wait for user
+- **Slow network handling:** The Google SDK handles its own network timeouts internally. `coldStartAdTimeout` (3s) is the only app-level timeout—it prevents blocking app launch while waiting for an app open ad.
 
-## Initialization Timeouts
-The package includes smart defaults to handle slow networks without breaking compliance:
+## Remaining Timeouts
+The package delegates network timeouts to the Google SDK and only keeps UX-relevant timeouts:
 ```dart
 AdFlowConfig(
-  consentNetworkTimeout: Duration(seconds: 10), // Network request only, NOT dialogs
-  sdkInitTimeout: Duration(seconds: 8),         // Retries in background if timeout
-  coldStartAdTimeout: Duration(seconds: 3),     // App open ad on cold start
+  coldStartAdTimeout: Duration(seconds: 3),  // App open ad on cold start (UX guard)
+  httpTimeoutMillis: 30000,                  // Google's AdRequest parameter
 )
 ```
 **Important:** Consent dialogs (ATT prompt, UMP form) are NEVER timed out—they wait for user interaction.

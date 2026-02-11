@@ -1,0 +1,89 @@
+# Publish to pub.dev when a version tag is pushed.
+#
+# The workflow automatically updates pubspec.yaml to match the tag version,
+# runs all checks, publishes to pub.dev, and pushes the version bump back
+# to the default branch so the repo stays in sync.
+#
+# Usage (just push a tag — everything else is automatic):
+#   git tag v1.3.15
+#   git push origin v1.3.15
+#
+# One-time setup:
+#   1. Go to https://pub.dev/packages/ad_flow/admin
+#   2. Under "Automated publishing", enable publishing from GitHub Actions
+#   3. Set repository to: faizahmaddae/ad_flow
+#   4. Set tag pattern to: v{{version}}
+
+name: Publish to pub.dev
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*' # matches v1.3.15, v2.0.0, v1.0.0-beta.1, etc.
+
+# contents:write  → push version bump back to repo
+# id-token:write  → pub.dev OIDC authentication (no secrets needed)
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history so we can push back to the default branch
+          fetch-depth: 0
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing version: $TAG_VERSION"
+
+      - name: Update pubspec.yaml version
+        run: |
+          OLD_VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //')
+          NEW_VERSION="${{ steps.version.outputs.version }}"
+          echo "Bumping version: $OLD_VERSION → $NEW_VERSION"
+          sed -i "s/^version: .*/version: $NEW_VERSION/" pubspec.yaml
+          # Verify the update worked
+          grep '^version:' pubspec.yaml
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Format code
+        run: dart format .
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Publish to pub.dev
+        run: dart pub publish --force
+
+      - name: Push version bump to default branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          DEFAULT_BRANCH=$(git remote show origin | grep 'HEAD branch' | sed 's/.*: //')
+          git checkout "$DEFAULT_BRANCH"
+          git cherry-pick --strategy-option theirs "$GITHUB_SHA" 2>/dev/null || true
+          # Stage only the version change
+          sed -i "s/^version: .*/version: ${{ steps.version.outputs.version }}/" pubspec.yaml
+          git add pubspec.yaml
+          git diff --cached --quiet && echo "No changes to push" && exit 0
+          git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
+          git push origin "$DEFAULT_BRANCH"

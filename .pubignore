@@ -1,0 +1,19 @@
+# Dev-only scripts
+*.py
+*.sh
+
+# Coverage
+coverage/
+
+# Build artifacts
+build/
+
+# GitHub workflows
+.github/
+
+# IDE
+.vscode/
+.idea/
+
+# Test output
+test_output.log

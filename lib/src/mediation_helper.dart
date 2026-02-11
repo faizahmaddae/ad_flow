@@ -371,8 +371,7 @@ class MediationHelper {
     );
   }
 
-  /// Resets all state (useful for testing).
-  @visibleForTesting
+  /// Resets all state. Called by [AdFlow.reset] and useful for testing.
   static void reset() {
     _adapters.clear();
   }
