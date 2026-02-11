@@ -47,9 +47,9 @@ class AdsEnabledManager {
   /// List of listeners for state changes
   final List<AdsEnabledCallback> _listeners = [];
 
-  /// StreamController for reactive updates
-  final StreamController<bool> _streamController =
-      StreamController<bool>.broadcast();
+  /// StreamController for reactive updates.
+  /// Recreated on [reset] to allow clean re-initialization in tests.
+  StreamController<bool> _streamController = StreamController<bool>.broadcast();
 
   /// Whether ads are enabled
   ///
@@ -190,6 +190,9 @@ class AdsEnabledManager {
       _isEnabled = true;
       _isInitialized = false;
       _notifyListeners();
+      // Close old stream controller and create a new one
+      await _streamController.close();
+      _streamController = StreamController<bool>.broadcast();
     } catch (e) {
       debugPrint('AdsEnabledManager: Error resetting state: $e');
     }

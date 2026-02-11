@@ -197,7 +197,9 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
             _orientationDebounceTimer?.cancel();
             _orientationDebounceTimer = Timer(_orientationDebounceDuration, () {
               if (!mounted || _isDisposed) return;
-              _bannerManager.dispose();
+              // Only dispose the current ad, not the entire manager
+              // (full dispose clears status listeners and marks disposed)
+              _bannerManager.disposeCurrentAd();
               setState(() => _isLoaded = false);
               _tryLoadAd();
             });

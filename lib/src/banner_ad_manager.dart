@@ -161,13 +161,13 @@ class BannerAdManager
       return;
     }
 
-    // Capture width before async gap to avoid use_build_context_synchronously
-    final screenWidth = MediaQuery.sizeOf(context).width.truncate();
-
     if (_isLoading) {
       debugPrint('BannerAdManager: Already loading, skipping...');
       return;
     }
+
+    // Capture width before async gap to avoid use_build_context_synchronously
+    final screenWidth = MediaQuery.sizeOf(context).width.truncate();
 
     _isLoading = true;
     notifyStatusListeners();
@@ -245,13 +245,13 @@ class BannerAdManager
       return;
     }
 
-    // Capture width before async gap to avoid use_build_context_synchronously
-    final screenWidth = MediaQuery.sizeOf(context).width.truncate();
-
     if (_isLoading) {
       debugPrint('BannerAdManager: Already loading, skipping...');
       return;
     }
+
+    // Capture width before async gap to avoid use_build_context_synchronously
+    final screenWidth = MediaQuery.sizeOf(context).width.truncate();
 
     _isLoading = true;
     notifyStatusListeners();
@@ -304,7 +304,7 @@ class BannerAdManager
     BannerAdErrorCallback? onAdFailedToLoad,
   }) async {
     // Dispose existing ad without clearing listeners
-    await _disposeCurrentAd();
+    await disposeCurrentAd();
     _pendingAdUnitId = adUnitId;
 
     debugPrint('BannerAdManager: Loading banner ad...');
@@ -435,9 +435,11 @@ class BannerAdManager
     );
   }
 
-  /// Disposes of the current banner ad without clearing listeners.
-  /// Use this when reloading ads to preserve status listeners.
-  Future<void> _disposeCurrentAd() async {
+  /// Disposes of the current banner ad without clearing listeners or retry state.
+  ///
+  /// Use this when reloading ads (e.g. orientation change) to preserve
+  /// status listeners and avoid marking the manager as disposed.
+  Future<void> disposeCurrentAd() async {
     await _bannerAd?.dispose();
     _bannerAd = null;
     _isLoaded = false;
@@ -449,7 +451,7 @@ class BannerAdManager
   Future<void> dispose() async {
     disposeNotifier();
     resetRetryState();
-    await _disposeCurrentAd();
+    await disposeCurrentAd();
     _isLoading = false;
     _pendingAdUnitId = null;
   }

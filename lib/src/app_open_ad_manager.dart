@@ -47,6 +47,10 @@ class AppOpenAdManager
   DateTime? _loadTime;
   Completer<bool>? _loadCompleter;
 
+  // Stored show callbacks — set in showAdIfAvailable(), consumed by fullscreen callbacks.
+  VoidCallback? _pendingOnAdDismissed;
+  VoidCallback? _pendingOnAdFailedToShow;
+
   /// The currently loaded app open ad
   AppOpenAd? get appOpenAd => _appOpenAd;
 
@@ -111,7 +115,7 @@ class AppOpenAdManager
     // Dispose expired ad if exists
     if (_isLoaded && _isAdExpired) {
       debugPrint('AppOpenAdManager: Disposing expired ad');
-      await dispose();
+      await _disposeCurrentAd();
     }
 
     _isLoading = true;
@@ -231,12 +235,10 @@ class AppOpenAdManager
 
   /// Sets up the full screen content callbacks.
   ///
-  /// [onAdDismissed] optional callback when ad is dismissed by user.
-  /// [onAdFailedToShow] optional callback when ad fails to show.
-  void _setupFullScreenContentCallback({
-    VoidCallback? onAdDismissed,
-    VoidCallback? onAdFailedToShow,
-  }) {
+  /// Reads dismiss/fail callbacks from [_pendingOnAdDismissed] and
+  /// [_pendingOnAdFailedToShow] instance fields so that auto-preload
+  /// cannot overwrite the user's callbacks.
+  void _setupFullScreenContentCallback() {
     _appOpenAd?.fullScreenContentCallback = FullScreenContentCallback(
       onAdShowedFullScreenContent: (Ad ad) {
         debugPrint('AppOpenAdManager: Ad showed full screen content');
@@ -246,12 +248,15 @@ class AppOpenAdManager
       onAdDismissedFullScreenContent: (Ad ad) {
         debugPrint('AppOpenAdManager: Ad dismissed');
         _isShowing = false;
+        final onDismissed = _pendingOnAdDismissed;
+        _pendingOnAdDismissed = null;
+        _pendingOnAdFailedToShow = null;
         ad.dispose();
         _appOpenAd = null;
         _isLoaded = false;
         _loadTime = null;
         notifyStatusListeners();
-        onAdDismissed?.call();
+        onDismissed?.call();
 
         // Preload next ad
         loadAd();
@@ -259,6 +264,9 @@ class AppOpenAdManager
       onAdFailedToShowFullScreenContent: (Ad ad, AdError error) {
         debugPrint('AppOpenAdManager: Ad failed to show: ${error.message}');
         _isShowing = false;
+        final onFailed = _pendingOnAdFailedToShow;
+        _pendingOnAdDismissed = null;
+        _pendingOnAdFailedToShow = null;
         ad.dispose();
         _appOpenAd = null;
         _isLoaded = false;
@@ -274,7 +282,7 @@ class AppOpenAdManager
           ),
         );
 
-        onAdFailedToShow?.call();
+        onFailed?.call();
 
         // Try to load another ad
         loadAd();
@@ -325,21 +333,38 @@ class AppOpenAdManager
     // Check if ad is expired
     if (_isAdExpired) {
       debugPrint('AppOpenAdManager: Ad expired, loading new one');
-      await dispose();
+      await _disposeCurrentAd();
       loadAd();
       onAdFailedToShow?.call();
       return false;
     }
 
-    // Update callbacks for this show
-    _setupFullScreenContentCallback(
-      onAdDismissed: onAdDismissed,
-      onAdFailedToShow: onAdFailedToShow,
-    );
+    // Check consent hasn't been revoked since the ad was loaded
+    if (!await AdSdk.instance.canRequestAds()) {
+      debugPrint('AppOpenAdManager: Consent revoked, not showing');
+      onAdFailedToShow?.call();
+      return false;
+    }
+
+    // Store callbacks as instance fields — fullscreen callbacks read from these
+    _pendingOnAdDismissed = onAdDismissed;
+    _pendingOnAdFailedToShow = onAdFailedToShow;
+    _setupFullScreenContentCallback();
 
     debugPrint('AppOpenAdManager: Showing ad...');
     await _appOpenAd!.show();
     return true;
+  }
+
+  /// Disposes only the current ad object, preserving listeners and retry state.
+  ///
+  /// Used when disposing expired ads — the manager stays alive but the
+  /// previous ad is cleaned up.
+  Future<void> _disposeCurrentAd() async {
+    await _appOpenAd?.dispose();
+    _appOpenAd = null;
+    _isLoaded = false;
+    _loadTime = null;
   }
 
   /// Disposes of the current app open ad.
@@ -347,6 +372,10 @@ class AppOpenAdManager
   Future<void> dispose() async {
     disposeNotifier();
     cancelRetryTimer();
+    // Complete any pending loadCompleter to unblock waiters
+    if (_loadCompleter != null && !_loadCompleter!.isCompleted) {
+      _loadCompleter!.complete(false);
+    }
     await _appOpenAd?.dispose();
     _appOpenAd = null;
     _isLoaded = false;
@@ -354,5 +383,7 @@ class AppOpenAdManager
     _isShowing = false;
     _loadTime = null;
     _loadCompleter = null;
+    _pendingOnAdDismissed = null;
+    _pendingOnAdFailedToShow = null;
   }
 }

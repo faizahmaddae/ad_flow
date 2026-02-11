@@ -526,9 +526,17 @@ class AdFlow {
       FormError? consentError;
 
       if (useExplainer) {
-        // Context was already validated as non-null via useExplainer check
+        // Check context is still valid after awaiting AdsEnabledManager init
+        if (!context.mounted) {
+          debugPrint(
+            'AdFlow: Context unmounted before consent, completing with false',
+          );
+          _isInitialized = true;
+          _completeInit(false);
+          onComplete?.call(false);
+          return;
+        }
         await consent.gatherConsentWithExplainer(
-          // ignore: use_build_context_synchronously
           context: context,
           showExplainer: showExplainer,
           consentTexts: consentTexts,

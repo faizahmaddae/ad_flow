@@ -99,19 +99,14 @@ class NativeAdManager
       return;
     }
 
-    if (_isLoading) {
-      debugPrint('NativeAdManager: Already loading, skipping...');
-      return;
-    }
-
-    // Dispose existing ad if loading a different factory
-    if (_isLoaded && _currentFactoryId != factoryId) {
-      await _disposeCurrentAd();
-    }
-
-    if (_isLoaded && _currentFactoryId == factoryId) {
-      debugPrint('NativeAdManager: Ad already loaded with same factory');
-      return;
+    if (_isLoading || _isLoaded) {
+      // If loaded with a different factory, dispose and continue
+      if (_isLoaded && _currentFactoryId != factoryId) {
+        await _disposeCurrentAd();
+      } else {
+        debugPrint('NativeAdManager: Already loading or loaded, skipping...');
+        return;
+      }
     }
 
     _isLoading = true;

@@ -50,6 +50,12 @@ class InterstitialAdManager
   bool _isShowing = false;
   DateTime? _lastShowTime;
 
+  // Stored show callbacks — set in showAd(), consumed by fullscreen callbacks.
+  // Prevents auto-preload's _setupFullScreenContentCallback() from
+  // overwriting the user's callbacks.
+  VoidCallback? _pendingOnAdDismissed;
+  VoidCallback? _pendingOnAdFailedToShow;
+
   /// The currently loaded interstitial ad
   InterstitialAd? get interstitialAd => _interstitialAd;
 
@@ -168,12 +174,10 @@ class InterstitialAdManager
 
   /// Sets up the full screen content callbacks.
   ///
-  /// [onAdDismissed] optional callback when ad is dismissed by user.
-  /// [onAdFailedToShow] optional callback when ad fails to show.
-  void _setupFullScreenContentCallback({
-    VoidCallback? onAdDismissed,
-    VoidCallback? onAdFailedToShow,
-  }) {
+  /// Reads dismiss/fail callbacks from [_pendingOnAdDismissed] and
+  /// [_pendingOnAdFailedToShow] instance fields so that auto-preload
+  /// (which calls this with no arguments) cannot overwrite user callbacks.
+  void _setupFullScreenContentCallback() {
     _interstitialAd?.fullScreenContentCallback = FullScreenContentCallback(
       onAdShowedFullScreenContent: (Ad ad) {
         debugPrint('InterstitialAdManager: Ad showed full screen content');
@@ -184,11 +188,15 @@ class InterstitialAdManager
         debugPrint('InterstitialAdManager: Ad dismissed');
         _isShowing = false;
         _lastShowTime = DateTime.now();
+        // Capture and clear callbacks before any side-effects
+        final onDismissed = _pendingOnAdDismissed;
+        _pendingOnAdDismissed = null;
+        _pendingOnAdFailedToShow = null;
         ad.dispose();
         _interstitialAd = null;
         _isLoaded = false;
         notifyStatusListeners();
-        onAdDismissed?.call();
+        onDismissed?.call();
 
         // Preload next ad
         loadAd();
@@ -198,6 +206,10 @@ class InterstitialAdManager
           'InterstitialAdManager: Ad failed to show: ${error.message}',
         );
         _isShowing = false;
+        // Capture and clear callbacks before any side-effects
+        final onFailed = _pendingOnAdFailedToShow;
+        _pendingOnAdDismissed = null;
+        _pendingOnAdFailedToShow = null;
         ad.dispose();
         _interstitialAd = null;
         _isLoaded = false;
@@ -212,7 +224,7 @@ class InterstitialAdManager
           ),
         );
 
-        onAdFailedToShow?.call();
+        onFailed?.call();
 
         // Try to load another ad
         loadAd();
@@ -266,11 +278,17 @@ class InterstitialAdManager
       return false;
     }
 
-    // Update callbacks for this show with user-provided handlers
-    _setupFullScreenContentCallback(
-      onAdDismissed: onAdDismissed,
-      onAdFailedToShow: onAdFailedToShow,
-    );
+    // Check consent hasn't been revoked since the ad was loaded
+    if (!await AdSdk.instance.canRequestAds()) {
+      debugPrint('InterstitialAdManager: Consent revoked, not showing');
+      onAdFailedToShow?.call();
+      return false;
+    }
+
+    // Store callbacks as instance fields — fullscreen callbacks read from these
+    _pendingOnAdDismissed = onAdDismissed;
+    _pendingOnAdFailedToShow = onAdFailedToShow;
+    _setupFullScreenContentCallback();
 
     debugPrint('InterstitialAdManager: Showing ad...');
     await _interstitialAd!.show();
@@ -288,5 +306,7 @@ class InterstitialAdManager
     _isLoading = false;
     _isShowing = false;
     _lastShowTime = null;
+    _pendingOnAdDismissed = null;
+    _pendingOnAdFailedToShow = null;
   }
 }

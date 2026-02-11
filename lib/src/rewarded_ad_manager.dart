@@ -59,6 +59,10 @@ class RewardedAdManager
   bool _isLoading = false;
   bool _isShowing = false;
 
+  // Stored show callbacks — set in showAd(), consumed by fullscreen callbacks.
+  VoidCallback? _pendingOnAdDismissed;
+  VoidCallback? _pendingOnAdFailedToShow;
+
   /// The currently loaded rewarded ad
   RewardedAd? get rewardedAd => _rewardedAd;
 
@@ -190,12 +194,10 @@ class RewardedAdManager
 
   /// Sets up the full screen content callbacks.
   ///
-  /// [onAdDismissed] optional callback when ad is dismissed by user.
-  /// [onAdFailedToShow] optional callback when ad fails to show.
-  void _setupFullScreenContentCallback({
-    VoidCallback? onAdDismissed,
-    VoidCallback? onAdFailedToShow,
-  }) {
+  /// Reads dismiss/fail callbacks from [_pendingOnAdDismissed] and
+  /// [_pendingOnAdFailedToShow] instance fields so that auto-preload
+  /// cannot overwrite the user's callbacks.
+  void _setupFullScreenContentCallback() {
     _rewardedAd?.fullScreenContentCallback = FullScreenContentCallback(
       onAdShowedFullScreenContent: (Ad ad) {
         debugPrint('RewardedAdManager: Ad showed full screen content');
@@ -205,11 +207,14 @@ class RewardedAdManager
       onAdDismissedFullScreenContent: (Ad ad) {
         debugPrint('RewardedAdManager: Ad dismissed');
         _isShowing = false;
+        final onDismissed = _pendingOnAdDismissed;
+        _pendingOnAdDismissed = null;
+        _pendingOnAdFailedToShow = null;
         ad.dispose();
         _rewardedAd = null;
         _isLoaded = false;
         notifyStatusListeners();
-        onAdDismissed?.call();
+        onDismissed?.call();
 
         // Preload next ad
         loadAd();
@@ -217,6 +222,9 @@ class RewardedAdManager
       onAdFailedToShowFullScreenContent: (Ad ad, AdError error) {
         debugPrint('RewardedAdManager: Ad failed to show: ${error.message}');
         _isShowing = false;
+        final onFailed = _pendingOnAdFailedToShow;
+        _pendingOnAdDismissed = null;
+        _pendingOnAdFailedToShow = null;
         ad.dispose();
         _rewardedAd = null;
         _isLoaded = false;
@@ -231,7 +239,7 @@ class RewardedAdManager
           ),
         );
 
-        onAdFailedToShow?.call();
+        onFailed?.call();
 
         // Try to load another ad
         loadAd();
@@ -283,11 +291,17 @@ class RewardedAdManager
       return false;
     }
 
-    // Update callbacks for this show with user-provided handlers
-    _setupFullScreenContentCallback(
-      onAdDismissed: onAdDismissed,
-      onAdFailedToShow: onAdFailedToShow,
-    );
+    // Check consent hasn't been revoked since the ad was loaded
+    if (!await AdSdk.instance.canRequestAds()) {
+      debugPrint('RewardedAdManager: Consent revoked, not showing');
+      onAdFailedToShow?.call();
+      return false;
+    }
+
+    // Store callbacks as instance fields — fullscreen callbacks read from these
+    _pendingOnAdDismissed = onAdDismissed;
+    _pendingOnAdFailedToShow = onAdFailedToShow;
+    _setupFullScreenContentCallback();
 
     // Set immersive mode for a better fullscreen experience (Android only)
     if (AdFlowPlatform.isAndroid) {
@@ -315,5 +329,7 @@ class RewardedAdManager
     _isLoading = false;
     _isShowing = false;
     serverSideVerificationOptions = null;
+    _pendingOnAdDismissed = null;
+    _pendingOnAdFailedToShow = null;
   }
 }
