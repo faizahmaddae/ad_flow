@@ -1,3 +1,19 @@
+## 1.3.15
+
+* **IMPROVED**: Comprehensive README rewrite with step-by-step integration guide
+  - Added callbacks reference tables for all 5 ad types
+  - Added status listeners documentation
+  - Added `ignoreCooldown` interstitial example
+* **IMPROVED**: Restructured example app with focused per-ad-type demos
+  - Launcher menu with navigation to Banner, Interstitial, Rewarded, Native, App Open examples
+  - All-in-one demo page retained for quick overview
+* **IMPROVED**: Added CI/CD with GitHub Actions
+  - Automated format, analyze, and test on push/PR
+  - Auto-publish to pub.dev on version tag push
+* **IMPROVED**: Expanded test suite to 1015 tests
+* **INTERNAL**: Added `AdSdk` abstraction and `AdManagerMixin` for testability
+* **INTERNAL**: Added `PrivacyRequirementMixin` for consent checks
+
 ## 1.3.14
 
 * **NEW**: Non-blocking initialization for instant app startup
