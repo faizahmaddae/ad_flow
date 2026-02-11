@@ -842,11 +842,7 @@ class AdFlow {
   /// Disposes of all ad resources.
   /// Only disposes managers that were actually created.
   Future<void> dispose() async {
-    await _bannerAdManager?.dispose();
-    await _interstitialAdManager?.dispose();
-    await _appOpenAdManager?.dispose();
-    await _nativeAdManager?.dispose();
-    await _rewardedAdManager?.dispose();
+    await disposeAllAds();
     _lifecycleReactor?.dispose();
     _isInitialized = false;
     _isInitializing = false;
@@ -890,6 +886,9 @@ class AdFlow {
     _initStreamController = StreamController<bool>.broadcast();
     AdFlowConfig.resetCurrent();
     MediationHelper.reset();
+    ConsentManager.instance.resetState();
+    await AdsEnabledManager.instance.reset();
+    AdFlowErrorHandler.instance.reset();
     adFlowLog('AdFlow: State reset complete');
   }
 }

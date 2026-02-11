@@ -102,8 +102,10 @@ class BannerAdManager
       return;
     }
 
-    if (_isLoading) {
-      adFlowLog('BannerAdManager: Already loading, skipping...');
+    if (_isLoading || _isLoaded) {
+      adFlowLog(
+        'BannerAdManager: Already ${_isLoading ? "loading" : "loaded"}, skipping...',
+      );
       return;
     }
 

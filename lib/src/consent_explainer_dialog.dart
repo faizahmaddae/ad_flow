@@ -204,134 +204,136 @@ class _ConsentExplainerContent extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Icon
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer,
-                shape: BoxShape.circle,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Icon
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.privacy_tip_outlined,
+                  size: 40,
+                  color: theme.colorScheme.primary,
+                ),
               ),
-              child: Icon(
-                Icons.privacy_tip_outlined,
-                size: 40,
-                color: theme.colorScheme.primary,
+
+              const SizedBox(height: 20),
+
+              // Title
+              Text(
+                texts.title,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
               ),
-            ),
 
-            const SizedBox(height: 20),
+              const SizedBox(height: 16),
 
-            // Title
-            Text(
-              texts.title,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
+              // Explanation
+              Text(
+                texts.description,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  height: 1.5,
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
 
-            const SizedBox(height: 16),
+              const SizedBox(height: 20),
 
-            // Explanation
-            Text(
-              texts.description,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                height: 1.5,
+              // Benefits list
+              _buildBenefitItem(
+                context,
+                Icons.ads_click,
+                texts.benefitRelevantAds,
               ),
-              textAlign: TextAlign.center,
-            ),
-
-            const SizedBox(height: 20),
-
-            // Benefits list
-            _buildBenefitItem(
-              context,
-              Icons.ads_click,
-              texts.benefitRelevantAds,
-            ),
-            const SizedBox(height: 8),
-            _buildBenefitItem(
-              context,
-              Icons.lock_outline,
-              texts.benefitDataSecure,
-            ),
-            const SizedBox(height: 8),
-            _buildBenefitItem(
-              context,
-              Icons.favorite_outline,
-              texts.benefitKeepFree,
-            ),
-
-            const SizedBox(height: 24),
-
-            // Info text
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
+              const SizedBox(height: 8),
+              _buildBenefitItem(
+                context,
+                Icons.lock_outline,
+                texts.benefitDataSecure,
               ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.info_outline,
-                    size: 20,
-                    color: theme.colorScheme.primary,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      texts.settingsHint,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+              const SizedBox(height: 8),
+              _buildBenefitItem(
+                context,
+                Icons.favorite_outline,
+                texts.benefitKeepFree,
+              ),
+
+              const SizedBox(height: 24),
+
+              // Info text
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      size: 20,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        texts.settingsHint,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
 
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
 
-            // Continue button
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+              // Continue button
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: Text(
+                    texts.continueButton,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
+              ),
+
+              const SizedBox(height: 8),
+
+              // Skip text
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
                 child: Text(
-                  texts.continueButton,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
+                  texts.skipButton,
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontSize: 14,
                   ),
                 ),
               ),
-            ),
-
-            const SizedBox(height: 8),
-
-            // Skip text
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: Text(
-                texts.skipButton,
-                style: TextStyle(
-                  color: theme.colorScheme.onSurfaceVariant,
-                  fontSize: 14,
-                ),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

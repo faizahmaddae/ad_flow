@@ -186,8 +186,10 @@ class AdsEnabledManager {
     _streamController.add(_isEnabled);
   }
 
-  /// Clears the persisted state (for testing purposes).
-  @visibleForTesting
+  /// Clears the persisted state.
+  ///
+  /// Called internally by [AdFlow.reset]. Prefer calling
+  /// `AdFlow.instance.reset()` instead of using this directly.
   Future<void> reset() async {
     try {
       final prefs = await SharedPreferences.getInstance();

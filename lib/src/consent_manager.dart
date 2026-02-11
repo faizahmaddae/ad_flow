@@ -3,7 +3,7 @@
 // Simplified to match Google's official samples
 
 import 'dart:async';
-import 'package:flutter/foundation.dart' show kReleaseMode, visibleForTesting;
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
@@ -418,10 +418,24 @@ class ConsentManager {
     });
   }
 
-  /// Resets consent information for testing purposes.
+  /// Resets in-memory consent state without calling the platform SDK.
   ///
-  /// WARNING: Only use during development/testing.
-  @visibleForTesting
+  /// Called internally by [AdFlow.reset]. Does not invoke
+  /// `ConsentInformation.reset()` on the platform — safe for unit tests
+  /// that haven't registered the UMP plugin channel.
+  void resetState() {
+    adFlowLog('ConsentManager: Resetting consent state');
+    _isInitialized = false;
+    _canRequestAds = false;
+    _isPrivacyOptionsRequired = false;
+    _lastAttStatus = null;
+  }
+
+  /// Resets consent information including the platform SDK state.
+  ///
+  /// Calls `ConsentInformation.reset()` on the platform, clearing any
+  /// persisted consent data. Use this in integration tests or when you
+  /// need a full consent reset, not just in-memory state.
   void resetConsent() {
     adFlowLog('ConsentManager: Resetting consent');
     AdSdk.instance.resetConsentInfo();

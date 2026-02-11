@@ -200,7 +200,7 @@ class NativeAdManager
   @override
   Future<void> dispose() async {
     disposeNotifier();
-    cancelRetryTimer();
+    resetRetryState();
     await _nativeAd?.dispose();
     _nativeAd = null;
     _isLoaded = false;
