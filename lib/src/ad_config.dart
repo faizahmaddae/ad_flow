@@ -3,7 +3,8 @@
 
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show TargetPlatform, visibleForTesting;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, kReleaseMode, visibleForTesting;
 import 'ad_flow_logger.dart';
 
 // ============================================================
@@ -503,6 +504,12 @@ class AdFlowConfig {
   /// This is used internally by ad managers.
   static AdFlowConfig get current {
     if (_current == null) {
+      if (kReleaseMode) {
+        throw StateError(
+          'AdFlowConfig.current accessed before AdFlow.initialize(). '
+          'Call AdFlow.instance.initialize() before using any ad managers.',
+        );
+      }
       adFlowLog(
         '\u26a0\ufe0f AdFlowConfig.current accessed before AdFlow.initialize(). '
         'Falling back to test mode \u2014 ensure this is intentional in production.',

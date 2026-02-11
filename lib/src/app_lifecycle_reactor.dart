@@ -187,18 +187,17 @@ class AppLifecycleReactor with WidgetsBindingObserver {
         '🔄 AppLifecycleReactor: Ad available, showing now... $limitText',
       );
       _isShowingAd = true;
-      _lastAdShowTime = DateTime.now();
-      _foregroundAdCount++;
       await _appOpenAdManager.showAdIfAvailable(
         onAdDismissed: () {
           _isShowingAd = false;
+          _lastAdShowTime = DateTime.now();
+          _foregroundAdCount++;
           adFlowLog(
             '🔄 AppLifecycleReactor: Ad dismissed, cooldown started. Count: $_foregroundAdCount',
           );
         },
         onAdFailedToShow: () {
           _isShowingAd = false;
-          _foregroundAdCount--; // Don't count failed shows
           adFlowLog('🔄 AppLifecycleReactor: Ad failed to show');
         },
       );

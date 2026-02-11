@@ -306,7 +306,17 @@ class ConsentManager {
       },
     );
 
-    return completer.future;
+    // Safety timeout: if the platform SDK never calls back (rare crash),
+    // prevent gatherConsent()/initialize() from hanging indefinitely.
+    return completer.future.timeout(
+      const Duration(seconds: 60),
+      onTimeout: () {
+        adFlowLog(
+          'ConsentManager: UMP consent flow timed out after 60 seconds',
+        );
+        _isInitialized = true;
+      },
+    );
   }
 
   /// Standard UMP consent flow.
@@ -520,7 +530,14 @@ class ConsentManager {
       },
     );
 
-    return completer.future;
+    // Safety timeout for refresh flow
+    return completer.future.timeout(
+      const Duration(seconds: 60),
+      onTimeout: () {
+        adFlowLog('ConsentManager: Consent refresh timed out after 60 seconds');
+        return _canRequestAds;
+      },
+    );
   }
 
   /// Gets a human-readable consent status description.
