@@ -1,3 +1,7 @@
+## 1.3.17
+
+* Re-release of v1.3.16 (no code changes)
+
 ## 1.3.16
 
 * **FIX**: App Open ad no longer shows immediately after closing an interstitial or rewarded ad
