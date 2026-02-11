@@ -197,8 +197,8 @@ class InterstitialAdManager
         notifyStatusListeners();
         onDismissed?.call();
 
-        // Preload next ad
-        loadAd();
+        // Preload next ad (catch errors to prevent unhandled async exceptions)
+        loadAd().catchError((_) {});
       },
       onAdFailedToShowFullScreenContent: (Ad ad, AdError error) {
         adFlowLog('InterstitialAdManager: Ad failed to show: ${error.message}');
@@ -223,8 +223,8 @@ class InterstitialAdManager
 
         onFailed?.call();
 
-        // Try to load another ad
-        loadAd();
+        // Try to load another ad (catch errors to prevent unhandled async exceptions)
+        loadAd().catchError((_) {});
       },
       onAdImpression: (Ad ad) {
         adFlowLog('InterstitialAdManager: Ad impression recorded');
@@ -288,7 +288,16 @@ class InterstitialAdManager
     _setupFullScreenContentCallback();
 
     adFlowLog('InterstitialAdManager: Showing ad...');
-    await _interstitialAd!.show();
+    _isShowing = true;
+    notifyStatusListeners();
+    try {
+      await _interstitialAd!.show();
+    } catch (e) {
+      _isShowing = false;
+      notifyStatusListeners();
+      onAdFailedToShow?.call();
+      return false;
+    }
     return true;
   }
 
@@ -296,7 +305,7 @@ class InterstitialAdManager
   @override
   Future<void> dispose() async {
     disposeNotifier();
-    cancelRetryTimer();
+    resetRetryState();
     await _interstitialAd?.dispose();
     _interstitialAd = null;
     _isLoaded = false;

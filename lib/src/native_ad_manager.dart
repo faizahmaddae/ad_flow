@@ -102,7 +102,7 @@ class NativeAdManager
     if (_isLoading || _isLoaded) {
       // If loaded with a different factory, dispose and continue
       if (_isLoaded && _currentFactoryId != factoryId) {
-        await _disposeCurrentAd();
+        await disposeCurrentAd();
       } else {
         adFlowLog('NativeAdManager: Already loading or loaded, skipping...');
         return;
@@ -187,9 +187,9 @@ class NativeAdManager
 
   /// Disposes only the current ad object, preserving listeners and retry state.
   ///
-  /// Used when switching factory IDs — the manager stays alive but the
-  /// previous ad is cleaned up.
-  Future<void> _disposeCurrentAd() async {
+  /// Used when switching factory IDs or when ads are temporarily disabled —
+  /// the manager stays alive but the previous ad is cleaned up.
+  Future<void> disposeCurrentAd() async {
     await _nativeAd?.dispose();
     _nativeAd = null;
     _isLoaded = false;

@@ -140,7 +140,11 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
     if (isEnabled && !_isLoaded) {
       _tryLoadAd();
     } else if (!isEnabled) {
-      _bannerManager.dispose();
+      // Use disposeCurrentAd + cancelRetryTimer instead of full dispose()
+      // to preserve status listeners — full dispose() clears them, so a
+      // subsequent re-enable + retry success would never reach the widget.
+      _bannerManager.disposeCurrentAd();
+      _bannerManager.cancelRetryTimer();
       _isLoaded = false;
     }
   }

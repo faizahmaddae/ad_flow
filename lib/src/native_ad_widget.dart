@@ -294,7 +294,10 @@ class _EasyNativeAdState extends State<EasyNativeAd> {
     if (isEnabled && !_isLoaded && !_hasError) {
       _tryLoadAd();
     } else if (!isEnabled) {
-      _manager.dispose();
+      // Use lightweight cleanup instead of full dispose() to preserve
+      // status listeners — prevents blank widget on re-enable.
+      _manager.cancelRetryTimer();
+      _manager.disposeCurrentAd();
       _isLoaded = false;
     }
   }

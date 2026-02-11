@@ -267,20 +267,32 @@ class ConsentManager {
 
       // loadAndShowConsentFormIfRequired handles the "if required" logic
       AdSdk.instance.loadAndShowConsentFormIfRequired((FormError? error) async {
-        await _updateCanRequestAds();
-        _isInitialized = true;
-        onComplete(error);
-        if (!completer.isCompleted) completer.complete();
+        try {
+          await _updateCanRequestAds();
+          _isInitialized = true;
+          onComplete(error);
+        } catch (e) {
+          adFlowLog('ConsentManager: Error in consent form callback: $e');
+          _isInitialized = true;
+        } finally {
+          if (!completer.isCompleted) completer.complete();
+        }
       });
     }
 
     Future<void> completeWithError(FormError error) async {
-      adFlowLog('ConsentManager: Consent update failed: ${error.message}');
-      AdFlowErrorHandler.instance.reportConsentError(error);
-      await _updateCanRequestAds();
-      _isInitialized = true;
-      onComplete(error);
-      if (!completer.isCompleted) completer.complete();
+      try {
+        adFlowLog('ConsentManager: Consent update failed: ${error.message}');
+        AdFlowErrorHandler.instance.reportConsentError(error);
+        await _updateCanRequestAds();
+        _isInitialized = true;
+        onComplete(error);
+      } catch (e) {
+        adFlowLog('ConsentManager: Error in consent error callback: $e');
+        _isInitialized = true;
+      } finally {
+        if (!completer.isCompleted) completer.complete();
+      }
     }
 
     // Request consent info update, then load/show form if required

@@ -93,11 +93,17 @@ mixin AdStatusNotifier {
   ///
   /// Safe from concurrent modification — iterates a copy via `List.of()`.
   /// No-op if the manager has been disposed.
+  /// Catching per-listener exceptions prevents a single throwing listener
+  /// from breaking the ad manager's state machine (e.g. `_isLoading` stuck).
   @protected
   void notifyStatusListeners() {
     if (_adNotifierDisposed) return;
     for (final listener in List.of(_statusListeners)) {
-      listener();
+      try {
+        listener();
+      } catch (e) {
+        adFlowLog('AdStatusNotifier: status listener threw: $e');
+      }
     }
   }
 

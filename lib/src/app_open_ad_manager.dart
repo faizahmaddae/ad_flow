@@ -257,8 +257,8 @@ class AppOpenAdManager
         notifyStatusListeners();
         onDismissed?.call();
 
-        // Preload next ad
-        loadAd();
+        // Preload next ad (catch errors to prevent unhandled async exceptions)
+        loadAd().catchError((_) {});
       },
       onAdFailedToShowFullScreenContent: (Ad ad, AdError error) {
         adFlowLog('AppOpenAdManager: Ad failed to show: ${error.message}');
@@ -283,8 +283,8 @@ class AppOpenAdManager
 
         onFailed?.call();
 
-        // Try to load another ad
-        loadAd();
+        // Try to load another ad (catch errors to prevent unhandled async exceptions)
+        loadAd().catchError((_) {});
       },
       onAdImpression: (Ad ad) {
         adFlowLog('AppOpenAdManager: Ad impression recorded');
@@ -351,7 +351,16 @@ class AppOpenAdManager
     _setupFullScreenContentCallback();
 
     adFlowLog('AppOpenAdManager: Showing ad...');
-    await _appOpenAd!.show();
+    _isShowing = true;
+    notifyStatusListeners();
+    try {
+      await _appOpenAd!.show();
+    } catch (e) {
+      _isShowing = false;
+      notifyStatusListeners();
+      onAdFailedToShow?.call();
+      return false;
+    }
     return true;
   }
 
@@ -370,7 +379,7 @@ class AppOpenAdManager
   @override
   Future<void> dispose() async {
     disposeNotifier();
-    cancelRetryTimer();
+    resetRetryState();
     // Complete any pending loadCompleter to unblock waiters
     if (_loadCompleter != null && !_loadCompleter!.isCompleted) {
       _loadCompleter!.complete(false);

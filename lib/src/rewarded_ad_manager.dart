@@ -217,8 +217,8 @@ class RewardedAdManager
         notifyStatusListeners();
         onDismissed?.call();
 
-        // Preload next ad
-        loadAd();
+        // Preload next ad (catch errors to prevent unhandled async exceptions)
+        loadAd().catchError((_) {});
       },
       onAdFailedToShowFullScreenContent: (Ad ad, AdError error) {
         adFlowLog('RewardedAdManager: Ad failed to show: ${error.message}');
@@ -242,8 +242,8 @@ class RewardedAdManager
 
         onFailed?.call();
 
-        // Try to load another ad
-        loadAd();
+        // Try to load another ad (catch errors to prevent unhandled async exceptions)
+        loadAd().catchError((_) {});
       },
       onAdImpression: (Ad ad) {
         adFlowLog('RewardedAdManager: Ad impression recorded');
@@ -310,12 +310,21 @@ class RewardedAdManager
     }
 
     adFlowLog('RewardedAdManager: Showing ad...');
+    _isShowing = true;
+    notifyStatusListeners();
     // Wrap the simplified callback to match the SDK's expected signature
-    await _rewardedAd!.show(
-      onUserEarnedReward: (AdWithoutView ad, RewardItem reward) {
-        onUserEarnedReward(reward);
-      },
-    );
+    try {
+      await _rewardedAd!.show(
+        onUserEarnedReward: (AdWithoutView ad, RewardItem reward) {
+          onUserEarnedReward(reward);
+        },
+      );
+    } catch (e) {
+      _isShowing = false;
+      notifyStatusListeners();
+      onAdFailedToShow?.call();
+      return false;
+    }
     return true;
   }
 
@@ -323,7 +332,7 @@ class RewardedAdManager
   @override
   Future<void> dispose() async {
     disposeNotifier();
-    cancelRetryTimer();
+    resetRetryState();
     await _rewardedAd?.dispose();
     _rewardedAd = null;
     _isLoaded = false;

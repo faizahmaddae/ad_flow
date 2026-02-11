@@ -206,8 +206,12 @@ class AdFlowErrorHandler {
       _errorController.add(error);
     }
 
-    // Call callback if set
-    _errorCallback?.call(error);
+    // Call callback if set — catch to prevent user callback from crashing ad flow
+    try {
+      _errorCallback?.call(error);
+    } catch (e) {
+      // Swallow: a broken error callback must not disrupt ad loading/showing
+    }
   }
 
   /// Reports a LoadAdError with the appropriate type.
