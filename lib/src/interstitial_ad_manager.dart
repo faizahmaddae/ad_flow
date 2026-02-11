@@ -10,6 +10,7 @@ import 'ad_error_handler.dart';
 import 'ad_manager_mixin.dart';
 import 'ad_sdk.dart';
 import 'ads_enabled_manager.dart';
+import 'ad_flow_logger.dart';
 
 /// Callback for interstitial ad events
 typedef InterstitialAdCallback = void Function(InterstitialAd ad);
@@ -93,12 +94,12 @@ class InterstitialAdManager
 
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
-      debugPrint('InterstitialAdManager: Ads disabled, skipping load');
+      adFlowLog('InterstitialAdManager: Ads disabled, skipping load');
       return;
     }
 
     if (_isLoading || _isLoaded) {
-      debugPrint(
+      adFlowLog(
         'InterstitialAdManager: Already loading or loaded, skipping...',
       );
       return;
@@ -109,7 +110,7 @@ class InterstitialAdManager
 
     // Check consent before loading (Google best practice)
     if (!await AdSdk.instance.canRequestAds()) {
-      debugPrint('InterstitialAdManager: Cannot request ads (no consent)');
+      adFlowLog('InterstitialAdManager: Cannot request ads (no consent)');
       _isLoading = false;
       notifyStatusListeners();
       return;
@@ -122,7 +123,7 @@ class InterstitialAdManager
       return;
     }
 
-    debugPrint('InterstitialAdManager: Loading interstitial ad...');
+    adFlowLog('InterstitialAdManager: Loading interstitial ad...');
 
     await AdSdk.instance.loadInterstitialAd(
       adUnitId: adUnitId ?? AdFlowConfig.current.interstitialAdUnitId,
@@ -130,7 +131,7 @@ class InterstitialAdManager
         httpTimeoutMillis: AdFlowConfig.current.httpTimeoutMillis,
       ),
       onLoaded: (InterstitialAd ad) {
-        debugPrint('InterstitialAdManager: Ad loaded successfully');
+        adFlowLog('InterstitialAdManager: Ad loaded successfully');
         _interstitialAd = ad;
         _isLoaded = true;
         _isLoading = false;
@@ -143,9 +144,7 @@ class InterstitialAdManager
         notifyStatusListeners();
       },
       onFailed: (LoadAdError error) {
-        debugPrint(
-          'InterstitialAdManager: Ad failed to load: ${error.message}',
-        );
+        adFlowLog('InterstitialAdManager: Ad failed to load: ${error.message}');
         _isLoaded = false;
         _isLoading = false;
         notifyStatusListeners();
@@ -180,12 +179,12 @@ class InterstitialAdManager
   void _setupFullScreenContentCallback() {
     _interstitialAd?.fullScreenContentCallback = FullScreenContentCallback(
       onAdShowedFullScreenContent: (Ad ad) {
-        debugPrint('InterstitialAdManager: Ad showed full screen content');
+        adFlowLog('InterstitialAdManager: Ad showed full screen content');
         _isShowing = true;
         notifyStatusListeners();
       },
       onAdDismissedFullScreenContent: (Ad ad) {
-        debugPrint('InterstitialAdManager: Ad dismissed');
+        adFlowLog('InterstitialAdManager: Ad dismissed');
         _isShowing = false;
         _lastShowTime = DateTime.now();
         // Capture and clear callbacks before any side-effects
@@ -202,9 +201,7 @@ class InterstitialAdManager
         loadAd();
       },
       onAdFailedToShowFullScreenContent: (Ad ad, AdError error) {
-        debugPrint(
-          'InterstitialAdManager: Ad failed to show: ${error.message}',
-        );
+        adFlowLog('InterstitialAdManager: Ad failed to show: ${error.message}');
         _isShowing = false;
         // Capture and clear callbacks before any side-effects
         final onFailed = _pendingOnAdFailedToShow;
@@ -230,14 +227,14 @@ class InterstitialAdManager
         loadAd();
       },
       onAdImpression: (Ad ad) {
-        debugPrint('InterstitialAdManager: Ad impression recorded');
+        adFlowLog('InterstitialAdManager: Ad impression recorded');
       },
       onAdClicked: (Ad ad) {
-        debugPrint('InterstitialAdManager: Ad clicked');
+        adFlowLog('InterstitialAdManager: Ad clicked');
       },
       // iOS only - called before dismissing full screen content
       onAdWillDismissFullScreenContent: (Ad ad) {
-        debugPrint('InterstitialAdManager: Ad will dismiss (iOS)');
+        adFlowLog('InterstitialAdManager: Ad will dismiss (iOS)');
       },
     );
   }
@@ -256,31 +253,31 @@ class InterstitialAdManager
   }) async {
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
-      debugPrint('InterstitialAdManager: Ads disabled, not showing');
+      adFlowLog('InterstitialAdManager: Ads disabled, not showing');
       onAdFailedToShow?.call();
       return false;
     }
 
     if (!_isLoaded || _interstitialAd == null) {
-      debugPrint('InterstitialAdManager: No ad loaded to show');
+      adFlowLog('InterstitialAdManager: No ad loaded to show');
       onAdFailedToShow?.call();
       return false;
     }
 
     if (!ignoreCooldown && !canShowAd) {
-      debugPrint('InterstitialAdManager: Cooldown period not elapsed');
+      adFlowLog('InterstitialAdManager: Cooldown period not elapsed');
       onAdFailedToShow?.call();
       return false;
     }
 
     if (_isShowing) {
-      debugPrint('InterstitialAdManager: Ad already showing');
+      adFlowLog('InterstitialAdManager: Ad already showing');
       return false;
     }
 
     // Check consent hasn't been revoked since the ad was loaded
     if (!await AdSdk.instance.canRequestAds()) {
-      debugPrint('InterstitialAdManager: Consent revoked, not showing');
+      adFlowLog('InterstitialAdManager: Consent revoked, not showing');
       onAdFailedToShow?.call();
       return false;
     }
@@ -290,7 +287,7 @@ class InterstitialAdManager
     _pendingOnAdFailedToShow = onAdFailedToShow;
     _setupFullScreenContentCallback();
 
-    debugPrint('InterstitialAdManager: Showing ad...');
+    adFlowLog('InterstitialAdManager: Showing ad...');
     await _interstitialAd!.show();
     return true;
   }

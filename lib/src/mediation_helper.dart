@@ -1,7 +1,7 @@
 // Copyright 2024 - AdMob Integration Package
 // Mediation Helper for forwarding consent to third-party ad networks
 
-import 'package:flutter/foundation.dart';
+import 'ad_flow_logger.dart';
 
 /// Callback type for forwarding consent to a mediation network.
 ///
@@ -220,19 +220,19 @@ class MediationHelper {
     required MediationConsentForwarder forwarder,
   }) {
     _adapters[name] = forwarder;
-    debugPrint('MediationHelper: Registered adapter "$name"');
+    adFlowLog('MediationHelper: Registered adapter "$name"');
   }
 
   /// Unregisters a mediation adapter.
   static void unregisterAdapter(String name) {
     _adapters.remove(name);
-    debugPrint('MediationHelper: Unregistered adapter "$name"');
+    adFlowLog('MediationHelper: Unregistered adapter "$name"');
   }
 
   /// Unregisters all adapters.
   static void unregisterAll() {
     _adapters.clear();
-    debugPrint('MediationHelper: Unregistered all adapters');
+    adFlowLog('MediationHelper: Unregistered all adapters');
   }
 
   /// Forwards consent settings to all registered mediation networks.
@@ -256,17 +256,17 @@ class MediationHelper {
   ) async {
     if (_adapters.isEmpty) {
       if (config.enableLogging) {
-        debugPrint('MediationHelper: No adapters registered, skipping');
+        adFlowLog('MediationHelper: No adapters registered, skipping');
       }
       return MediationForwardSummary(results: [], timestamp: DateTime.now());
     }
 
     if (config.enableLogging) {
-      debugPrint(
+      adFlowLog(
         'MediationHelper: Forwarding consent to ${_adapters.length} networks...',
       );
-      debugPrint('  GDPR consent: ${config.hasGdprConsent}');
-      debugPrint('  CCPA opt-out: ${config.ccpaOptOut}');
+      adFlowLog('  GDPR consent: ${config.hasGdprConsent}');
+      adFlowLog('  CCPA opt-out: ${config.ccpaOptOut}');
     }
 
     final results = <MediationForwardResult>[];
@@ -298,7 +298,7 @@ class MediationHelper {
     );
 
     if (config.enableLogging) {
-      debugPrint(summary.toString());
+      adFlowLog(summary.toString());
     }
 
     return summary;

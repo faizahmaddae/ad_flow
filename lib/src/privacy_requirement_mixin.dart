@@ -3,6 +3,7 @@
 
 import 'package:flutter/material.dart';
 import 'consent_manager.dart';
+import 'ad_flow_logger.dart';
 
 /// Mixin that provides privacy options requirement checking logic
 /// shared between [EasyPrivacySettingsButton] and [PrivacySettingsListTile].
@@ -51,7 +52,7 @@ mixin PrivacyRequirementMixin<T extends StatefulWidget> on State<T> {
     ConsentManager.instance.showPrivacyOptionsForm(
       onComplete: (error) {
         if (error != null) {
-          debugPrint('Privacy form error: ${error.message}');
+          adFlowLog('Privacy form error: ${error.message}');
         }
         onDismissedCallback?.call();
         // Re-check requirement after form dismissal

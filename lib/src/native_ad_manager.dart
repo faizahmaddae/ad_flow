@@ -2,7 +2,6 @@
 // Native Ad Manager for customizable native ads
 
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'ad_config.dart';
@@ -10,6 +9,7 @@ import 'ad_error_handler.dart';
 import 'ad_manager_mixin.dart';
 import 'ad_sdk.dart';
 import 'ads_enabled_manager.dart';
+import 'ad_flow_logger.dart';
 
 /// Callback for native ad events
 typedef NativeAdCallback = void Function(NativeAd ad);
@@ -95,7 +95,7 @@ class NativeAdManager
 
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
-      debugPrint('NativeAdManager: Ads disabled, skipping load');
+      adFlowLog('NativeAdManager: Ads disabled, skipping load');
       return;
     }
 
@@ -104,7 +104,7 @@ class NativeAdManager
       if (_isLoaded && _currentFactoryId != factoryId) {
         await _disposeCurrentAd();
       } else {
-        debugPrint('NativeAdManager: Already loading or loaded, skipping...');
+        adFlowLog('NativeAdManager: Already loading or loaded, skipping...');
         return;
       }
     }
@@ -115,7 +115,7 @@ class NativeAdManager
 
     // Check consent before loading (Google best practice)
     if (!await AdSdk.instance.canRequestAds()) {
-      debugPrint('NativeAdManager: Cannot request ads (no consent)');
+      adFlowLog('NativeAdManager: Cannot request ads (no consent)');
       _isLoading = false;
       notifyStatusListeners();
       return;
@@ -128,7 +128,7 @@ class NativeAdManager
       return;
     }
 
-    debugPrint('NativeAdManager: Loading native ad with factory: $factoryId');
+    adFlowLog('NativeAdManager: Loading native ad with factory: $factoryId');
 
     await AdSdk.instance.loadNativeAd(
       adUnitId: adUnitId ?? AdFlowConfig.current.nativeAdUnitId,
@@ -137,7 +137,7 @@ class NativeAdManager
         httpTimeoutMillis: AdFlowConfig.current.httpTimeoutMillis,
       ),
       onAdLoaded: (NativeAd ad) {
-        debugPrint('NativeAdManager: Ad loaded successfully');
+        adFlowLog('NativeAdManager: Ad loaded successfully');
         _nativeAd = ad;
         _isLoaded = true;
         _isLoading = false;
@@ -146,11 +146,11 @@ class NativeAdManager
         onAdLoaded?.call(ad);
       },
       onAdFailedToLoad: (NativeAd ad, LoadAdError error) {
-        debugPrint('NativeAdManager: Ad failed to load: ${error.message}');
+        adFlowLog('NativeAdManager: Ad failed to load: ${error.message}');
         // Hint for common factory registration issue
         if (error.code == 0 ||
             error.message.toLowerCase().contains('factory')) {
-          debugPrint(
+          adFlowLog(
             'NativeAdManager: HINT - Ensure native ad factory "$factoryId" is registered in native code (Android/iOS)',
           );
         }

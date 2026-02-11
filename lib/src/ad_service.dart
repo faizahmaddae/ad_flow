@@ -18,6 +18,7 @@ import 'native_ad_manager.dart';
 import 'rewarded_ad_manager.dart';
 import 'ads_enabled_manager.dart';
 import 'mediation_helper.dart';
+import 'ad_flow_logger.dart';
 
 /// Callback for ad service initialization completion.
 ///
@@ -144,7 +145,7 @@ class AdFlow {
 
     // Warn in debug mode to remind devs to use await
     assert(() {
-      debugPrint(
+      adFlowLog(
         '⚠️ AdFlow: waitForInit() called before initialization complete. '
         'Consider using: await AdFlow.instance.initialize()',
       );
@@ -165,14 +166,14 @@ class AdFlow {
       return await _initCompleter!.future.timeout(
         effectiveTimeout,
         onTimeout: () {
-          debugPrint(
+          adFlowLog(
             '⚠️ AdFlow: waitForInit() timed out after ${effectiveTimeout.inSeconds}s',
           );
           return false;
         },
       );
     } catch (e) {
-      debugPrint('AdFlow: waitForInit() error: $e');
+      adFlowLog('AdFlow: waitForInit() error: $e');
       return false;
     }
   }
@@ -460,14 +461,14 @@ class AdFlow {
     final useExplainer = context != null;
 
     if (_isInitialized) {
-      debugPrint('AdFlow: Already initialized');
+      adFlowLog('AdFlow: Already initialized');
       onComplete?.call(consent.canRequestAds);
       return;
     }
 
     // Prevent concurrent initialization calls
     if (_isInitializing) {
-      debugPrint('AdFlow: Initialization already in progress');
+      adFlowLog('AdFlow: Initialization already in progress');
       // Wait for existing initialization to complete and then notify caller
       final canRequestAds = await waitForInit();
       onComplete?.call(canRequestAds);
@@ -484,17 +485,17 @@ class AdFlow {
       _config = config ?? AdFlowConfig.testMode();
       AdFlowConfig.setCurrent(_config!);
 
-      debugPrint(
+      adFlowLog(
         'AdFlow: Starting initialization${useExplainer ? ' with explainer' : ''}...',
       );
-      debugPrint(
+      adFlowLog(
         'AdFlow: Using test ads: ${AdFlowConfig.current.isUsingTestAds}',
       );
 
       // Policy warning: Alert developers if using test IDs in release build
       if (AdFlowConfig.current.isUsingTestAds) {
         assert(() {
-          debugPrint(
+          adFlowLog(
             '⚠️ AdFlow WARNING: Using test ad unit IDs. '
             'Replace with production IDs before release!',
           );
@@ -510,7 +511,7 @@ class AdFlow {
       // Check if ads are disabled (user purchased Remove Ads)
       // Skip this check for explainer path - it will be handled after dialog
       if (!useExplainer && AdsEnabledManager.instance.isDisabled) {
-        debugPrint('AdFlow: Ads are disabled (Remove Ads purchased)');
+        adFlowLog('AdFlow: Ads are disabled (Remove Ads purchased)');
         _isInitialized = true;
         _completeInit(false);
         onComplete?.call(false);
@@ -528,7 +529,7 @@ class AdFlow {
       if (useExplainer) {
         // Check context is still valid after awaiting AdsEnabledManager init
         if (!context.mounted) {
-          debugPrint(
+          adFlowLog(
             'AdFlow: Context unmounted before consent, completing with false',
           );
           _isInitialized = true;
@@ -556,7 +557,7 @@ class AdFlow {
       // ── Post-consent work ──
 
       if (consentError != null) {
-        debugPrint('AdFlow: Consent error: ${consentError!.message}');
+        adFlowLog('AdFlow: Consent error: ${consentError!.message}');
       }
 
       // Step 2: Forward consent to mediation networks (if any registered)
@@ -587,21 +588,21 @@ class AdFlow {
           showAppOpenOnColdStart: showAppOpenOnColdStart,
         );
       } else if (consent.canRequestAds && !sdkInitialized) {
-        debugPrint('AdFlow: SDK initialization failed, skipping ad preload');
+        adFlowLog('AdFlow: SDK initialization failed, skipping ad preload');
       }
 
       final canRequestAds = consent.canRequestAds && sdkInitialized;
 
       _isInitialized = true;
       _completeInit(canRequestAds);
-      debugPrint(
+      adFlowLog(
         'AdFlow: Initialization complete${useExplainer ? ' (with explainer)' : ''}',
       );
-      debugPrint('AdFlow: Can request ads: $canRequestAds');
+      adFlowLog('AdFlow: Can request ads: $canRequestAds');
 
       onComplete?.call(canRequestAds);
     } catch (e) {
-      debugPrint('AdFlow: Initialization failed with error: $e');
+      adFlowLog('AdFlow: Initialization failed with error: $e');
       _isInitialized = true;
       _completeInit(false);
       onComplete?.call(false);
@@ -618,10 +619,10 @@ class AdFlow {
     required bool showAppOpenOnColdStart,
   }) async {
     if (preloadInterstitial) {
-      interstitial.loadAd();
+      unawaited(interstitial.loadAd());
     }
     if (preloadRewarded) {
-      rewarded.loadAd();
+      unawaited(rewarded.loadAd());
     }
     if (preloadAppOpen) {
       // Use cold-start timeout to avoid blocking too long
@@ -632,7 +633,7 @@ class AdFlow {
         final adLoaded = await appOpen.loadAdAndWait().timeout(
           coldStartTimeout,
           onTimeout: () {
-            debugPrint(
+            adFlowLog(
               'AdFlow: Cold-start app open ad timed out after ${coldStartTimeout.inSeconds}s, continuing without it',
             );
             return false;
@@ -640,19 +641,19 @@ class AdFlow {
         );
 
         if (adLoaded && appOpen.isAdAvailable) {
-          debugPrint('AdFlow: Showing app open ad on cold start');
+          adFlowLog('AdFlow: Showing app open ad on cold start');
           await appOpen.showAdIfAvailable();
         }
       } else if (showAppOpenOnColdStart) {
         // No timeout configured, wait for ad (legacy behavior)
         final adLoaded = await appOpen.loadAdAndWait();
         if (adLoaded && appOpen.isAdAvailable) {
-          debugPrint('AdFlow: Showing app open ad on cold start');
+          adFlowLog('AdFlow: Showing app open ad on cold start');
           await appOpen.showAdIfAvailable();
         }
       } else {
         // Just preload in background, don't block
-        appOpen.loadAd();
+        unawaited(appOpen.loadAd());
       }
     }
   }
@@ -661,13 +662,13 @@ class AdFlow {
   ///
   /// Returns `true` if initialization succeeded, `false` otherwise.
   Future<bool> _initializeMobileAds() async {
-    debugPrint('AdFlow: Initializing Mobile Ads SDK...');
+    adFlowLog('AdFlow: Initializing Mobile Ads SDK...');
 
     try {
       await AdSdk.instance.initializeMobileAds();
 
       _isMobileAdsInitialized = true;
-      debugPrint('AdFlow: Mobile Ads SDK initialized');
+      adFlowLog('AdFlow: Mobile Ads SDK initialized');
 
       // Set request configuration
       final config = RequestConfiguration(
@@ -680,7 +681,7 @@ class AdFlow {
       await AdSdk.instance.updateRequestConfiguration(config);
       return true;
     } catch (e) {
-      debugPrint('AdFlow: Failed to initialize Mobile Ads SDK: $e');
+      adFlowLog('AdFlow: Failed to initialize Mobile Ads SDK: $e');
       _isMobileAdsInitialized = false;
       return false;
     }
@@ -691,25 +692,32 @@ class AdFlow {
   /// This is called automatically during initialization if any
   /// mediation adapters are registered via [MediationHelper].
   Future<void> _forwardConsentToMediationNetworks() async {
-    debugPrint('AdFlow: Forwarding consent to mediation networks...');
+    adFlowLog('AdFlow: Forwarding consent to mediation networks...');
 
-    // Determine consent status based on UMP result
-    // canRequestAds being true means user consented
+    // Determine GDPR consent from UMP result
     final hasConsent = consent.canRequestAds;
+
+    // Determine CCPA opt-out from IAB US Privacy String
+    // Format: "1YNN" where index 2 is opt-out flag ('Y' = opted out)
+    final usPrivacyString = await consent.getUSPrivacyString();
+    final ccpaOptOut =
+        usPrivacyString != null &&
+        usPrivacyString.length >= 3 &&
+        usPrivacyString[2] == 'Y';
 
     final summary = await MediationHelper.forwardConsent(
       MediationConsentConfig(
         hasGdprConsent: hasConsent,
-        ccpaOptOut: !hasConsent,
+        ccpaOptOut: ccpaOptOut,
         enableLogging: true,
       ),
     );
 
     if (summary.allSuccessful) {
-      debugPrint('AdFlow: Mediation consent forwarded successfully');
+      adFlowLog('AdFlow: Mediation consent forwarded successfully');
     } else {
       for (final failed in summary.failed) {
-        debugPrint(
+        adFlowLog(
           'AdFlow: Mediation consent failed for ${failed.networkName}: ${failed.error}',
         );
       }
@@ -723,7 +731,7 @@ class AdFlow {
       maxForegroundAdsPerSession: _maxForegroundAdsPerSession,
     );
     _lifecycleReactor!.startListening();
-    debugPrint(
+    adFlowLog(
       'AdFlow: Lifecycle reactor started (max foreground ads: $_maxForegroundAdsPerSession)',
     );
   }
@@ -738,35 +746,35 @@ class AdFlow {
   /// in [initialize] instead).
   Future<void> preloadAds() async {
     if (!consent.canRequestAds) {
-      debugPrint('AdFlow: Cannot request ads, skipping preload');
+      adFlowLog('AdFlow: Cannot request ads, skipping preload');
       return;
     }
 
     final futures = <Future<void>>[];
 
     if (config.hasInterstitialConfigured) {
-      debugPrint('AdFlow: Preloading interstitial ad...');
+      adFlowLog('AdFlow: Preloading interstitial ad...');
       futures.add(interstitial.loadAd());
     }
 
     if (config.hasAppOpenConfigured) {
-      debugPrint('AdFlow: Preloading app open ad...');
+      adFlowLog('AdFlow: Preloading app open ad...');
       futures.add(appOpen.loadAd());
     }
 
     if (config.hasRewardedConfigured) {
-      debugPrint('AdFlow: Preloading rewarded ad...');
+      adFlowLog('AdFlow: Preloading rewarded ad...');
       futures.add(rewarded.loadAd());
     }
 
     if (futures.isEmpty) {
-      debugPrint(
+      adFlowLog(
         'AdFlow: No ad types configured for preload (test mode or no IDs set)',
       );
       return;
     }
 
-    debugPrint('AdFlow: Preloading ${futures.length} ad type(s)...');
+    adFlowLog('AdFlow: Preloading ${futures.length} ad type(s)...');
     await Future.wait(futures);
   }
 
@@ -778,7 +786,7 @@ class AdFlow {
     consent.showPrivacyOptionsForm(
       onComplete: (error) {
         if (error != null) {
-          debugPrint('AdFlow: Privacy form error: ${error.message}');
+          adFlowLog('AdFlow: Privacy form error: ${error.message}');
         }
         onComplete?.call();
       },
@@ -791,7 +799,7 @@ class AdFlow {
   void openAdInspector() {
     AdSdk.instance.openAdInspector((error) {
       if (error != null) {
-        debugPrint('AdFlow: Ad Inspector error: ${error.message}');
+        adFlowLog('AdFlow: Ad Inspector error: ${error.message}');
       }
     });
   }
@@ -821,7 +829,7 @@ class AdFlow {
     _isInitializing = false;
     // Note: We don't close _initStreamController here since it's a singleton
     // and may still have subscribers. It's properly closed/recreated in reset().
-    debugPrint('AdFlow: Disposed');
+    adFlowLog('AdFlow: Disposed');
   }
 
   /// Resets the AdFlow singleton state for testing purposes.
@@ -841,7 +849,7 @@ class AdFlow {
   /// ```
   @visibleForTesting
   Future<void> reset() async {
-    debugPrint('AdFlow: Resetting state...');
+    adFlowLog('AdFlow: Resetting state...');
     await dispose();
     _bannerAdManager = null;
     _interstitialAdManager = null;
@@ -859,6 +867,6 @@ class AdFlow {
     _initStreamController = StreamController<bool>.broadcast();
     AdFlowConfig.resetCurrent();
     MediationHelper.reset();
-    debugPrint('AdFlow: State reset complete');
+    adFlowLog('AdFlow: State reset complete');
   }
 }

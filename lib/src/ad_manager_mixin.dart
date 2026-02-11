@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'ad_config.dart';
+import 'ad_flow_logger.dart';
 
 // ============================================================================
 // AD MANAGER CONTRACT
@@ -177,7 +178,7 @@ mixin AdRetryHandler {
       if (elapsed < AdFlowConfig.current.retryCooldownAfterMaxAttempts) {
         final remaining =
             AdFlowConfig.current.retryCooldownAfterMaxAttempts - elapsed;
-        debugPrint(
+        adFlowLog(
           '${managerName ?? 'AdManager'}: In cooldown after max retries '
           '(${remaining.inSeconds}s remaining)',
         );
@@ -210,7 +211,7 @@ mixin AdRetryHandler {
     final name = managerName ?? 'AdManager';
 
     if (_retryAttempts < AdFlowConfig.current.maxLoadRetries) {
-      debugPrint('$name: Retrying load (attempt $_retryAttempts)...');
+      adFlowLog('$name: Retrying load (attempt $_retryAttempts)...');
       _retryTimer?.cancel();
       _retryTimer = Timer(AdFlowConfig.current.retryDelay * _retryAttempts, () {
         if (checkDisposed()) return;
@@ -219,7 +220,7 @@ mixin AdRetryHandler {
       return true;
     } else {
       _lastMaxRetryFailureTime = DateTime.now();
-      debugPrint(
+      adFlowLog(
         '$name: Max retries exhausted, entering '
         '${AdFlowConfig.current.retryCooldownAfterMaxAttempts.inMinutes}min cooldown',
       );

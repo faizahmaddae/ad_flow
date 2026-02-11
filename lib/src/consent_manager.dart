@@ -13,6 +13,7 @@ import 'ad_config.dart';
 import 'ad_error_handler.dart';
 import 'ad_sdk.dart';
 import 'consent_explainer_dialog.dart';
+import 'ad_flow_logger.dart';
 
 /// Callback signature for consent gathering completion
 typedef ConsentCallback = void Function(FormError? error);
@@ -73,7 +74,7 @@ class ConsentManager {
   /// await ConsentManager.instance.gatherConsent(
   ///   onConsentGatheringComplete: (error) {
   ///     if (error != null) {
-  ///       debugPrint('Consent error: ${error.message}');
+  ///       adFlowLog('Consent error: ${error.message}');
   ///     }
   ///     // Proceed to load ads
   ///   },
@@ -82,7 +83,7 @@ class ConsentManager {
   Future<void> gatherConsent({
     required ConsentCallback onConsentGatheringComplete,
   }) async {
-    debugPrint('ConsentManager: Starting consent gathering...');
+    adFlowLog('ConsentManager: Starting consent gathering...');
 
     // Step 1: iOS ATT - request only if not determined
     if (AdFlowPlatform.isIOS) {
@@ -90,7 +91,7 @@ class ConsentManager {
 
       // Check if we should skip GDPR consent after ATT denial
       if (_shouldSkipGdprConsent()) {
-        debugPrint(
+        adFlowLog(
           'ConsentManager: Skipping GDPR consent (ATT denied, skipGdprConsentIfAttDenied=true)',
         );
         await _updateCanRequestAds();
@@ -101,7 +102,7 @@ class ConsentManager {
     }
 
     // Step 2: UMP consent flow (GDPR/US Privacy)
-    _gatherUMPConsent(onConsentGatheringComplete);
+    await _gatherUMPConsent(onConsentGatheringComplete);
   }
 
   /// Gathers consent WITH optional pre-consent explainer dialogs.
@@ -124,7 +125,7 @@ class ConsentManager {
     ConsentExplainerTexts consentTexts = kDefaultConsentExplainerTexts,
     ATTExplainerTexts attTexts = kDefaultATTExplainerTexts,
   }) async {
-    debugPrint('ConsentManager: Starting consent gathering with explainer...');
+    adFlowLog('ConsentManager: Starting consent gathering with explainer...');
 
     // Step 1: iOS ATT flow (check → explainer → prompt) - sequential
     if (AdFlowPlatform.isIOS) {
@@ -136,7 +137,7 @@ class ConsentManager {
 
       // Check if we should skip GDPR consent after ATT denial
       if (_shouldSkipGdprConsent()) {
-        debugPrint(
+        adFlowLog(
           'ConsentManager: Skipping GDPR consent (ATT denied, skipGdprConsentIfAttDenied=true)',
         );
         await _updateCanRequestAds();
@@ -149,7 +150,7 @@ class ConsentManager {
     // Step 2: GDPR/US Privacy flow (check → explainer → form) - sequential
     // Check if context is still valid after iOS ATT flow
     if (!context.mounted) {
-      debugPrint(
+      adFlowLog(
         'ConsentManager: Context no longer mounted, completing with error',
       );
       // P0 FIX: Always call the callback, even when context is unmounted
@@ -185,17 +186,17 @@ class ConsentManager {
   Future<TrackingStatus> _requestIOSTrackingIfNeeded() async {
     try {
       var status = await AdSdk.instance.getTrackingAuthorizationStatus();
-      debugPrint('ConsentManager: ATT status: $status');
+      adFlowLog('ConsentManager: ATT status: $status');
 
       if (status == TrackingStatus.notDetermined) {
         // Small delay recommended by Apple before showing ATT prompt
         await Future.delayed(_kATTPromptDelay);
         status = await AdSdk.instance.requestTrackingAuthorization();
-        debugPrint('ConsentManager: ATT result: $status');
+        adFlowLog('ConsentManager: ATT result: $status');
       }
       return status;
     } catch (e) {
-      debugPrint('ConsentManager: ATT error: $e');
+      adFlowLog('ConsentManager: ATT error: $e');
       return TrackingStatus.notSupported;
     }
   }
@@ -211,26 +212,26 @@ class ConsentManager {
     try {
       // Step 1: Check if ATT is needed
       var status = await AdSdk.instance.getTrackingAuthorizationStatus();
-      debugPrint('ConsentManager: ATT status: $status');
+      adFlowLog('ConsentManager: ATT status: $status');
 
       if (status != TrackingStatus.notDetermined) {
-        debugPrint('ConsentManager: ATT already determined, skipping');
+        adFlowLog('ConsentManager: ATT already determined, skipping');
         return status;
       }
 
       // Step 2: Show explainer if enabled and context is valid
       if (showExplainer && context.mounted) {
-        debugPrint('ConsentManager: Showing ATT explainer...');
+        adFlowLog('ConsentManager: Showing ATT explainer...');
         await ATTExplainerDialog.show(context, texts: attTexts);
       }
 
       // Step 3: Show system ATT prompt
       await Future.delayed(_kATTPromptDelay);
       status = await AdSdk.instance.requestTrackingAuthorization();
-      debugPrint('ConsentManager: ATT result: $status');
+      adFlowLog('ConsentManager: ATT result: $status');
       return status;
     } catch (e) {
-      debugPrint('ConsentManager: ATT error: $e');
+      adFlowLog('ConsentManager: ATT error: $e');
       return TrackingStatus.notSupported;
     }
   }
@@ -274,7 +275,7 @@ class ConsentManager {
     }
 
     Future<void> completeWithError(FormError error) async {
-      debugPrint('ConsentManager: Consent update failed: ${error.message}');
+      adFlowLog('ConsentManager: Consent update failed: ${error.message}');
       AdFlowErrorHandler.instance.reportConsentError(error);
       await _updateCanRequestAds();
       _isInitialized = true;
@@ -322,7 +323,7 @@ class ConsentManager {
 
         // Show explainer ONLY if form will be shown
         if (needsForm && showExplainer && context.mounted) {
-          debugPrint('ConsentManager: Showing GDPR explainer...');
+          adFlowLog('ConsentManager: Showing GDPR explainer...');
           await ConsentExplainerDialog.show(context, texts: consentTexts);
         }
       },
@@ -375,8 +376,8 @@ class ConsentManager {
     final status = await AdSdk.instance.getPrivacyOptionsRequirementStatus();
     _isPrivacyOptionsRequired =
         status == PrivacyOptionsRequirementStatus.required;
-    debugPrint('ConsentManager: Can request ads: $_canRequestAds');
-    debugPrint(
+    adFlowLog('ConsentManager: Can request ads: $_canRequestAds');
+    adFlowLog(
       'ConsentManager: Privacy options required: $_isPrivacyOptionsRequired',
     );
   }
@@ -398,7 +399,7 @@ class ConsentManager {
   void showPrivacyOptionsForm({required ConsentCallback onComplete}) {
     AdSdk.instance.showPrivacyOptionsForm((FormError? formError) async {
       if (formError != null) {
-        debugPrint('ConsentManager: Privacy form error: ${formError.message}');
+        adFlowLog('ConsentManager: Privacy form error: ${formError.message}');
       }
       await _updateCanRequestAds();
       onComplete(formError);
@@ -410,7 +411,7 @@ class ConsentManager {
   /// WARNING: Only use during development/testing.
   @visibleForTesting
   void resetConsent() {
-    debugPrint('ConsentManager: Resetting consent');
+    adFlowLog('ConsentManager: Resetting consent');
     AdSdk.instance.resetConsentInfo();
     _isInitialized = false;
     _canRequestAds = false;
@@ -444,7 +445,7 @@ class ConsentManager {
       return null;
     }
 
-    debugPrint('ConsentManager: Using debug settings');
+    adFlowLog('ConsentManager: Using debug settings');
     return ConsentDebugSettings(
       debugGeography: DebugGeography.debugGeographyEea,
       testIdentifiers: AdFlowConfig.current.testDeviceIds,

@@ -10,6 +10,7 @@ import 'ad_error_handler.dart';
 import 'ad_manager_mixin.dart';
 import 'ad_sdk.dart';
 import 'ads_enabled_manager.dart';
+import 'ad_flow_logger.dart';
 
 /// Callback for app open ad events
 typedef AppOpenAdCallback = void Function(AppOpenAd ad);
@@ -94,13 +95,13 @@ class AppOpenAdManager
 
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
-      debugPrint('AppOpenAdManager: Ads disabled, skipping load');
+      adFlowLog('AppOpenAdManager: Ads disabled, skipping load');
       return;
     }
 
     // If already loading, wait for existing load
     if (_isLoading && _loadCompleter != null) {
-      debugPrint(
+      adFlowLog(
         'AppOpenAdManager: Already loading, waiting for existing load...',
       );
       return;
@@ -108,13 +109,13 @@ class AppOpenAdManager
 
     // Don't load if we already have a valid ad
     if (isAdAvailable) {
-      debugPrint('AppOpenAdManager: Ad already loaded and valid');
+      adFlowLog('AppOpenAdManager: Ad already loaded and valid');
       return;
     }
 
     // Dispose expired ad if exists
     if (_isLoaded && _isAdExpired) {
-      debugPrint('AppOpenAdManager: Disposing expired ad');
+      adFlowLog('AppOpenAdManager: Disposing expired ad');
       await _disposeCurrentAd();
     }
 
@@ -124,7 +125,7 @@ class AppOpenAdManager
 
     // Check consent before loading (Google best practice)
     if (!await AdSdk.instance.canRequestAds()) {
-      debugPrint('AppOpenAdManager: Cannot request ads (no consent)');
+      adFlowLog('AppOpenAdManager: Cannot request ads (no consent)');
       _isLoading = false;
       _loadCompleter?.complete(false);
       _loadCompleter = null;
@@ -141,7 +142,7 @@ class AppOpenAdManager
       return;
     }
 
-    debugPrint('AppOpenAdManager: Loading app open ad...');
+    adFlowLog('AppOpenAdManager: Loading app open ad...');
 
     await AdSdk.instance.loadAppOpenAd(
       adUnitId: adUnitId ?? AdFlowConfig.current.appOpenAdUnitId,
@@ -149,7 +150,7 @@ class AppOpenAdManager
         httpTimeoutMillis: AdFlowConfig.current.httpTimeoutMillis,
       ),
       onLoaded: (AppOpenAd ad) {
-        debugPrint('AppOpenAdManager: Ad loaded successfully');
+        adFlowLog('AppOpenAdManager: Ad loaded successfully');
         _appOpenAd = ad;
         _isLoaded = true;
         _isLoading = false;
@@ -168,7 +169,7 @@ class AppOpenAdManager
         notifyStatusListeners();
       },
       onFailed: (LoadAdError error) {
-        debugPrint('AppOpenAdManager: Ad failed to load: ${error.message}');
+        adFlowLog('AppOpenAdManager: Ad failed to load: ${error.message}');
         _isLoaded = false;
         _isLoading = false;
 
@@ -204,19 +205,17 @@ class AppOpenAdManager
   /// Loads an app open ad and waits for it to complete.
   /// Returns true if ad loaded successfully, false otherwise.
   Future<bool> loadAdAndWait({String? adUnitId}) async {
-    debugPrint('AppOpenAdManager: loadAdAndWait called');
+    adFlowLog('AppOpenAdManager: loadAdAndWait called');
 
     // Already have a valid ad
     if (isAdAvailable) {
-      debugPrint('AppOpenAdManager: Ad already available');
+      adFlowLog('AppOpenAdManager: Ad already available');
       return true;
     }
 
     // If already loading, wait for that to complete
     if (_isLoading && _loadCompleter != null && !_loadCompleter!.isCompleted) {
-      debugPrint(
-        'AppOpenAdManager: Already loading, waiting for completion...',
-      );
+      adFlowLog('AppOpenAdManager: Already loading, waiting for completion...');
       return await _loadCompleter!.future;
     }
 
@@ -225,7 +224,7 @@ class AppOpenAdManager
 
     // Wait for the load to complete
     if (_loadCompleter != null && !_loadCompleter!.isCompleted) {
-      debugPrint('AppOpenAdManager: Waiting for load completer...');
+      adFlowLog('AppOpenAdManager: Waiting for load completer...');
       return await _loadCompleter!.future;
     }
 
@@ -241,12 +240,12 @@ class AppOpenAdManager
   void _setupFullScreenContentCallback() {
     _appOpenAd?.fullScreenContentCallback = FullScreenContentCallback(
       onAdShowedFullScreenContent: (Ad ad) {
-        debugPrint('AppOpenAdManager: Ad showed full screen content');
+        adFlowLog('AppOpenAdManager: Ad showed full screen content');
         _isShowing = true;
         notifyStatusListeners();
       },
       onAdDismissedFullScreenContent: (Ad ad) {
-        debugPrint('AppOpenAdManager: Ad dismissed');
+        adFlowLog('AppOpenAdManager: Ad dismissed');
         _isShowing = false;
         final onDismissed = _pendingOnAdDismissed;
         _pendingOnAdDismissed = null;
@@ -262,7 +261,7 @@ class AppOpenAdManager
         loadAd();
       },
       onAdFailedToShowFullScreenContent: (Ad ad, AdError error) {
-        debugPrint('AppOpenAdManager: Ad failed to show: ${error.message}');
+        adFlowLog('AppOpenAdManager: Ad failed to show: ${error.message}');
         _isShowing = false;
         final onFailed = _pendingOnAdFailedToShow;
         _pendingOnAdDismissed = null;
@@ -288,14 +287,14 @@ class AppOpenAdManager
         loadAd();
       },
       onAdImpression: (Ad ad) {
-        debugPrint('AppOpenAdManager: Ad impression recorded');
+        adFlowLog('AppOpenAdManager: Ad impression recorded');
       },
       onAdClicked: (Ad ad) {
-        debugPrint('AppOpenAdManager: Ad clicked');
+        adFlowLog('AppOpenAdManager: Ad clicked');
       },
       // iOS only - called before dismissing full screen content
       onAdWillDismissFullScreenContent: (Ad ad) {
-        debugPrint('AppOpenAdManager: Ad will dismiss (iOS)');
+        adFlowLog('AppOpenAdManager: Ad will dismiss (iOS)');
       },
     );
   }
@@ -312,36 +311,36 @@ class AppOpenAdManager
   }) async {
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
-      debugPrint('AppOpenAdManager: Ads disabled, not showing');
+      adFlowLog('AppOpenAdManager: Ads disabled, not showing');
       onAdFailedToShow?.call();
       return false;
     }
 
     if (!isAdAvailable) {
-      debugPrint('AppOpenAdManager: No ad available to show');
+      adFlowLog('AppOpenAdManager: No ad available to show');
       // Try to load one for next time
-      loadAd();
+      unawaited(loadAd());
       onAdFailedToShow?.call();
       return false;
     }
 
     if (_isShowing) {
-      debugPrint('AppOpenAdManager: Ad already showing');
+      adFlowLog('AppOpenAdManager: Ad already showing');
       return false;
     }
 
     // Check if ad is expired
     if (_isAdExpired) {
-      debugPrint('AppOpenAdManager: Ad expired, loading new one');
+      adFlowLog('AppOpenAdManager: Ad expired, loading new one');
       await _disposeCurrentAd();
-      loadAd();
+      unawaited(loadAd());
       onAdFailedToShow?.call();
       return false;
     }
 
     // Check consent hasn't been revoked since the ad was loaded
     if (!await AdSdk.instance.canRequestAds()) {
-      debugPrint('AppOpenAdManager: Consent revoked, not showing');
+      adFlowLog('AppOpenAdManager: Consent revoked, not showing');
       onAdFailedToShow?.call();
       return false;
     }
@@ -351,7 +350,7 @@ class AppOpenAdManager
     _pendingOnAdFailedToShow = onAdFailedToShow;
     _setupFullScreenContentCallback();
 
-    debugPrint('AppOpenAdManager: Showing ad...');
+    adFlowLog('AppOpenAdManager: Showing ad...');
     await _appOpenAd!.show();
     return true;
   }

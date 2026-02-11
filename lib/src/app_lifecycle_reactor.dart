@@ -1,9 +1,13 @@
 // Copyright 2024 - AdMob Integration Package
 // App Lifecycle Reactor for monitoring app state changes
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import 'ads_enabled_manager.dart';
 import 'app_open_ad_manager.dart';
+import 'ad_flow_logger.dart';
 
 /// Monitors app lifecycle changes and shows app open ads accordingly.
 ///
@@ -60,7 +64,7 @@ class AppLifecycleReactor with WidgetsBindingObserver {
   /// Resets the foreground ad counter (call this to allow more ads)
   void resetForegroundAdCount() {
     _foregroundAdCount = 0;
-    debugPrint('🔄 AppLifecycleReactor: Foreground ad count reset');
+    adFlowLog('🔄 AppLifecycleReactor: Foreground ad count reset');
   }
 
   /// Starts listening for app state changes.
@@ -69,26 +73,26 @@ class AppLifecycleReactor with WidgetsBindingObserver {
   /// ad will be shown if one is available.
   void startListening() {
     if (_isListening) {
-      debugPrint('🔄 AppLifecycleReactor: Already listening');
+      adFlowLog('🔄 AppLifecycleReactor: Already listening');
       return;
     }
 
-    debugPrint(
+    adFlowLog(
       '🔄 AppLifecycleReactor: ✅ Starting to listen (WidgetsBindingObserver)',
     );
     _isListening = true;
     WidgetsBinding.instance.addObserver(this);
-    debugPrint('🔄 AppLifecycleReactor: ✅ Observer added successfully');
+    adFlowLog('🔄 AppLifecycleReactor: ✅ Observer added successfully');
   }
 
   /// Stops listening for app state changes.
   void stopListening() {
     if (!_isListening) {
-      debugPrint('AppLifecycleReactor: Not listening');
+      adFlowLog('AppLifecycleReactor: Not listening');
       return;
     }
 
-    debugPrint('AppLifecycleReactor: Stopping listening');
+    adFlowLog('AppLifecycleReactor: Stopping listening');
     WidgetsBinding.instance.removeObserver(this);
     _isListening = false;
   }
@@ -100,26 +104,26 @@ class AppLifecycleReactor with WidgetsBindingObserver {
   ///
   /// Call [resume] to start showing ads again.
   void pause() {
-    debugPrint('AppLifecycleReactor: Paused');
+    adFlowLog('AppLifecycleReactor: Paused');
     _isPaused = true;
   }
 
   /// Resumes the reactor after being paused.
   void resume() {
-    debugPrint('AppLifecycleReactor: Resumed');
+    adFlowLog('AppLifecycleReactor: Resumed');
     _isPaused = false;
   }
 
   /// Called when the app lifecycle state changes.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    debugPrint('🔄 AppLifecycleReactor: Lifecycle state changed to $state');
-    debugPrint(
+    adFlowLog('🔄 AppLifecycleReactor: Lifecycle state changed to $state');
+    adFlowLog(
       '🔄 AppLifecycleReactor: isPaused=$_isPaused, wasInBackground=$_wasInBackground, isAdAvailable=${_appOpenAdManager.isAdAvailable}',
     );
 
     if (_isPaused) {
-      debugPrint('🔄 AppLifecycleReactor: Paused, not showing ad');
+      adFlowLog('🔄 AppLifecycleReactor: Paused, not showing ad');
       return;
     }
 
@@ -127,12 +131,12 @@ class AppLifecycleReactor with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       _wasInBackground = true;
-      debugPrint('🔄 AppLifecycleReactor: App went to background');
+      adFlowLog('🔄 AppLifecycleReactor: App went to background');
     }
 
     // Show ad when app comes back to foreground FROM background
     if (state == AppLifecycleState.resumed && _wasInBackground) {
-      debugPrint(
+      adFlowLog(
         '🔄 AppLifecycleReactor: ✅ Foreground detected (was in background), attempting to show ad...',
       );
       _wasInBackground = false;
@@ -145,7 +149,7 @@ class AppLifecycleReactor with WidgetsBindingObserver {
     // Check if we've hit the session limit
     if (maxForegroundAdsPerSession > 0 &&
         _foregroundAdCount >= maxForegroundAdsPerSession) {
-      debugPrint(
+      adFlowLog(
         '🔄 AppLifecycleReactor: Session limit reached ($_foregroundAdCount/$maxForegroundAdsPerSession), skipping',
       );
       return;
@@ -153,7 +157,7 @@ class AppLifecycleReactor with WidgetsBindingObserver {
 
     // Don't show if we're already in the process of showing
     if (_isShowingAd) {
-      debugPrint('🔄 AppLifecycleReactor: Already in show process, skipping');
+      adFlowLog('🔄 AppLifecycleReactor: Already in show process, skipping');
       return;
     }
 
@@ -162,7 +166,7 @@ class AppLifecycleReactor with WidgetsBindingObserver {
       final timeSinceLastAd = DateTime.now().difference(_lastAdShowTime!);
       if (timeSinceLastAd < _minTimeBetweenAds) {
         final remaining = _minTimeBetweenAds - timeSinceLastAd;
-        debugPrint(
+        adFlowLog(
           '🔄 AppLifecycleReactor: Cooldown active (${remaining.inSeconds}s remaining), skipping',
         );
         return;
@@ -171,9 +175,7 @@ class AppLifecycleReactor with WidgetsBindingObserver {
 
     // Don't show if already showing
     if (_appOpenAdManager.isShowing) {
-      debugPrint(
-        '🔄 AppLifecycleReactor: Ad manager already showing, skipping',
-      );
+      adFlowLog('🔄 AppLifecycleReactor: Ad manager already showing, skipping');
       return;
     }
 
@@ -181,7 +183,7 @@ class AppLifecycleReactor with WidgetsBindingObserver {
       final limitText = maxForegroundAdsPerSession > 0
           ? '(${_foregroundAdCount + 1}/$maxForegroundAdsPerSession)'
           : '(unlimited)';
-      debugPrint(
+      adFlowLog(
         '🔄 AppLifecycleReactor: Ad available, showing now... $limitText',
       );
       _isShowingAd = true;
@@ -190,22 +192,22 @@ class AppLifecycleReactor with WidgetsBindingObserver {
       await _appOpenAdManager.showAdIfAvailable(
         onAdDismissed: () {
           _isShowingAd = false;
-          debugPrint(
+          adFlowLog(
             '🔄 AppLifecycleReactor: Ad dismissed, cooldown started. Count: $_foregroundAdCount',
           );
         },
         onAdFailedToShow: () {
           _isShowingAd = false;
           _foregroundAdCount--; // Don't count failed shows
-          debugPrint('🔄 AppLifecycleReactor: Ad failed to show');
+          adFlowLog('🔄 AppLifecycleReactor: Ad failed to show');
         },
       );
     } else {
-      debugPrint(
+      adFlowLog(
         '🔄 AppLifecycleReactor: No ad available, preloading for next time...',
       );
       // Preload for next foreground event
-      _appOpenAdManager.loadAd();
+      unawaited(_appOpenAdManager.loadAd());
     }
   }
 
@@ -276,9 +278,20 @@ class _AppOpenAdWrapperState extends State<AppOpenAdWrapper> {
     // Start listening for app state changes
     _lifecycleReactor.startListening();
 
+    // Pause/resume reactor when Remove Ads state changes
+    AdsEnabledManager.instance.addListener(_onAdsEnabledChanged);
+
     // Preload ad if requested
     if (widget.preloadAd) {
       _preloadAd();
+    }
+  }
+
+  void _onAdsEnabledChanged(bool isEnabled) {
+    if (isEnabled) {
+      _lifecycleReactor.resume();
+    } else {
+      _lifecycleReactor.pause();
     }
   }
 
@@ -296,6 +309,7 @@ class _AppOpenAdWrapperState extends State<AppOpenAdWrapper> {
 
   @override
   void dispose() {
+    AdsEnabledManager.instance.removeListener(_onAdsEnabledChanged);
     _lifecycleReactor.dispose();
     super.dispose();
   }

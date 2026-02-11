@@ -10,6 +10,7 @@ import 'ad_error_handler.dart';
 import 'ad_manager_mixin.dart';
 import 'ad_sdk.dart';
 import 'ads_enabled_manager.dart';
+import 'ad_flow_logger.dart';
 
 /// Callback for rewarded ad events
 typedef RewardedAdCallback = void Function(RewardedAd ad);
@@ -111,13 +112,13 @@ class RewardedAdManager
     // By default, rewarded ads ignore Remove Ads setting since users may still want rewards
     if (!AdFlowConfig.current.rewardedAdsIgnoreRemoveAds &&
         AdsEnabledManager.instance.isDisabled) {
-      debugPrint('RewardedAdManager: Ads disabled, skipping load');
+      adFlowLog('RewardedAdManager: Ads disabled, skipping load');
       return;
     }
 
     // Check if already loading or loaded (before async work to prevent races)
     if (_isLoading || _isLoaded) {
-      debugPrint('RewardedAdManager: Already loading or loaded, skipping...');
+      adFlowLog('RewardedAdManager: Already loading or loaded, skipping...');
       return;
     }
 
@@ -126,7 +127,7 @@ class RewardedAdManager
 
     // Check consent before loading (Google best practice)
     if (!await AdSdk.instance.canRequestAds()) {
-      debugPrint('RewardedAdManager: Cannot request ads (no consent)');
+      adFlowLog('RewardedAdManager: Cannot request ads (no consent)');
       _isLoading = false;
       notifyStatusListeners();
       return;
@@ -139,7 +140,7 @@ class RewardedAdManager
       return;
     }
 
-    debugPrint('RewardedAdManager: Loading rewarded ad...');
+    adFlowLog('RewardedAdManager: Loading rewarded ad...');
 
     await AdSdk.instance.loadRewardedAd(
       adUnitId: adUnitId ?? AdFlowConfig.current.rewardedAdUnitId,
@@ -147,7 +148,7 @@ class RewardedAdManager
         httpTimeoutMillis: AdFlowConfig.current.httpTimeoutMillis,
       ),
       onLoaded: (RewardedAd ad) {
-        debugPrint('RewardedAdManager: Ad loaded successfully');
+        adFlowLog('RewardedAdManager: Ad loaded successfully');
         _rewardedAd = ad;
         _isLoaded = true;
         _isLoading = false;
@@ -165,7 +166,7 @@ class RewardedAdManager
         notifyStatusListeners();
       },
       onFailed: (LoadAdError error) {
-        debugPrint('RewardedAdManager: Ad failed to load: ${error.message}');
+        adFlowLog('RewardedAdManager: Ad failed to load: ${error.message}');
         _isLoaded = false;
         _isLoading = false;
         notifyStatusListeners();
@@ -200,12 +201,12 @@ class RewardedAdManager
   void _setupFullScreenContentCallback() {
     _rewardedAd?.fullScreenContentCallback = FullScreenContentCallback(
       onAdShowedFullScreenContent: (Ad ad) {
-        debugPrint('RewardedAdManager: Ad showed full screen content');
+        adFlowLog('RewardedAdManager: Ad showed full screen content');
         _isShowing = true;
         notifyStatusListeners();
       },
       onAdDismissedFullScreenContent: (Ad ad) {
-        debugPrint('RewardedAdManager: Ad dismissed');
+        adFlowLog('RewardedAdManager: Ad dismissed');
         _isShowing = false;
         final onDismissed = _pendingOnAdDismissed;
         _pendingOnAdDismissed = null;
@@ -220,7 +221,7 @@ class RewardedAdManager
         loadAd();
       },
       onAdFailedToShowFullScreenContent: (Ad ad, AdError error) {
-        debugPrint('RewardedAdManager: Ad failed to show: ${error.message}');
+        adFlowLog('RewardedAdManager: Ad failed to show: ${error.message}');
         _isShowing = false;
         final onFailed = _pendingOnAdFailedToShow;
         _pendingOnAdDismissed = null;
@@ -245,14 +246,14 @@ class RewardedAdManager
         loadAd();
       },
       onAdImpression: (Ad ad) {
-        debugPrint('RewardedAdManager: Ad impression recorded');
+        adFlowLog('RewardedAdManager: Ad impression recorded');
       },
       onAdClicked: (Ad ad) {
-        debugPrint('RewardedAdManager: Ad clicked');
+        adFlowLog('RewardedAdManager: Ad clicked');
       },
       // iOS only - called before dismissing full screen content
       onAdWillDismissFullScreenContent: (Ad ad) {
-        debugPrint('RewardedAdManager: Ad will dismiss (iOS)');
+        adFlowLog('RewardedAdManager: Ad will dismiss (iOS)');
       },
     );
   }
@@ -275,25 +276,25 @@ class RewardedAdManager
     // Respect rewardedAdsIgnoreRemoveAds config—same guard as loadAd()
     if (!AdFlowConfig.current.rewardedAdsIgnoreRemoveAds &&
         AdsEnabledManager.instance.isDisabled) {
-      debugPrint('RewardedAdManager: Ads disabled, not showing');
+      adFlowLog('RewardedAdManager: Ads disabled, not showing');
       onAdFailedToShow?.call();
       return false;
     }
 
     if (!_isLoaded || _rewardedAd == null) {
-      debugPrint('RewardedAdManager: No ad loaded to show');
+      adFlowLog('RewardedAdManager: No ad loaded to show');
       onAdFailedToShow?.call();
       return false;
     }
 
     if (_isShowing) {
-      debugPrint('RewardedAdManager: Ad already showing');
+      adFlowLog('RewardedAdManager: Ad already showing');
       return false;
     }
 
     // Check consent hasn't been revoked since the ad was loaded
     if (!await AdSdk.instance.canRequestAds()) {
-      debugPrint('RewardedAdManager: Consent revoked, not showing');
+      adFlowLog('RewardedAdManager: Consent revoked, not showing');
       onAdFailedToShow?.call();
       return false;
     }
@@ -305,10 +306,10 @@ class RewardedAdManager
 
     // Set immersive mode for a better fullscreen experience (Android only)
     if (AdFlowPlatform.isAndroid) {
-      _rewardedAd!.setImmersiveMode(true);
+      await _rewardedAd!.setImmersiveMode(true);
     }
 
-    debugPrint('RewardedAdManager: Showing ad...');
+    adFlowLog('RewardedAdManager: Showing ad...');
     // Wrap the simplified callback to match the SDK's expected signature
     await _rewardedAd!.show(
       onUserEarnedReward: (AdWithoutView ad, RewardItem reward) {

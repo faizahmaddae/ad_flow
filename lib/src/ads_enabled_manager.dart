@@ -4,6 +4,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'ad_flow_logger.dart';
 
 /// Callback type for ads enabled status changes
 typedef AdsEnabledCallback = void Function(bool isEnabled);
@@ -88,9 +89,9 @@ class AdsEnabledManager {
       final prefs = await SharedPreferences.getInstance();
       _isEnabled = prefs.getBool(_prefsKey) ?? true;
       _isInitialized = true;
-      debugPrint('AdsEnabledManager: Initialized. Ads enabled: $_isEnabled');
+      adFlowLog('AdsEnabledManager: Initialized. Ads enabled: $_isEnabled');
     } catch (e) {
-      debugPrint('AdsEnabledManager: Error loading state: $e');
+      adFlowLog('AdsEnabledManager: Error loading state: $e');
       _isEnabled = true; // Default to enabled on error
       _isInitialized = true;
     }
@@ -117,7 +118,7 @@ class AdsEnabledManager {
     _isEnabled = false;
     await _persist();
     _notifyListeners();
-    debugPrint('AdsEnabledManager: ✅ Ads disabled');
+    adFlowLog('AdsEnabledManager: ✅ Ads disabled');
   }
 
   /// Enables ads (call to restore ads, e.g., after restore purchase fails).
@@ -132,7 +133,7 @@ class AdsEnabledManager {
     _isEnabled = true;
     await _persist();
     _notifyListeners();
-    debugPrint('AdsEnabledManager: ✅ Ads enabled');
+    adFlowLog('AdsEnabledManager: ✅ Ads enabled');
   }
 
   /// Toggles the ads enabled state.
@@ -146,8 +147,11 @@ class AdsEnabledManager {
 
   /// Adds a listener for ads enabled status changes.
   ///
-  /// The callback will be called immediately with the current value,
-  /// and again whenever the value changes.
+  /// **Important:** The callback is invoked **immediately** with the current
+  /// value upon registration, then again on every change. Do NOT call this
+  /// from within a [State.build] method — the synchronous callback could
+  /// trigger [setState] during build, causing a framework exception.
+  /// Instead, call it from [State.initState] or a post-frame callback.
   ///
   /// Remember to call [removeListener] when done to prevent memory leaks.
   void addListener(AdsEnabledCallback callback) {
@@ -167,7 +171,7 @@ class AdsEnabledManager {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_prefsKey, _isEnabled);
     } catch (e) {
-      debugPrint('AdsEnabledManager: Error persisting state: $e');
+      adFlowLog('AdsEnabledManager: Error persisting state: $e');
     }
   }
 
@@ -194,7 +198,7 @@ class AdsEnabledManager {
       await _streamController.close();
       _streamController = StreamController<bool>.broadcast();
     } catch (e) {
-      debugPrint('AdsEnabledManager: Error resetting state: $e');
+      adFlowLog('AdsEnabledManager: Error resetting state: $e');
     }
   }
 

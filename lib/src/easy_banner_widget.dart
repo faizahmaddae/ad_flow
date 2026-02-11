@@ -8,6 +8,7 @@ import 'banner_ad_manager.dart';
 import 'ad_config.dart' show CollapsibleBannerPlacement;
 import 'ads_enabled_manager.dart';
 import 'ad_service.dart';
+import 'ad_flow_logger.dart';
 
 /// A simple, self-contained banner ad widget.
 ///
@@ -83,13 +84,38 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
     // Listen for AdFlow initialization completion (for non-blocking init)
     // This allows the widget to load ads when AdFlow becomes ready
     _initSubscription = AdFlow.instance.initStream.listen(_onAdFlowInitialized);
+
+    // Listen for manager status changes (e.g. retry-loaded ads)
+    _bannerManager.addStatusListener(_onStatusChanged);
   }
 
   void _onAdFlowInitialized(bool canRequestAds) {
     if (_isDisposed || !mounted || !_isInitialized) return;
     if (canRequestAds && _adsEnabled && !_isLoaded) {
-      debugPrint('EasyBannerAd: AdFlow initialized, loading ad');
+      adFlowLog('EasyBannerAd: AdFlow initialized, loading ad');
       _loadAd();
+    }
+  }
+
+  /// Reacts to manager status changes (e.g. a retried load succeeded).
+  void _onStatusChanged() {
+    if (_isDisposed || !mounted) return;
+    final loaded = _bannerManager.isLoaded;
+    if (loaded != _isLoaded) {
+      setState(() => _isLoaded = loaded);
+    }
+  }
+
+  @override
+  void didUpdateWidget(EasyBannerAd oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.adSize != widget.adSize ||
+        oldWidget.collapsible != widget.collapsible) {
+      if (_adsEnabled && _isInitialized && !_isDisposed) {
+        _bannerManager.disposeCurrentAd();
+        setState(() => _isLoaded = false);
+        _tryLoadAd();
+      }
     }
   }
 
@@ -102,7 +128,7 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
       await _loadAd();
     } else {
       // AdFlow not ready yet - will be triggered by _onAdFlowInitialized
-      debugPrint('EasyBannerAd: Waiting for AdFlow initialization...');
+      adFlowLog('EasyBannerAd: Waiting for AdFlow initialization...');
     }
   }
 
@@ -166,6 +192,7 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
     _isDisposed = true;
     _orientationDebounceTimer?.cancel();
     _initSubscription?.cancel();
+    _bannerManager.removeStatusListener(_onStatusChanged);
     AdsEnabledManager.instance.removeListener(_onAdsEnabledChanged);
     _bannerManager.dispose();
     super.dispose();

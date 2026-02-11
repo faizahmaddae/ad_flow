@@ -41,7 +41,8 @@
 // Configuration
 export 'src/ad_config.dart';
 
-// SDK Abstraction (testability layer)
+// SDK Abstraction — exported for testing only. Do not override
+// AdSdk.instance in production; behavior is undefined.
 export 'src/ad_sdk.dart';
 
 // Error Handling

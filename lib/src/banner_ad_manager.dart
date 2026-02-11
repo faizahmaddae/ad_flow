@@ -10,6 +10,7 @@ import 'ad_error_handler.dart';
 import 'ad_manager_mixin.dart';
 import 'ad_sdk.dart';
 import 'ads_enabled_manager.dart';
+import 'ad_flow_logger.dart';
 
 /// Callback for banner ad events
 typedef BannerAdCallback = void Function(BannerAd ad);
@@ -97,12 +98,12 @@ class BannerAdManager
 
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
-      debugPrint('BannerAdManager: Ads disabled, skipping load');
+      adFlowLog('BannerAdManager: Ads disabled, skipping load');
       return;
     }
 
     if (_isLoading) {
-      debugPrint('BannerAdManager: Already loading, skipping...');
+      adFlowLog('BannerAdManager: Already loading, skipping...');
       return;
     }
 
@@ -111,7 +112,7 @@ class BannerAdManager
 
     // Check consent before loading (Google best practice)
     if (!await AdSdk.instance.canRequestAds()) {
-      debugPrint('BannerAdManager: Cannot request ads (no consent)');
+      adFlowLog('BannerAdManager: Cannot request ads (no consent)');
       _isLoading = false;
       notifyStatusListeners();
       return;
@@ -157,12 +158,12 @@ class BannerAdManager
 
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
-      debugPrint('BannerAdManager: Ads disabled, skipping load');
+      adFlowLog('BannerAdManager: Ads disabled, skipping load');
       return;
     }
 
     if (_isLoading) {
-      debugPrint('BannerAdManager: Already loading, skipping...');
+      adFlowLog('BannerAdManager: Already loading, skipping...');
       return;
     }
 
@@ -174,7 +175,7 @@ class BannerAdManager
 
     // Check consent before loading (Google best practice)
     if (!await AdSdk.instance.canRequestAds()) {
-      debugPrint('BannerAdManager: Cannot request ads (no consent)');
+      adFlowLog('BannerAdManager: Cannot request ads (no consent)');
       _isLoading = false;
       notifyStatusListeners();
       return;
@@ -191,7 +192,7 @@ class BannerAdManager
     final size = await AdSdk.instance.getAdaptiveBannerSize(screenWidth);
 
     if (size == null) {
-      debugPrint('BannerAdManager: Unable to get adaptive banner size');
+      adFlowLog('BannerAdManager: Unable to get adaptive banner size');
       _isLoading = false;
       notifyStatusListeners();
       return;
@@ -241,12 +242,12 @@ class BannerAdManager
 
     // Check if ads are disabled (Remove Ads feature)
     if (AdsEnabledManager.instance.isDisabled) {
-      debugPrint('BannerAdManager: Ads disabled, skipping load');
+      adFlowLog('BannerAdManager: Ads disabled, skipping load');
       return;
     }
 
     if (_isLoading) {
-      debugPrint('BannerAdManager: Already loading, skipping...');
+      adFlowLog('BannerAdManager: Already loading, skipping...');
       return;
     }
 
@@ -258,7 +259,7 @@ class BannerAdManager
 
     // Check consent before loading (Google best practice)
     if (!await AdSdk.instance.canRequestAds()) {
-      debugPrint('BannerAdManager: Cannot request ads (no consent)');
+      adFlowLog('BannerAdManager: Cannot request ads (no consent)');
       _isLoading = false;
       notifyStatusListeners();
       return;
@@ -275,7 +276,7 @@ class BannerAdManager
     final size = await AdSdk.instance.getAdaptiveBannerSize(screenWidth);
 
     if (size == null) {
-      debugPrint('BannerAdManager: Unable to get adaptive banner size');
+      adFlowLog('BannerAdManager: Unable to get adaptive banner size');
       _isLoading = false;
       notifyStatusListeners();
       return;
@@ -307,14 +308,14 @@ class BannerAdManager
     await disposeCurrentAd();
     _pendingAdUnitId = adUnitId;
 
-    debugPrint('BannerAdManager: Loading banner ad...');
+    adFlowLog('BannerAdManager: Loading banner ad...');
 
     await AdSdk.instance.loadBannerAd(
       adUnitId: adUnitId,
       size: size,
       request: request,
       onAdLoaded: (BannerAd ad) {
-        debugPrint('BannerAdManager: Ad loaded successfully');
+        adFlowLog('BannerAdManager: Ad loaded successfully');
         _bannerAd = ad;
         _isLoaded = true;
         _isLoading = false;
@@ -323,7 +324,7 @@ class BannerAdManager
         onAdLoaded?.call(ad);
       },
       onAdFailedToLoad: (BannerAd ad, LoadAdError error) {
-        debugPrint('BannerAdManager: Ad failed to load: ${error.message}');
+        adFlowLog('BannerAdManager: Ad failed to load: ${error.message}');
         _isLoaded = false;
         _isLoading = false;
         _bannerAd = null;
