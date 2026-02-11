@@ -129,7 +129,9 @@ class BannerAdManager
     await _loadBanner(
       adUnitId: adUnitId ?? AdFlowConfig.current.bannerAdUnitId,
       size: size,
-      request: const AdRequest(),
+      request: AdRequest(
+        httpTimeoutMillis: AdFlowConfig.current.httpTimeoutMillis,
+      ),
       onAdLoaded: onAdLoaded,
       onAdFailedToLoad: onAdFailedToLoad,
     );
@@ -200,7 +202,9 @@ class BannerAdManager
     await _loadBanner(
       adUnitId: adUnitId ?? AdFlowConfig.current.bannerAdUnitId,
       size: size,
-      request: const AdRequest(),
+      request: AdRequest(
+        httpTimeoutMillis: AdFlowConfig.current.httpTimeoutMillis,
+      ),
       onAdLoaded: onAdLoaded,
       onAdFailedToLoad: onAdFailedToLoad,
     );
@@ -322,7 +326,6 @@ class BannerAdManager
         debugPrint('BannerAdManager: Ad failed to load: ${error.message}');
         _isLoaded = false;
         _isLoading = false;
-        ad.dispose();
         _bannerAd = null;
         notifyStatusListeners();
 
@@ -333,15 +336,16 @@ class BannerAdManager
           adUnitId: adUnitId,
         );
 
-        // Retry loading with linear backoff
+        // Retry loading with linear backoff.
+        // Don't pass onAdLoaded/onAdFailedToLoad to retry — callers may
+        // have disposed their widgets by the time the retry fires, leading
+        // to stale callbacks. Status listeners remain the safe channel.
         final retried = handleLoadFailure(
           checkDisposed: () => isDisposed,
           onRetry: () => _loadBanner(
             adUnitId: _pendingAdUnitId ?? adUnitId,
             size: size,
             request: request,
-            onAdLoaded: onAdLoaded,
-            onAdFailedToLoad: onAdFailedToLoad,
           ),
           managerName: 'BannerAdManager',
         );
@@ -350,6 +354,9 @@ class BannerAdManager
         if (!retried) {
           onAdFailedToLoad?.call(ad, error);
         }
+
+        // Dispose the failed ad AFTER callbacks to avoid passing a disposed object
+        ad.dispose();
       },
     );
   }

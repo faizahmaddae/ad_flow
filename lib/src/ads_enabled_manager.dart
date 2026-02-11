@@ -172,8 +172,10 @@ class AdsEnabledManager {
   }
 
   /// Notifies all listeners and the stream of the current state.
+  ///
+  /// Safe from concurrent modification — iterates a copy via `List.of()`.
   void _notifyListeners() {
-    for (final listener in _listeners) {
+    for (final listener in List.of(_listeners)) {
       listener(_isEnabled);
     }
     _streamController.add(_isEnabled);

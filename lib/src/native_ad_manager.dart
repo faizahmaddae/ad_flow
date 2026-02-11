@@ -173,14 +173,12 @@ class NativeAdManager
         );
 
         // Retry loading with linear backoff
+        // Note: Retries don't pass user callbacks to avoid invoking
+        // stale widget callbacks after widget dispose. The user callback
+        // is only called on final failure (below).
         final retried = handleLoadFailure(
           checkDisposed: () => isDisposed,
-          onRetry: () => loadAd(
-            factoryId: factoryId,
-            adUnitId: adUnitId,
-            onAdLoaded: onAdLoaded,
-            onAdFailedToLoad: onAdFailedToLoad,
-          ),
+          onRetry: () => loadAd(factoryId: factoryId, adUnitId: adUnitId),
           managerName: 'NativeAdManager',
         );
 
