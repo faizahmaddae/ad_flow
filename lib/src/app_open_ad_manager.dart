@@ -145,56 +145,56 @@ class AppOpenAdManager
         httpTimeoutMillis: AdFlowConfig.current.httpTimeoutMillis,
       ),
       onLoaded: (AppOpenAd ad) {
-          debugPrint('AppOpenAdManager: Ad loaded successfully');
-          _appOpenAd = ad;
-          _isLoaded = true;
-          _isLoading = false;
-          _loadTime = DateTime.now();
-          resetRetryAttempts();
+        debugPrint('AppOpenAdManager: Ad loaded successfully');
+        _appOpenAd = ad;
+        _isLoaded = true;
+        _isLoading = false;
+        _loadTime = DateTime.now();
+        resetRetryAttempts();
 
-          // Set up full screen content callbacks
-          _setupFullScreenContentCallback();
+        // Set up full screen content callbacks
+        _setupFullScreenContentCallback();
 
-          // Complete the load completer
-          if (_loadCompleter != null && !_loadCompleter!.isCompleted) {
-            _loadCompleter!.complete(true);
-          }
+        // Complete the load completer
+        if (_loadCompleter != null && !_loadCompleter!.isCompleted) {
+          _loadCompleter!.complete(true);
+        }
 
-          onAdLoaded?.call(ad);
-          notifyStatusListeners();
-        },
-        onFailed: (LoadAdError error) {
-          debugPrint('AppOpenAdManager: Ad failed to load: ${error.message}');
-          _isLoaded = false;
-          _isLoading = false;
+        onAdLoaded?.call(ad);
+        notifyStatusListeners();
+      },
+      onFailed: (LoadAdError error) {
+        debugPrint('AppOpenAdManager: Ad failed to load: ${error.message}');
+        _isLoaded = false;
+        _isLoading = false;
 
-          // Complete the load completer with failure
-          if (_loadCompleter != null && !_loadCompleter!.isCompleted) {
-            _loadCompleter!.complete(false);
-          }
+        // Complete the load completer with failure
+        if (_loadCompleter != null && !_loadCompleter!.isCompleted) {
+          _loadCompleter!.complete(false);
+        }
 
-          // Report error to centralized handler
-          AdFlowErrorHandler.instance.reportLoadError(
-            error,
-            type: AdErrorType.appOpenLoad,
-            adUnitId: adUnitId ?? AdFlowConfig.current.appOpenAdUnitId,
-          );
+        // Report error to centralized handler
+        AdFlowErrorHandler.instance.reportLoadError(
+          error,
+          type: AdErrorType.appOpenLoad,
+          adUnitId: adUnitId ?? AdFlowConfig.current.appOpenAdUnitId,
+        );
 
-          notifyStatusListeners();
+        notifyStatusListeners();
 
-          // Retry loading with linear backoff
-          final retried = handleLoadFailure(
-            checkDisposed: () => isDisposed,
-            onRetry: () => loadAd(adUnitId: adUnitId),
-            managerName: 'AppOpenAdManager',
-          );
+        // Retry loading with linear backoff
+        final retried = handleLoadFailure(
+          checkDisposed: () => isDisposed,
+          onRetry: () => loadAd(adUnitId: adUnitId),
+          managerName: 'AppOpenAdManager',
+        );
 
-          // Only report to callback when all retries exhausted
-          if (!retried) {
-            onAdFailedToLoad?.call(error);
-          }
-        },
-      );
+        // Only report to callback when all retries exhausted
+        if (!retried) {
+          onAdFailedToLoad?.call(error);
+        }
+      },
+    );
   }
 
   /// Loads an app open ad and waits for it to complete.
@@ -266,11 +266,13 @@ class AppOpenAdManager
         notifyStatusListeners();
 
         // Report show error to centralized handler
-        AdFlowErrorHandler.instance.reportError(AdFlowError(
-          type: AdErrorType.appOpenShow,
-          code: error.code,
-          message: error.message,
-        ));
+        AdFlowErrorHandler.instance.reportError(
+          AdFlowError(
+            type: AdErrorType.appOpenShow,
+            code: error.code,
+            message: error.message,
+          ),
+        );
 
         onAdFailedToShow?.call();
 

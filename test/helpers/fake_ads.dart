@@ -18,8 +18,9 @@ class FakeInterstitialAd extends Fake implements InterstitialAd {
   bool wasShown = false;
 
   @override
-  set fullScreenContentCallback(FullScreenContentCallback<InterstitialAd>? cb) =>
-      _fscCallback = cb;
+  set fullScreenContentCallback(
+    FullScreenContentCallback<InterstitialAd>? cb,
+  ) => _fscCallback = cb;
 
   @override
   FullScreenContentCallback<InterstitialAd>? get fullScreenContentCallback =>
@@ -88,8 +89,9 @@ class FakeRewardedAd extends Fake implements RewardedAd {
       _fscCallback;
 
   @override
-  Future<void> show(
-      {required OnUserEarnedRewardCallback onUserEarnedReward}) async {
+  Future<void> show({
+    required OnUserEarnedRewardCallback onUserEarnedReward,
+  }) async {
     wasShown = true;
     _lastRewardCallback = onUserEarnedReward;
     _fscCallback?.onAdShowedFullScreenContent?.call(this);
@@ -112,7 +114,9 @@ class FakeRewardedAd extends Fake implements RewardedAd {
   ResponseInfo? get responseInfo => null;
 
   @override
-  Future<void> setServerSideOptions(ServerSideVerificationOptions options) async {
+  Future<void> setServerSideOptions(
+    ServerSideVerificationOptions options,
+  ) async {
     // Store for testing if needed
   }
 

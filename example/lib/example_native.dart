@@ -70,10 +70,7 @@ class _EasyNativeSection extends StatelessWidget {
             const SizedBox(height: 12),
             const SizedBox(
               height: 300,
-              child: EasyNativeAd(
-                factoryId: 'medium_template',
-                height: 300,
-              ),
+              child: EasyNativeAd(factoryId: 'medium_template', height: 300),
             ),
             const SizedBox(height: 8),
             Text(
@@ -130,15 +127,17 @@ class _CustomizedNativeSectionState extends State<_CustomizedNativeSection> {
               'Status: $_status',
               style: TextStyle(
                 fontSize: 12,
-                color: _status.contains('Loaded') ? Colors.green : Colors.orange,
+                color: _status.contains('Loaded')
+                    ? Colors.green
+                    : Colors.orange,
               ),
             ),
             const SizedBox(height: 12),
             EasyNativeAd(
               factoryId: 'medium_template',
               height: 300,
-              hideOnLoading: true,   // Collapse while loading
-              hideOnError: true,     // Collapse on error / no fill
+              hideOnLoading: true, // Collapse while loading
+              hideOnError: true, // Collapse on error / no fill
               backgroundColor: Colors.blue.shade50,
               borderRadius: BorderRadius.circular(16),
               padding: const EdgeInsets.all(12),

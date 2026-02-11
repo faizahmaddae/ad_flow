@@ -23,12 +23,14 @@ void main() {
     mockSdk = MockAdSdk();
     AdSdk.instance = mockSdk;
 
-    AdFlowConfig.setCurrent(const AdFlowConfig(
-      androidNativeAdUnitId: 'test-native',
-      iosNativeAdUnitId: 'test-native',
-      maxLoadRetries: 2,
-      retryDelay: Duration(milliseconds: 10),
-    ));
+    AdFlowConfig.setCurrent(
+      const AdFlowConfig(
+        androidNativeAdUnitId: 'test-native',
+        iosNativeAdUnitId: 'test-native',
+        maxLoadRetries: 2,
+        retryDelay: Duration(milliseconds: 10),
+      ),
+    );
     AdFlowPlatform.platformOverride = TargetPlatform.android;
 
     manager = NativeAdManager();
@@ -45,7 +47,10 @@ void main() {
     test('isLoading is false', () => expect(manager.isLoading, false));
     test('isShowing is false (always)', () => expect(manager.isShowing, false));
     test('nativeAd is null', () => expect(manager.nativeAd, isNull));
-    test('currentFactoryId is null', () => expect(manager.currentFactoryId, isNull));
+    test(
+      'currentFactoryId is null',
+      () => expect(manager.currentFactoryId, isNull),
+    );
   });
 
   group('loadAd - success', () {
@@ -76,7 +81,10 @@ void main() {
     });
 
     test('uses custom ad unit ID', () async {
-      await manager.loadAd(factoryId: 'medium_template', adUnitId: 'custom-native');
+      await manager.loadAd(
+        factoryId: 'medium_template',
+        adUnitId: 'custom-native',
+      );
       expect(mockSdk.lastAdUnitId, 'custom-native');
     });
 

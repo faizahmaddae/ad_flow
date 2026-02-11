@@ -59,10 +59,7 @@ void main() {
     });
 
     test('waitForInit throws when called before initialize', () {
-      expect(
-        () => AdFlow.instance.waitForInit(),
-        throwsStateError,
-      );
+      expect(() => AdFlow.instance.waitForInit(), throwsStateError);
     });
   });
 
@@ -228,9 +225,7 @@ void main() {
       await _flush();
 
       bool completed = false;
-      AdFlow.instance.showPrivacyOptions(
-        onComplete: () => completed = true,
-      );
+      AdFlow.instance.showPrivacyOptions(onComplete: () => completed = true);
       await _flush();
 
       expect(completed, true);
@@ -252,9 +247,7 @@ void main() {
       );
 
       bool completed = false;
-      AdFlow.instance.showPrivacyOptions(
-        onComplete: () => completed = true,
-      );
+      AdFlow.instance.showPrivacyOptions(onComplete: () => completed = true);
       await _flush();
 
       expect(completed, true);

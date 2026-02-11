@@ -23,13 +23,15 @@ void main() {
     mockSdk = MockAdSdk();
     AdSdk.instance = mockSdk;
 
-    AdFlowConfig.setCurrent(const AdFlowConfig(
-      androidAppOpenAdUnitId: 'test-app-open',
-      iosAppOpenAdUnitId: 'test-app-open',
-      appOpenAdMaxCacheDuration: Duration(hours: 4),
-      maxLoadRetries: 2,
-      retryDelay: Duration(milliseconds: 10),
-    ));
+    AdFlowConfig.setCurrent(
+      const AdFlowConfig(
+        androidAppOpenAdUnitId: 'test-app-open',
+        iosAppOpenAdUnitId: 'test-app-open',
+        appOpenAdMaxCacheDuration: Duration(hours: 4),
+        maxLoadRetries: 2,
+        retryDelay: Duration(milliseconds: 10),
+      ),
+    );
     AdFlowPlatform.platformOverride = TargetPlatform.android;
 
     manager = AppOpenAdManager();
@@ -219,11 +221,13 @@ void main() {
   group('ad expiry', () {
     test('isAdAvailable is false when ad is expired', () async {
       // Load ad with very short cache duration
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidAppOpenAdUnitId: 'test-app-open',
-        iosAppOpenAdUnitId: 'test-app-open',
-        appOpenAdMaxCacheDuration: Duration.zero,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidAppOpenAdUnitId: 'test-app-open',
+          iosAppOpenAdUnitId: 'test-app-open',
+          appOpenAdMaxCacheDuration: Duration.zero,
+        ),
+      );
 
       await manager.loadAd();
 

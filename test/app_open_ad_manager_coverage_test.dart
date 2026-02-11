@@ -23,10 +23,12 @@ void main() {
     mockSdk = MockAdSdk();
     AdSdk.instance = mockSdk;
     AdFlowPlatform.platformOverride = TargetPlatform.android;
-    AdFlowConfig.setCurrent(const AdFlowConfig(
-      androidAppOpenAdUnitId: 'test-app-open',
-      iosAppOpenAdUnitId: 'test-app-open',
-    ));
+    AdFlowConfig.setCurrent(
+      const AdFlowConfig(
+        androidAppOpenAdUnitId: 'test-app-open',
+        iosAppOpenAdUnitId: 'test-app-open',
+      ),
+    );
     manager = AppOpenAdManager();
   });
 
@@ -165,8 +167,9 @@ void main() {
       await manager.showAdIfAvailable();
 
       // Simulate will dismiss
-      fakeAd.fullScreenContentCallback?.onAdWillDismissFullScreenContent
-          ?.call(fakeAd);
+      fakeAd.fullScreenContentCallback?.onAdWillDismissFullScreenContent?.call(
+        fakeAd,
+      );
       // No crash
     });
 
@@ -227,9 +230,7 @@ void main() {
       mockSdk.appOpenAdToReturn = FakeAppOpenAd();
 
       bool loaded = false;
-      await manager.loadAd(
-        onAdLoaded: (_) => loaded = true,
-      );
+      await manager.loadAd(onAdLoaded: (_) => loaded = true);
 
       expect(loaded, true);
     });
@@ -237,9 +238,7 @@ void main() {
     test('onAdFailedToLoad callback fires after retries exhausted', () async {
       mockSdk.appOpenLoadError = LoadAdError(1, 'test', 'failed', null);
 
-      await manager.loadAd(
-        onAdFailedToLoad: (_) {},
-      );
+      await manager.loadAd(onAdFailedToLoad: (_) {});
 
       // First call triggers retry, callback only fires when retries exhausted
       // With default max retries, first failure schedules retry

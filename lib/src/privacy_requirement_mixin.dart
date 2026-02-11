@@ -29,8 +29,8 @@ mixin PrivacyRequirementMixin<T extends StatefulWidget> on State<T> {
     }
 
     // Then verify with async check for accuracy
-    final asyncValue =
-        await ConsentManager.instance.isPrivacyOptionsRequiredAsync();
+    final asyncValue = await ConsentManager.instance
+        .isPrivacyOptionsRequiredAsync();
     if (mounted && asyncValue != privacyIsRequired) {
       setState(() {
         privacyIsRequired = asyncValue;

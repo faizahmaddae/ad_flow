@@ -32,11 +32,13 @@ void main() {
     late BannerAdManager bannerManager;
 
     setUp(() {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidBannerAdUnitId: 'test-banner',
-        iosBannerAdUnitId: 'test-banner',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidBannerAdUnitId: 'test-banner',
+          iosBannerAdUnitId: 'test-banner',
+          maxLoadRetries: 0,
+        ),
+      );
       bannerManager = BannerAdManager();
     });
 
@@ -76,18 +78,22 @@ void main() {
 
     testWidgets('loadAdaptiveBanner with callbacks', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(home: Builder(builder: (context) {
-          // Schedule the load after the build
-          WidgetsBinding.instance.addPostFrameCallback((_) async {
-            bool loaded = false;
-            await bannerManager.loadAdaptiveBanner(
-              context: context,
-              onAdLoaded: (ad) => loaded = true,
-            );
-            expect(loaded, true);
-          });
-          return const SizedBox();
-        })),
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              // Schedule the load after the build
+              WidgetsBinding.instance.addPostFrameCallback((_) async {
+                bool loaded = false;
+                await bannerManager.loadAdaptiveBanner(
+                  context: context,
+                  onAdLoaded: (ad) => loaded = true,
+                );
+                expect(loaded, true);
+              });
+              return const SizedBox();
+            },
+          ),
+        ),
       );
       await tester.pumpAndSettle();
     });
@@ -96,33 +102,39 @@ void main() {
       mockSdk.returnNullAdaptiveSize = true;
 
       await tester.pumpWidget(
-        MaterialApp(home: Builder(builder: (context) {
-          WidgetsBinding.instance.addPostFrameCallback((_) async {
-            await bannerManager.loadAdaptiveBanner(
-              context: context,
-            );
-            // When adaptive size is null, isLoaded should be false
-            expect(bannerManager.isLoaded, false);
-          });
-          return const SizedBox();
-        })),
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              WidgetsBinding.instance.addPostFrameCallback((_) async {
+                await bannerManager.loadAdaptiveBanner(context: context);
+                // When adaptive size is null, isLoaded should be false
+                expect(bannerManager.isLoaded, false);
+              });
+              return const SizedBox();
+            },
+          ),
+        ),
       );
       await tester.pumpAndSettle();
     });
 
     testWidgets('loadCollapsibleBanner loads with placement', (tester) async {
       await tester.pumpWidget(
-        MaterialApp(home: Builder(builder: (context) {
-          WidgetsBinding.instance.addPostFrameCallback((_) async {
-            await bannerManager.loadCollapsibleBanner(
-              context: context,
-              placement: CollapsibleBannerPlacement.bottom,
-              onAdLoaded: (_) {},
-            );
-            expect(mockSdk.loadBannerCalls, greaterThanOrEqualTo(1));
-          });
-          return const SizedBox();
-        })),
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              WidgetsBinding.instance.addPostFrameCallback((_) async {
+                await bannerManager.loadCollapsibleBanner(
+                  context: context,
+                  placement: CollapsibleBannerPlacement.bottom,
+                  onAdLoaded: (_) {},
+                );
+                expect(mockSdk.loadBannerCalls, greaterThanOrEqualTo(1));
+              });
+              return const SizedBox();
+            },
+          ),
+        ),
       );
       await tester.pumpAndSettle();
     });
@@ -151,10 +163,12 @@ void main() {
     late InterstitialAdManager interstitialManager;
 
     setUp(() {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidInterstitialAdUnitId: 'test-interstitial',
-        iosInterstitialAdUnitId: 'test-interstitial',
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidInterstitialAdUnitId: 'test-interstitial',
+          iosInterstitialAdUnitId: 'test-interstitial',
+        ),
+      );
       interstitialManager = InterstitialAdManager();
     });
 
@@ -168,9 +182,7 @@ void main() {
       await interstitialManager.loadAd();
 
       bool dismissed = false;
-      await interstitialManager.showAd(
-        onAdDismissed: () => dismissed = true,
-      );
+      await interstitialManager.showAd(onAdDismissed: () => dismissed = true);
 
       fakeAd.simulateDismiss();
       await Future.delayed(Duration.zero);
@@ -212,11 +224,13 @@ void main() {
     });
 
     test('canShowAd respects cooldown', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidInterstitialAdUnitId: 'test-interstitial',
-        iosInterstitialAdUnitId: 'test-interstitial',
-        minInterstitialInterval: Duration(seconds: 60),
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidInterstitialAdUnitId: 'test-interstitial',
+          iosInterstitialAdUnitId: 'test-interstitial',
+          minInterstitialInterval: Duration(seconds: 60),
+        ),
+      );
 
       final manager = InterstitialAdManager();
       final fakeAd = FakeInterstitialAd();
@@ -240,10 +254,12 @@ void main() {
     late RewardedAdManager rewardedManager;
 
     setUp(() {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidRewardedAdUnitId: 'test-rewarded',
-        iosRewardedAdUnitId: 'test-rewarded',
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidRewardedAdUnitId: 'test-rewarded',
+          iosRewardedAdUnitId: 'test-rewarded',
+        ),
+      );
       rewardedManager = RewardedAdManager();
     });
 
@@ -301,20 +317,24 @@ void main() {
       expect(failCalled, true);
     });
 
-    test('show skips when ads disabled but rewardedAdsIgnoreRemoveAds=false',
-        () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidRewardedAdUnitId: 'test-rewarded',
-        iosRewardedAdUnitId: 'test-rewarded',
-        rewardedAdsIgnoreRemoveAds: false,
-      ));
+    test(
+      'show skips when ads disabled but rewardedAdsIgnoreRemoveAds=false',
+      () async {
+        AdFlowConfig.setCurrent(
+          const AdFlowConfig(
+            androidRewardedAdUnitId: 'test-rewarded',
+            iosRewardedAdUnitId: 'test-rewarded',
+            rewardedAdsIgnoreRemoveAds: false,
+          ),
+        );
 
-      final manager = RewardedAdManager();
-      await AdsEnabledManager.instance.disableAds();
-      await manager.showAd(onUserEarnedReward: (_) {});
-      // Should not show
-      manager.dispose();
-    });
+        final manager = RewardedAdManager();
+        await AdsEnabledManager.instance.disableAds();
+        await manager.showAd(onUserEarnedReward: (_) {});
+        // Should not show
+        manager.dispose();
+      },
+    );
 
     test('load skips when cannot request ads', () async {
       mockSdk.canRequestAdsResult = false;

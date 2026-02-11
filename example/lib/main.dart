@@ -157,13 +157,15 @@ class _LauncherPageState extends State<LauncherPage> {
           _ExampleTile(
             icon: Icons.dashboard,
             title: 'All Ads (Complete Demo)',
-            subtitle: 'Every ad type, remove ads, error stream — all in one page',
+            subtitle:
+                'Every ad type, remove ads, error stream — all in one page',
             onTap: () => _navigate(const AllAdsPage()),
           ),
           _ExampleTile(
             icon: Icons.view_agenda,
             title: 'Banner Ads',
-            subtitle: 'EasyBannerAd, adaptive, collapsible, fixed-size, manual control',
+            subtitle:
+                'EasyBannerAd, adaptive, collapsible, fixed-size, manual control',
             onTap: () => _navigate(const BannerExamplePage()),
           ),
           _ExampleTile(

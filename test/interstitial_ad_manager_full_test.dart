@@ -23,13 +23,15 @@ void main() {
     mockSdk = MockAdSdk();
     AdSdk.instance = mockSdk;
 
-    AdFlowConfig.setCurrent(const AdFlowConfig(
-      androidInterstitialAdUnitId: 'test-interstitial',
-      iosInterstitialAdUnitId: 'test-interstitial',
-      minInterstitialInterval: Duration(seconds: 30),
-      maxLoadRetries: 2,
-      retryDelay: Duration(milliseconds: 10),
-    ));
+    AdFlowConfig.setCurrent(
+      const AdFlowConfig(
+        androidInterstitialAdUnitId: 'test-interstitial',
+        iosInterstitialAdUnitId: 'test-interstitial',
+        minInterstitialInterval: Duration(seconds: 30),
+        maxLoadRetries: 2,
+        retryDelay: Duration(milliseconds: 10),
+      ),
+    );
     AdFlowPlatform.platformOverride = TargetPlatform.android;
 
     manager = InterstitialAdManager();
@@ -49,8 +51,14 @@ void main() {
     test('isLoaded is false', () => expect(manager.isLoaded, false));
     test('isLoading is false', () => expect(manager.isLoading, false));
     test('isShowing is false', () => expect(manager.isShowing, false));
-    test('interstitialAd is null', () => expect(manager.interstitialAd, isNull));
-    test('canShowAd is true (no cooldown)', () => expect(manager.canShowAd, true));
+    test(
+      'interstitialAd is null',
+      () => expect(manager.interstitialAd, isNull),
+    );
+    test(
+      'canShowAd is true (no cooldown)',
+      () => expect(manager.canShowAd, true),
+    );
   });
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -129,7 +137,12 @@ void main() {
 
   group('loadAd - failure', () {
     test('reports error on load failure', () async {
-      mockSdk.interstitialLoadError = LoadAdError(1, 'test', 'Network error', null);
+      mockSdk.interstitialLoadError = LoadAdError(
+        1,
+        'test',
+        'Network error',
+        null,
+      );
 
       await manager.loadAd(onAdFailedToLoad: (_) {});
 

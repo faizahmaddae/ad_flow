@@ -70,10 +70,7 @@ void main() {
     });
 
     test('handles consent form error', () async {
-      mockSdk.consentFormError = FormError(
-        errorCode: 2,
-        message: 'Form error',
-      );
+      mockSdk.consentFormError = FormError(errorCode: 2, message: 'Form error');
 
       FormError? capturedError;
       await consentManager.gatherConsent(
@@ -101,9 +98,9 @@ void main() {
 
     test('iOS ATT denied skips GDPR when configured', () async {
       AdFlowPlatform.platformOverride = TargetPlatform.iOS;
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        skipGdprConsentIfAttDenied: true,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(skipGdprConsentIfAttDenied: true),
+      );
       mockSdk.trackingAuthorizationStatusResult = TrackingStatus.notDetermined;
       mockSdk.requestTrackingResult = TrackingStatus.denied;
 
@@ -136,9 +133,7 @@ void main() {
       // The mock doesn't throw by default; we test the normal path
       mockSdk.trackingAuthorizationStatusResult = TrackingStatus.notSupported;
 
-      await consentManager.gatherConsent(
-        onConsentGatheringComplete: (_) {},
-      );
+      await consentManager.gatherConsent(onConsentGatheringComplete: (_) {});
       // Should not crash
     });
   });
@@ -151,18 +146,20 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: Builder(builder: (context) {
-            return ElevatedButton(
-              onPressed: () async {
-                await consentManager.gatherConsentWithExplainer(
-                  context: context,
-                  showExplainer: false,
-                  onConsentGatheringComplete: (_) {},
-                );
-              },
-              child: const Text('Consent'),
-            );
-          }),
+          home: Builder(
+            builder: (context) {
+              return ElevatedButton(
+                onPressed: () async {
+                  await consentManager.gatherConsentWithExplainer(
+                    context: context,
+                    showExplainer: false,
+                    onConsentGatheringComplete: (_) {},
+                  );
+                },
+                child: const Text('Consent'),
+              );
+            },
+          ),
         ),
       );
 
@@ -172,9 +169,7 @@ void main() {
 
     testWidgets('skips GDPR on ATT denial with config', (tester) async {
       AdFlowPlatform.platformOverride = TargetPlatform.iOS;
-      AdFlowConfig.setCurrent(AdFlowConfig(
-        skipGdprConsentIfAttDenied: true,
-      ));
+      AdFlowConfig.setCurrent(AdFlowConfig(skipGdprConsentIfAttDenied: true));
       mockSdk.trackingAuthorizationStatusResult = TrackingStatus.notDetermined;
       mockSdk.requestTrackingResult = TrackingStatus.denied;
 
@@ -182,19 +177,21 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: Builder(builder: (context) {
-            return ElevatedButton(
-              onPressed: () async {
-                await consentManager.gatherConsentWithExplainer(
-                  context: context,
-                  showExplainer: false,
-                  onConsentGatheringComplete: (error) =>
-                      capturedError = error,
-                );
-              },
-              child: const Text('Consent'),
-            );
-          }),
+          home: Builder(
+            builder: (context) {
+              return ElevatedButton(
+                onPressed: () async {
+                  await consentManager.gatherConsentWithExplainer(
+                    context: context,
+                    showExplainer: false,
+                    onConsentGatheringComplete: (error) =>
+                        capturedError = error,
+                  );
+                },
+                child: const Text('Consent'),
+              );
+            },
+          ),
         ),
       );
 
@@ -290,9 +287,7 @@ void main() {
     });
 
     test('getUSPrivacyString returns stored value', () async {
-      SharedPreferences.setMockInitialValues({
-        'IABUSPrivacy_String': '1YNN',
-      });
+      SharedPreferences.setMockInitialValues({'IABUSPrivacy_String': '1YNN'});
       final result = await consentManager.getUSPrivacyString();
       expect(result, '1YNN');
     });
@@ -314,9 +309,7 @@ void main() {
   group('_shouldSkipGdprConsent', () {
     test('returns false when not on iOS', () async {
       // On Android, should never skip
-      await consentManager.gatherConsent(
-        onConsentGatheringComplete: (_) {},
-      );
+      await consentManager.gatherConsent(onConsentGatheringComplete: (_) {});
       // UMP should be called
       expect(mockSdk.requestConsentInfoUpdateCalls, 1);
     });

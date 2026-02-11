@@ -24,10 +24,12 @@ void main() {
     mockSdk = MockAdSdk();
     AdSdk.instance = mockSdk;
 
-    AdFlowConfig.setCurrent(const AdFlowConfig(
-      androidAppOpenAdUnitId: 'test-app-open',
-      iosAppOpenAdUnitId: 'test-app-open',
-    ));
+    AdFlowConfig.setCurrent(
+      const AdFlowConfig(
+        androidAppOpenAdUnitId: 'test-app-open',
+        iosAppOpenAdUnitId: 'test-app-open',
+      ),
+    );
     AdFlowPlatform.platformOverride = TargetPlatform.android;
 
     appOpenManager = AppOpenAdManager();

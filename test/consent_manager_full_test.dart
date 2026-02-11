@@ -41,10 +41,12 @@ void main() {
     mockSdk = MockAdSdk();
     AdSdk.instance = mockSdk;
 
-    AdFlowConfig.setCurrent(const AdFlowConfig(
-      enableConsentDebug: false,
-      tagForUnderAgeOfConsent: false,
-    ));
+    AdFlowConfig.setCurrent(
+      const AdFlowConfig(
+        enableConsentDebug: false,
+        tagForUnderAgeOfConsent: false,
+      ),
+    );
     AdFlowPlatform.platformOverride = TargetPlatform.android;
   });
 
@@ -147,9 +149,9 @@ void main() {
     });
 
     test('skips GDPR when ATT denied and config set', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        skipGdprConsentIfAttDenied: true,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(skipGdprConsentIfAttDenied: true),
+      );
       mockSdk.trackingAuthorizationStatusResult = TrackingStatus.notDetermined;
       mockSdk.requestTrackingResult = TrackingStatus.denied;
 
@@ -160,9 +162,9 @@ void main() {
     });
 
     test('does NOT skip GDPR when ATT denied but config is false', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        skipGdprConsentIfAttDenied: false,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(skipGdprConsentIfAttDenied: false),
+      );
       mockSdk.trackingAuthorizationStatusResult = TrackingStatus.notDetermined;
       mockSdk.requestTrackingResult = TrackingStatus.denied;
 
@@ -311,16 +313,16 @@ void main() {
     test('returns true when required', () async {
       mockSdk.privacyOptionsRequirementStatusResult =
           PrivacyOptionsRequirementStatus.required;
-      final result =
-          await ConsentManager.instance.isPrivacyOptionsRequiredAsync();
+      final result = await ConsentManager.instance
+          .isPrivacyOptionsRequiredAsync();
       expect(result, true);
     });
 
     test('returns false when not required', () async {
       mockSdk.privacyOptionsRequirementStatusResult =
           PrivacyOptionsRequirementStatus.notRequired;
-      final result =
-          await ConsentManager.instance.isPrivacyOptionsRequiredAsync();
+      final result = await ConsentManager.instance
+          .isPrivacyOptionsRequiredAsync();
       expect(result, false);
     });
   });
@@ -411,9 +413,7 @@ void main() {
     });
 
     test('getUSPrivacyString returns stored value', () async {
-      SharedPreferences.setMockInitialValues({
-        'IABUSPrivacy_String': '1YNN',
-      });
+      SharedPreferences.setMockInitialValues({'IABUSPrivacy_String': '1YNN'});
       final result = await ConsentManager.instance.getUSPrivacyString();
       expect(result, '1YNN');
     });

@@ -23,12 +23,14 @@ void main() {
     mockSdk = MockAdSdk();
     AdSdk.instance = mockSdk;
 
-    AdFlowConfig.setCurrent(const AdFlowConfig(
-      androidBannerAdUnitId: 'test-banner',
-      iosBannerAdUnitId: 'test-banner',
-      maxLoadRetries: 2,
-      retryDelay: Duration(milliseconds: 10),
-    ));
+    AdFlowConfig.setCurrent(
+      const AdFlowConfig(
+        androidBannerAdUnitId: 'test-banner',
+        iosBannerAdUnitId: 'test-banner',
+        maxLoadRetries: 2,
+        retryDelay: Duration(milliseconds: 10),
+      ),
+    );
     AdFlowPlatform.platformOverride = TargetPlatform.android;
 
     manager = BannerAdManager();
@@ -45,7 +47,10 @@ void main() {
     test('isLoading is false', () => expect(manager.isLoading, false));
     test('bannerAd is null', () => expect(manager.bannerAd, isNull));
     test('currentSize is null', () => expect(manager.currentSize, isNull));
-    test('buildAdWidget returns null', () => expect(manager.buildAdWidget(), isNull));
+    test(
+      'buildAdWidget returns null',
+      () => expect(manager.buildAdWidget(), isNull),
+    );
   });
 
   group('loadBanner - success', () {

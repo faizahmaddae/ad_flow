@@ -42,9 +42,7 @@ void main() {
       mockSdk.initializeMobileAdsThrows = true;
 
       bool? canRequest;
-      await AdFlow.instance.initialize(
-        onComplete: (val) => canRequest = val,
-      );
+      await AdFlow.instance.initialize(onComplete: (val) => canRequest = val);
       await _flush();
 
       // SDK failed to init → canRequest should be false
@@ -310,9 +308,7 @@ void main() {
       await AdsEnabledManager.instance.disableAds();
 
       bool? canRequest;
-      await AdFlow.instance.initialize(
-        onComplete: (val) => canRequest = val,
-      );
+      await AdFlow.instance.initialize(onComplete: (val) => canRequest = val);
       await _flush();
 
       expect(canRequest, false);

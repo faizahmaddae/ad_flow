@@ -25,12 +25,11 @@ void main() {
   });
 
   group('EasyPrivacySettingsButton', () {
-    testWidgets('shows SizedBox.shrink when not required and not alwaysShow',
-        (tester) async {
+    testWidgets('shows SizedBox.shrink when not required and not alwaysShow', (
+      tester,
+    ) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: EasyPrivacySettingsButton(),
-        ),
+        const MaterialApp(home: EasyPrivacySettingsButton()),
       );
       await tester.pumpAndSettle();
 
@@ -41,9 +40,7 @@ void main() {
     testWidgets('shows button when alwaysShow is true', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
-          home: Scaffold(
-            body: EasyPrivacySettingsButton(alwaysShow: true),
-          ),
+          home: Scaffold(body: EasyPrivacySettingsButton(alwaysShow: true)),
         ),
       );
       await tester.pumpAndSettle();
@@ -119,9 +116,7 @@ void main() {
 
     testWidgets('disposes without error', (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: EasyPrivacySettingsButton(alwaysShow: true),
-        ),
+        const MaterialApp(home: EasyPrivacySettingsButton(alwaysShow: true)),
       );
       await tester.pumpAndSettle();
 
@@ -133,9 +128,7 @@ void main() {
   group('PrivacySettingsListTile', () {
     testWidgets('shows SizedBox.shrink when not required', (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(body: PrivacySettingsListTile()),
-        ),
+        const MaterialApp(home: Scaffold(body: PrivacySettingsListTile())),
       );
       await tester.pumpAndSettle();
 
@@ -145,9 +138,7 @@ void main() {
     testWidgets('shows ListTile when alwaysShow is true', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
-          home: Scaffold(
-            body: PrivacySettingsListTile(alwaysShow: true),
-          ),
+          home: Scaffold(body: PrivacySettingsListTile(alwaysShow: true)),
         ),
       );
       await tester.pumpAndSettle();
@@ -211,9 +202,7 @@ void main() {
     testWidgets('disposes without error', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
-          home: Scaffold(
-            body: PrivacySettingsListTile(alwaysShow: true),
-          ),
+          home: Scaffold(body: PrivacySettingsListTile(alwaysShow: true)),
         ),
       );
       await tester.pumpAndSettle();

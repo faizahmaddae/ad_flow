@@ -123,12 +123,15 @@ class AdSdk {
         onAdLoaded: (Ad a) => onAdLoaded(a as BannerAd),
         onAdFailedToLoad: (Ad a, LoadAdError e) =>
             onAdFailedToLoad(a as BannerAd, e),
-        onAdOpened:
-            onAdOpened != null ? (Ad a) => onAdOpened(a as BannerAd) : null,
-        onAdClosed:
-            onAdClosed != null ? (Ad a) => onAdClosed(a as BannerAd) : null,
-        onAdClicked:
-            onAdClicked != null ? (Ad a) => onAdClicked(a as BannerAd) : null,
+        onAdOpened: onAdOpened != null
+            ? (Ad a) => onAdOpened(a as BannerAd)
+            : null,
+        onAdClosed: onAdClosed != null
+            ? (Ad a) => onAdClosed(a as BannerAd)
+            : null,
+        onAdClicked: onAdClicked != null
+            ? (Ad a) => onAdClicked(a as BannerAd)
+            : null,
         onAdImpression: onAdImpression != null
             ? (Ad a) => onAdImpression(a as BannerAd)
             : null,
@@ -166,12 +169,15 @@ class AdSdk {
         onAdLoaded: (Ad a) => onAdLoaded(a as NativeAd),
         onAdFailedToLoad: (Ad a, LoadAdError e) =>
             onAdFailedToLoad(a as NativeAd, e),
-        onAdOpened:
-            onAdOpened != null ? (Ad a) => onAdOpened(a as NativeAd) : null,
-        onAdClosed:
-            onAdClosed != null ? (Ad a) => onAdClosed(a as NativeAd) : null,
-        onAdClicked:
-            onAdClicked != null ? (Ad a) => onAdClicked(a as NativeAd) : null,
+        onAdOpened: onAdOpened != null
+            ? (Ad a) => onAdOpened(a as NativeAd)
+            : null,
+        onAdClosed: onAdClosed != null
+            ? (Ad a) => onAdClosed(a as NativeAd)
+            : null,
+        onAdClicked: onAdClicked != null
+            ? (Ad a) => onAdClicked(a as NativeAd)
+            : null,
         onAdImpression: onAdImpression != null
             ? (Ad a) => onAdImpression(a as NativeAd)
             : null,
@@ -205,9 +211,7 @@ class AdSdk {
   }
 
   /// Shows the privacy options form.
-  void showPrivacyOptionsForm(
-    void Function(FormError? error) onComplete,
-  ) {
+  void showPrivacyOptionsForm(void Function(FormError? error) onComplete) {
     ConsentForm.showPrivacyOptionsForm(onComplete);
   }
 
@@ -227,8 +231,7 @@ class AdSdk {
   }
 
   /// Gets the privacy options requirement status.
-  Future<PrivacyOptionsRequirementStatus>
-      getPrivacyOptionsRequirementStatus() {
+  Future<PrivacyOptionsRequirementStatus> getPrivacyOptionsRequirementStatus() {
     return ConsentInformation.instance.getPrivacyOptionsRequirementStatus();
   }
 

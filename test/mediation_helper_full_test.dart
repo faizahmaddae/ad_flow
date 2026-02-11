@@ -175,10 +175,7 @@ void main() {
 
   group('MediationForwardResult', () {
     test('successful result', () {
-      final result = MediationForwardResult(
-        networkName: 'Test',
-        success: true,
-      );
+      final result = MediationForwardResult(networkName: 'Test', success: true);
       expect(result.networkName, 'Test');
       expect(result.success, true);
       expect(result.error, isNull);

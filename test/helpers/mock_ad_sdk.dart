@@ -259,9 +259,7 @@ class MockAdSdk extends AdSdk {
   }
 
   @override
-  void showPrivacyOptionsForm(
-    void Function(FormError? error) onComplete,
-  ) {
+  void showPrivacyOptionsForm(void Function(FormError? error) onComplete) {
     showPrivacyOptionsFormCalls++;
     onComplete(privacyOptionsFormError);
   }
@@ -286,7 +284,7 @@ class MockAdSdk extends AdSdk {
 
   @override
   Future<PrivacyOptionsRequirementStatus>
-      getPrivacyOptionsRequirementStatus() async {
+  getPrivacyOptionsRequirementStatus() async {
     getPrivacyOptionsRequirementStatusCalls++;
     return privacyOptionsRequirementStatusResult;
   }

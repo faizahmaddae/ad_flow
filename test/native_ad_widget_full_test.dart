@@ -32,9 +32,7 @@ void main() {
 
       final manager = NativeAdManager();
       await tester.pumpWidget(
-        MaterialApp(
-          home: NativeAdWidget(manager: manager),
-        ),
+        MaterialApp(home: NativeAdWidget(manager: manager)),
       );
 
       // Should show nothing
@@ -57,13 +55,12 @@ void main() {
       manager.dispose();
     });
 
-    testWidgets('shows SizedBox.shrink when not loaded and no placeholder',
-        (tester) async {
+    testWidgets('shows SizedBox.shrink when not loaded and no placeholder', (
+      tester,
+    ) async {
       final manager = NativeAdManager();
       await tester.pumpWidget(
-        MaterialApp(
-          home: NativeAdWidget(manager: manager),
-        ),
+        MaterialApp(home: NativeAdWidget(manager: manager)),
       );
 
       expect(find.byType(SizedBox), findsWidgets);
@@ -86,8 +83,9 @@ void main() {
         true,
       );
       expect(
-        NativeAdLayoutHelper.recommendedHeights
-            .containsKey('list_item_template'),
+        NativeAdLayoutHelper.recommendedHeights.containsKey(
+          'list_item_template',
+        ),
         true,
       );
       expect(
@@ -122,29 +120,27 @@ void main() {
       await AdsEnabledManager.instance.disableAds();
 
       await tester.pumpWidget(
-        const MaterialApp(
-          home: EasyNativeAd(height: 300),
-        ),
+        const MaterialApp(home: EasyNativeAd(height: 300)),
       );
 
       // Should collapse
       expect(find.byType(SizedBox), findsWidgets);
     });
 
-    testWidgets('shows SizedBox.shrink while loading (hideOnLoading=true)',
-        (tester) async {
+    testWidgets('shows SizedBox.shrink while loading (hideOnLoading=true)', (
+      tester,
+    ) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: EasyNativeAd(height: 300, hideOnLoading: true),
-        ),
+        const MaterialApp(home: EasyNativeAd(height: 300, hideOnLoading: true)),
       );
 
       // Default hideOnLoading is true, should show nothing while loading
       expect(find.byType(SizedBox), findsWidgets);
     });
 
-    testWidgets('shows loading widget when hideOnLoading=false',
-        (tester) async {
+    testWidgets('shows loading widget when hideOnLoading=false', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const MaterialApp(
           home: EasyNativeAd(
@@ -161,9 +157,7 @@ void main() {
 
     testWidgets('disposes without error', (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: EasyNativeAd(height: 300),
-        ),
+        const MaterialApp(home: EasyNativeAd(height: 300)),
       );
 
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));

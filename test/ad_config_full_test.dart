@@ -320,9 +320,7 @@ void main() {
     });
 
     test('hasAppOpenConfigured', () {
-      const config = AdFlowConfig(
-        androidAppOpenAdUnitId: 'ca-app-pub-real/ao',
-      );
+      const config = AdFlowConfig(androidAppOpenAdUnitId: 'ca-app-pub-real/ao');
       expect(config.hasAppOpenConfigured, true);
     });
 
@@ -344,9 +342,7 @@ void main() {
   group('AdFlowConfig.resetCurrent', () {
     test('resets to null (falls back to testMode)', () {
       AdFlowPlatform.platformOverride = TargetPlatform.android;
-      AdFlowConfig.setCurrent(
-        const AdFlowConfig(maxLoadRetries: 99),
-      );
+      AdFlowConfig.setCurrent(const AdFlowConfig(maxLoadRetries: 99));
       expect(AdFlowConfig.current.maxLoadRetries, 99);
 
       AdFlowConfig.resetCurrent();
@@ -364,9 +360,7 @@ void main() {
     });
 
     test('custom coldStartAdTimeout is preserved', () {
-      const config = AdFlowConfig(
-        coldStartAdTimeout: Duration(seconds: 5),
-      );
+      const config = AdFlowConfig(coldStartAdTimeout: Duration(seconds: 5));
       expect(config.coldStartAdTimeout, const Duration(seconds: 5));
     });
   });

@@ -21,10 +21,12 @@ void main() {
     mockSdk = MockAdSdk();
     AdSdk.instance = mockSdk;
     AdFlowPlatform.platformOverride = TargetPlatform.android;
-    AdFlowConfig.setCurrent(const AdFlowConfig(
-      androidBannerAdUnitId: 'test-banner',
-      iosBannerAdUnitId: 'test-banner',
-    ));
+    AdFlowConfig.setCurrent(
+      const AdFlowConfig(
+        androidBannerAdUnitId: 'test-banner',
+        iosBannerAdUnitId: 'test-banner',
+      ),
+    );
   });
 
   tearDown(() async {
@@ -112,8 +114,9 @@ void main() {
       await tester.pump();
     });
 
-    testWidgets('loads collapsible banner when collapsible=true',
-        (tester) async {
+    testWidgets('loads collapsible banner when collapsible=true', (
+      tester,
+    ) async {
       final originalOnError = FlutterError.onError;
       FlutterError.onError = (details) {};
       addTearDown(() => FlutterError.onError = originalOnError);

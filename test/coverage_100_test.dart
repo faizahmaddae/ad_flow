@@ -72,13 +72,15 @@ void main() {
     });
 
     test('isInRetryCooldown expired resets state (lines 185-186)', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidInterstitialAdUnitId: 'test',
-        iosInterstitialAdUnitId: 'test',
-        maxLoadRetries: 0,
-        // Very short cooldown for testing
-        retryCooldownAfterMaxAttempts: Duration(milliseconds: 10),
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidInterstitialAdUnitId: 'test',
+          iosInterstitialAdUnitId: 'test',
+          maxLoadRetries: 0,
+          // Very short cooldown for testing
+          retryCooldownAfterMaxAttempts: Duration(milliseconds: 10),
+        ),
+      );
 
       // Fail once to trigger max retries (maxLoadRetries=0 ⇒ immediate cooldown)
       mockSdk.interstitialLoadError = LoadAdError(1, 'fail', 'fail', null);
@@ -103,11 +105,13 @@ void main() {
 
   group('BannerAdManager concurrent load guards', () {
     test('loadBanner skips if already loading (line 111)', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidBannerAdUnitId: 'test-banner',
-        iosBannerAdUnitId: 'test-banner',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidBannerAdUnitId: 'test-banner',
+          iosBannerAdUnitId: 'test-banner',
+          maxLoadRetries: 0,
+        ),
+      );
 
       final manager = BannerAdManager();
 
@@ -122,11 +126,13 @@ void main() {
     });
 
     test('loadAdaptiveBanner skips if already loading (line 166)', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidBannerAdUnitId: 'test-banner',
-        iosBannerAdUnitId: 'test-banner',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidBannerAdUnitId: 'test-banner',
+          iosBannerAdUnitId: 'test-banner',
+          maxLoadRetries: 0,
+        ),
+      );
 
       final manager = BannerAdManager();
 
@@ -137,11 +143,13 @@ void main() {
     });
 
     test('loadCollapsibleBanner skips if already loading (line 242)', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidBannerAdUnitId: 'test-banner',
-        iosBannerAdUnitId: 'test-banner',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidBannerAdUnitId: 'test-banner',
+          iosBannerAdUnitId: 'test-banner',
+          maxLoadRetries: 0,
+        ),
+      );
 
       final manager = BannerAdManager();
       // Same as above — needs context.
@@ -156,11 +164,13 @@ void main() {
 
   group('InterstitialAdManager showAd guards', () {
     test('showAd returns false when ads disabled (line 236)', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidInterstitialAdUnitId: 'test',
-        iosInterstitialAdUnitId: 'test',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidInterstitialAdUnitId: 'test',
+          iosInterstitialAdUnitId: 'test',
+          maxLoadRetries: 0,
+        ),
+      );
 
       final fakeAd = FakeInterstitialAd();
       mockSdk.interstitialAdToReturn = fakeAd;
@@ -182,12 +192,14 @@ void main() {
     });
 
     test('showAd returns false during cooldown (lines 247-248)', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidInterstitialAdUnitId: 'test',
-        iosInterstitialAdUnitId: 'test',
-        maxLoadRetries: 0,
-        minInterstitialInterval: Duration(hours: 1), // very long cooldown
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidInterstitialAdUnitId: 'test',
+          iosInterstitialAdUnitId: 'test',
+          maxLoadRetries: 0,
+          minInterstitialInterval: Duration(hours: 1), // very long cooldown
+        ),
+      );
 
       final fakeAd1 = FakeInterstitialAd();
       mockSdk.interstitialAdToReturn = fakeAd1;
@@ -225,11 +237,13 @@ void main() {
 
   group('RewardedAdManager load failure & showAd disabled', () {
     test('loadAd failure triggers handleLoadFailure (lines 177-178)', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidRewardedAdUnitId: 'test',
-        iosRewardedAdUnitId: 'test',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidRewardedAdUnitId: 'test',
+          iosRewardedAdUnitId: 'test',
+          maxLoadRetries: 0,
+        ),
+      );
 
       mockSdk.rewardedLoadError = LoadAdError(1, 'fail', 'fail', null);
       final manager = RewardedAdManager();
@@ -240,12 +254,14 @@ void main() {
     });
 
     test('showAd disabled (line 258)', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidRewardedAdUnitId: 'test',
-        iosRewardedAdUnitId: 'test',
-        rewardedAdsIgnoreRemoveAds: false,
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidRewardedAdUnitId: 'test',
+          iosRewardedAdUnitId: 'test',
+          rewardedAdsIgnoreRemoveAds: false,
+          maxLoadRetries: 0,
+        ),
+      );
 
       await AdsEnabledManager.instance.disableAds();
 
@@ -263,11 +279,13 @@ void main() {
 
   group('NativeAdManager coverage', () {
     test('loadAd skips if already loading (line 109)', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidNativeAdUnitId: 'test-native',
-        iosNativeAdUnitId: 'test-native',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidNativeAdUnitId: 'test-native',
+          iosNativeAdUnitId: 'test-native',
+          maxLoadRetries: 0,
+        ),
+      );
 
       final manager = NativeAdManager();
 
@@ -282,11 +300,13 @@ void main() {
     });
 
     test('loadAd failure triggers handleLoadFailure (lines 172-173)', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidNativeAdUnitId: 'test-native',
-        iosNativeAdUnitId: 'test-native',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidNativeAdUnitId: 'test-native',
+          iosNativeAdUnitId: 'test-native',
+          maxLoadRetries: 0,
+        ),
+      );
 
       mockSdk.nativeLoadError = LoadAdError(1, 'fail', 'fail', null);
       final manager = NativeAdManager();
@@ -303,11 +323,13 @@ void main() {
 
   group('AppOpenAdManager coverage', () {
     test('loadAd already loading returns early (line 105)', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidAppOpenAdUnitId: 'test',
-        iosAppOpenAdUnitId: 'test',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidAppOpenAdUnitId: 'test',
+          iosAppOpenAdUnitId: 'test',
+          maxLoadRetries: 0,
+        ),
+      );
 
       final manager = AppOpenAdManager();
 
@@ -321,12 +343,14 @@ void main() {
     });
 
     test('loadAd with expired ad disposes first (lines 119-120)', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidAppOpenAdUnitId: 'test',
-        iosAppOpenAdUnitId: 'test',
-        maxLoadRetries: 0,
-        appOpenAdMaxCacheDuration: Duration.zero, // expire immediately
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidAppOpenAdUnitId: 'test',
+          iosAppOpenAdUnitId: 'test',
+          maxLoadRetries: 0,
+          appOpenAdMaxCacheDuration: Duration.zero, // expire immediately
+        ),
+      );
 
       final fakeAd1 = FakeAppOpenAd();
       mockSdk.appOpenAdToReturn = fakeAd1;
@@ -348,11 +372,13 @@ void main() {
     });
 
     test('loadAd failure triggers retry (lines 177-178)', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidAppOpenAdUnitId: 'test',
-        iosAppOpenAdUnitId: 'test',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidAppOpenAdUnitId: 'test',
+          iosAppOpenAdUnitId: 'test',
+          maxLoadRetries: 0,
+        ),
+      );
 
       mockSdk.appOpenLoadError = LoadAdError(1, 'fail', 'fail', null);
       final manager = AppOpenAdManager();
@@ -362,11 +388,13 @@ void main() {
     });
 
     test('loadAdAndWait while already loading (lines 203, 206)', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidAppOpenAdUnitId: 'test',
-        iosAppOpenAdUnitId: 'test',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidAppOpenAdUnitId: 'test',
+          iosAppOpenAdUnitId: 'test',
+          maxLoadRetries: 0,
+        ),
+      );
 
       final manager = AppOpenAdManager();
 
@@ -382,12 +410,14 @@ void main() {
     });
 
     test('showAdIfAvailable with expired ad (lines 307-310)', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidAppOpenAdUnitId: 'test',
-        iosAppOpenAdUnitId: 'test',
-        maxLoadRetries: 0,
-        appOpenAdMaxCacheDuration: Duration.zero, // expire immediately
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidAppOpenAdUnitId: 'test',
+          iosAppOpenAdUnitId: 'test',
+          maxLoadRetries: 0,
+          appOpenAdMaxCacheDuration: Duration.zero, // expire immediately
+        ),
+      );
 
       final fakeAd = FakeAppOpenAd();
       mockSdk.appOpenAdToReturn = fakeAd;
@@ -416,12 +446,14 @@ void main() {
 
   group('AppLifecycleReactor onAdFailedToShow', () {
     test('ad failed to show decrements count (lines 197-200)', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidAppOpenAdUnitId: 'test',
-        iosAppOpenAdUnitId: 'test',
-        maxLoadRetries: 0,
-        appOpenAdMaxCacheDuration: Duration.zero, // expire immediately
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidAppOpenAdUnitId: 'test',
+          iosAppOpenAdUnitId: 'test',
+          maxLoadRetries: 0,
+          appOpenAdMaxCacheDuration: Duration.zero, // expire immediately
+        ),
+      );
 
       final fakeAd = FakeAppOpenAd();
       mockSdk.appOpenAdToReturn = fakeAd;
@@ -458,8 +490,7 @@ void main() {
   group('ConsentManager coverage', () {
     test('ATT exception returns notSupported (line 198)', () async {
       AdFlowPlatform.platformOverride = TargetPlatform.iOS;
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-      ));
+      AdFlowConfig.setCurrent(const AdFlowConfig());
 
       // Make requestTrackingAuthorization throw
       mockSdk.trackingAuthorizationStatusResult = TrackingStatus.notDetermined;
@@ -540,11 +571,7 @@ void main() {
       mockSdk.initializeMobileAdsThrows = true;
 
       // initialize() returns immediately (gatherConsent is void)
-      AdFlow.instance.initialize(
-        config: const AdFlowConfig(
-          maxLoadRetries: 0,
-        ),
-      );
+      AdFlow.instance.initialize(config: const AdFlowConfig(maxLoadRetries: 0));
 
       final result = await AdFlow.instance.waitForInit(
         timeout: const Duration(seconds: 2),
@@ -589,11 +616,13 @@ void main() {
   group('EasyBannerAd widget coverage', () {
     testWidgets('initStream fires and loads ad (lines 88-92)', (tester) async {
       // Don't initialize AdFlow yet — widget should wait for init
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidBannerAdUnitId: 'test-banner',
-        iosBannerAdUnitId: 'test-banner',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidBannerAdUnitId: 'test-banner',
+          iosBannerAdUnitId: 'test-banner',
+          maxLoadRetries: 0,
+        ),
+      );
 
       // Suppress expected AdWidget assertion errors
       final origOnError = FlutterError.onError;
@@ -625,124 +654,130 @@ void main() {
       await tester.pump();
     });
 
-    testWidgets('fixed size banner onAdLoaded/onAdFailedToLoad (lines 133, 135)',
-        (tester) async {
-      final origOnError = FlutterError.onError;
-      FlutterError.onError = (details) {};
-      addTearDown(() => FlutterError.onError = origOnError);
+    testWidgets(
+      'fixed size banner onAdLoaded/onAdFailedToLoad (lines 133, 135)',
+      (tester) async {
+        final origOnError = FlutterError.onError;
+        FlutterError.onError = (details) {};
+        addTearDown(() => FlutterError.onError = origOnError);
 
-      // Pre-initialize AdFlow
-      await AdFlow.instance.initialize(
-        config: const AdFlowConfig(
-          androidBannerAdUnitId: 'test-banner',
-          iosBannerAdUnitId: 'test-banner',
-          maxLoadRetries: 0,
-        ),
-      );
+        // Pre-initialize AdFlow
+        await AdFlow.instance.initialize(
+          config: const AdFlowConfig(
+            androidBannerAdUnitId: 'test-banner',
+            iosBannerAdUnitId: 'test-banner',
+            maxLoadRetries: 0,
+          ),
+        );
 
-      // Success path — line 133
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(body: EasyBannerAd(adSize: AdSize.banner)),
-        ),
-      );
-      await tester.pump(); // post frame
-      await tester.pump(); // load callback
+        // Success path — line 133
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(body: EasyBannerAd(adSize: AdSize.banner)),
+          ),
+        );
+        await tester.pump(); // post frame
+        await tester.pump(); // load callback
 
-      expect(mockSdk.loadBannerCalls, greaterThanOrEqualTo(1));
+        expect(mockSdk.loadBannerCalls, greaterThanOrEqualTo(1));
 
-      // Failure path — line 135
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
-      mockSdk.bannerLoadError = LoadAdError(1, 'fail', 'fail', null);
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(body: EasyBannerAd(adSize: AdSize.banner)),
-        ),
-      );
-      await tester.pump();
-      await tester.pump();
+        // Failure path — line 135
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump();
+        mockSdk.bannerLoadError = LoadAdError(1, 'fail', 'fail', null);
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(body: EasyBannerAd(adSize: AdSize.banner)),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
 
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
-    });
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump();
+      },
+    );
 
-    testWidgets('collapsible banner onAdLoaded/onAdFailedToLoad (lines 145, 147)',
-        (tester) async {
-      final origOnError = FlutterError.onError;
-      FlutterError.onError = (details) {};
-      addTearDown(() => FlutterError.onError = origOnError);
+    testWidgets(
+      'collapsible banner onAdLoaded/onAdFailedToLoad (lines 145, 147)',
+      (tester) async {
+        final origOnError = FlutterError.onError;
+        FlutterError.onError = (details) {};
+        addTearDown(() => FlutterError.onError = origOnError);
 
-      await AdFlow.instance.initialize(
-        config: const AdFlowConfig(
-          androidBannerAdUnitId: 'test-banner',
-          iosBannerAdUnitId: 'test-banner',
-          maxLoadRetries: 0,
-        ),
-      );
+        await AdFlow.instance.initialize(
+          config: const AdFlowConfig(
+            androidBannerAdUnitId: 'test-banner',
+            iosBannerAdUnitId: 'test-banner',
+            maxLoadRetries: 0,
+          ),
+        );
 
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(body: EasyBannerAd(collapsible: true)),
-        ),
-      );
-      await tester.pump();
-      await tester.pump();
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(body: EasyBannerAd(collapsible: true)),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
 
-      expect(mockSdk.loadBannerCalls, greaterThanOrEqualTo(1));
+        expect(mockSdk.loadBannerCalls, greaterThanOrEqualTo(1));
 
-      // Failure
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
-      mockSdk.bannerLoadError = LoadAdError(1, 'fail', 'fail', null);
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(body: EasyBannerAd(collapsible: true)),
-        ),
-      );
-      await tester.pump();
-      await tester.pump();
+        // Failure
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump();
+        mockSdk.bannerLoadError = LoadAdError(1, 'fail', 'fail', null);
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(body: EasyBannerAd(collapsible: true)),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
 
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
-    });
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump();
+      },
+    );
 
-    testWidgets('adaptive banner onAdLoaded/onAdFailedToLoad (lines 156, 158)',
-        (tester) async {
-      final origOnError = FlutterError.onError;
-      FlutterError.onError = (details) {};
-      addTearDown(() => FlutterError.onError = origOnError);
+    testWidgets(
+      'adaptive banner onAdLoaded/onAdFailedToLoad (lines 156, 158)',
+      (tester) async {
+        final origOnError = FlutterError.onError;
+        FlutterError.onError = (details) {};
+        addTearDown(() => FlutterError.onError = origOnError);
 
-      await AdFlow.instance.initialize(
-        config: const AdFlowConfig(
-          androidBannerAdUnitId: 'test-banner',
-          iosBannerAdUnitId: 'test-banner',
-          maxLoadRetries: 0,
-        ),
-      );
+        await AdFlow.instance.initialize(
+          config: const AdFlowConfig(
+            androidBannerAdUnitId: 'test-banner',
+            iosBannerAdUnitId: 'test-banner',
+            maxLoadRetries: 0,
+          ),
+        );
 
-      // Default EasyBannerAd = adaptive
-      await tester.pumpWidget(
-        const MaterialApp(home: Scaffold(body: EasyBannerAd())),
-      );
-      await tester.pump();
-      await tester.pump();
+        // Default EasyBannerAd = adaptive
+        await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: EasyBannerAd())),
+        );
+        await tester.pump();
+        await tester.pump();
 
-      expect(mockSdk.loadBannerCalls, greaterThanOrEqualTo(1));
+        expect(mockSdk.loadBannerCalls, greaterThanOrEqualTo(1));
 
-      // Failure path
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
-      mockSdk.bannerLoadError = LoadAdError(1, 'fail', 'fail', null);
-      await tester.pumpWidget(
-        const MaterialApp(home: Scaffold(body: EasyBannerAd())),
-      );
-      await tester.pump();
-      await tester.pump();
+        // Failure path
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump();
+        mockSdk.bannerLoadError = LoadAdError(1, 'fail', 'fail', null);
+        await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: EasyBannerAd())),
+        );
+        await tester.pump();
+        await tester.pump();
 
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
-    });
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump();
+      },
+    );
   });
 
   // ═══════════════════════════════════════════════════════════════════
@@ -750,15 +785,15 @@ void main() {
   // ═══════════════════════════════════════════════════════════════════
 
   group('EasyPrivacySettingsButton coverage', () {
-    testWidgets('async privacy check updates state (lines 115-116)', (tester) async {
+    testWidgets('async privacy check updates state (lines 115-116)', (
+      tester,
+    ) async {
       // Make async check return different value than sync
       mockSdk.privacyOptionsRequirementStatusResult =
           PrivacyOptionsRequirementStatus.required;
 
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(body: EasyPrivacySettingsButton()),
-        ),
+        const MaterialApp(home: Scaffold(body: EasyPrivacySettingsButton())),
       );
       await tester.pump(); // initial build
       await tester.pump(); // async check completes
@@ -780,9 +815,7 @@ void main() {
 
       await tester.pumpWidget(
         const MaterialApp(
-          home: Scaffold(
-            body: EasyPrivacySettingsButton(alwaysShow: true),
-          ),
+          home: Scaffold(body: EasyPrivacySettingsButton(alwaysShow: true)),
         ),
       );
       await tester.pump();
@@ -798,14 +831,14 @@ void main() {
       await tester.pump();
     });
 
-    testWidgets('PrivacySettingsListTile async check (lines 231-232)', (tester) async {
+    testWidgets('PrivacySettingsListTile async check (lines 231-232)', (
+      tester,
+    ) async {
       mockSdk.privacyOptionsRequirementStatusResult =
           PrivacyOptionsRequirementStatus.required;
 
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(body: PrivacySettingsListTile()),
-        ),
+        const MaterialApp(home: Scaffold(body: PrivacySettingsListTile())),
       );
       await tester.pump();
       await tester.pump();
@@ -815,7 +848,9 @@ void main() {
       await tester.pump();
     });
 
-    testWidgets('PrivacySettingsListTile privacy form error (line 243)', (tester) async {
+    testWidgets('PrivacySettingsListTile privacy form error (line 243)', (
+      tester,
+    ) async {
       mockSdk.privacyOptionsRequirementStatusResult =
           PrivacyOptionsRequirementStatus.required;
       mockSdk.privacyOptionsFormError = FormError(
@@ -825,9 +860,7 @@ void main() {
 
       await tester.pumpWidget(
         const MaterialApp(
-          home: Scaffold(
-            body: PrivacySettingsListTile(alwaysShow: true),
-          ),
+          home: Scaffold(body: PrivacySettingsListTile(alwaysShow: true)),
         ),
       );
       await tester.pump();
@@ -848,24 +881,27 @@ void main() {
   // ═══════════════════════════════════════════════════════════════════
 
   group('NativeAdWidget coverage', () {
-    test('NativeAdWidget with backgroundColor and borderRadius (lines 77-82)', () {
-      // This exercises the Container decoration path
-      final manager = NativeAdManager();
+    test(
+      'NativeAdWidget with backgroundColor and borderRadius (lines 77-82)',
+      () {
+        // This exercises the Container decoration path
+        final manager = NativeAdManager();
 
-      // We need a loaded native ad to reach the Container path
-      // The manager isn't loaded, so the widget shows placeholder.
-      // Let's just build the widget to verify no crash:
-      final widget = NativeAdWidget(
-        manager: manager,
-        backgroundColor: Colors.red,
-        borderRadius: BorderRadius.circular(8),
-        padding: const EdgeInsets.all(16),
-      );
-      expect(widget.backgroundColor, Colors.red);
-      expect(widget.borderRadius, isNotNull);
-      expect(widget.padding, const EdgeInsets.all(16));
-      manager.dispose();
-    });
+        // We need a loaded native ad to reach the Container path
+        // The manager isn't loaded, so the widget shows placeholder.
+        // Let's just build the widget to verify no crash:
+        final widget = NativeAdWidget(
+          manager: manager,
+          backgroundColor: Colors.red,
+          borderRadius: BorderRadius.circular(8),
+          padding: const EdgeInsets.all(16),
+        );
+        expect(widget.backgroundColor, Colors.red);
+        expect(widget.borderRadius, isNotNull);
+        expect(widget.padding, const EdgeInsets.all(16));
+        manager.dispose();
+      },
+    );
   });
 
   // ═══════════════════════════════════════════════════════════════════
@@ -874,8 +910,9 @@ void main() {
   // ═══════════════════════════════════════════════════════════════════
 
   group('AdService initializeWithExplainer', () {
-    testWidgets('exercises initializeWithExplainer (lines 413, 427, 573)',
-        (tester) async {
+    testWidgets('exercises initializeWithExplainer (lines 413, 427, 573)', (
+      tester,
+    ) async {
       late BuildContext savedContext;
       await tester.pumpWidget(
         MaterialApp(
@@ -891,9 +928,7 @@ void main() {
       // gatherConsentWithExplainer is a real Future, so await works
       await AdFlow.instance.initializeWithExplainer(
         context: savedContext,
-        config: const AdFlowConfig(
-          maxLoadRetries: 0,
-        ),
+        config: const AdFlowConfig(maxLoadRetries: 0),
         showExplainer: false, // Skip explainer dialogs
       );
 
@@ -909,11 +944,11 @@ void main() {
   // ═══════════════════════════════════════════════════════════════════
 
   group('ConsentManager with explainer paths', () {
-    testWidgets('gatherConsentWithExplainer on iOS ATT (lines 217, 222-224)',
-        (tester) async {
+    testWidgets('gatherConsentWithExplainer on iOS ATT (lines 217, 222-224)', (
+      tester,
+    ) async {
       AdFlowPlatform.platformOverride = TargetPlatform.iOS;
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-      ));
+      AdFlowConfig.setCurrent(const AdFlowConfig());
       mockSdk.trackingAuthorizationStatusResult = TrackingStatus.notDetermined;
       mockSdk.requestTrackingResult = TrackingStatus.authorized;
 
@@ -950,10 +985,10 @@ void main() {
       await tester.pump();
     });
 
-    testWidgets('gatherConsentWithExplainer GDPR path (lines 353-355)',
-        (tester) async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-      ));
+    testWidgets('gatherConsentWithExplainer GDPR path (lines 353-355)', (
+      tester,
+    ) async {
+      AdFlowConfig.setCurrent(const AdFlowConfig());
       // Make consent form required
       mockSdk.consentStatusResult = ConsentStatus.required;
       mockSdk.isConsentFormAvailableResult = true;
@@ -991,18 +1026,22 @@ void main() {
   // ═══════════════════════════════════════════════════════════════════
 
   group('EasyNativeAd initStream', () {
-    testWidgets('loads ad when initStream fires (lines 233-237)', (tester) async {
+    testWidgets('loads ad when initStream fires (lines 233-237)', (
+      tester,
+    ) async {
       // Suppress expected AdWidget assertion errors
       final origOnError = FlutterError.onError;
       FlutterError.onError = (details) {};
       addTearDown(() => FlutterError.onError = origOnError);
 
       // Don't init AdFlow yet
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidNativeAdUnitId: 'test-native',
-        iosNativeAdUnitId: 'test-native',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidNativeAdUnitId: 'test-native',
+          iosNativeAdUnitId: 'test-native',
+          maxLoadRetries: 0,
+        ),
+      );
 
       await tester.pumpWidget(
         const MaterialApp(
@@ -1061,17 +1100,23 @@ class _ThrowingTrackingMockSdk extends MockAdSdk {
   @override
   Future<bool> isConsentFormAvailable() => _delegate.isConsentFormAvailable();
   @override
-  void requestConsentInfoUpdate(ConsentRequestParameters p, VoidCallback s, void Function(FormError) f) =>
-      _delegate.requestConsentInfoUpdate(p, s, f);
+  void requestConsentInfoUpdate(
+    ConsentRequestParameters p,
+    VoidCallback s,
+    void Function(FormError) f,
+  ) => _delegate.requestConsentInfoUpdate(p, s, f);
   @override
   void loadAndShowConsentFormIfRequired(void Function(FormError?) c) =>
       _delegate.loadAndShowConsentFormIfRequired(c);
   @override
-  Future<InitializationStatus> initializeMobileAds() => _delegate.initializeMobileAds();
+  Future<InitializationStatus> initializeMobileAds() =>
+      _delegate.initializeMobileAds();
   @override
-  Future<void> updateRequestConfiguration(RequestConfiguration c) => _delegate.updateRequestConfiguration(c);
+  Future<void> updateRequestConfiguration(RequestConfiguration c) =>
+      _delegate.updateRequestConfiguration(c);
   @override
-  Future<PrivacyOptionsRequirementStatus> getPrivacyOptionsRequirementStatus() =>
+  Future<PrivacyOptionsRequirementStatus>
+  getPrivacyOptionsRequirementStatus() =>
       _delegate.getPrivacyOptionsRequirementStatus();
 }
 
@@ -1099,20 +1144,28 @@ class _HangingAppOpenMockSdk extends MockAdSdk {
   @override
   Future<bool> isConsentFormAvailable() => _delegate.isConsentFormAvailable();
   @override
-  void requestConsentInfoUpdate(ConsentRequestParameters p, VoidCallback s, void Function(FormError) f) =>
-      _delegate.requestConsentInfoUpdate(p, s, f);
+  void requestConsentInfoUpdate(
+    ConsentRequestParameters p,
+    VoidCallback s,
+    void Function(FormError) f,
+  ) => _delegate.requestConsentInfoUpdate(p, s, f);
   @override
   void loadAndShowConsentFormIfRequired(void Function(FormError?) c) =>
       _delegate.loadAndShowConsentFormIfRequired(c);
   @override
-  Future<InitializationStatus> initializeMobileAds() => _delegate.initializeMobileAds();
+  Future<InitializationStatus> initializeMobileAds() =>
+      _delegate.initializeMobileAds();
   @override
-  Future<void> updateRequestConfiguration(RequestConfiguration c) => _delegate.updateRequestConfiguration(c);
+  Future<void> updateRequestConfiguration(RequestConfiguration c) =>
+      _delegate.updateRequestConfiguration(c);
   @override
-  Future<TrackingStatus> getTrackingAuthorizationStatus() => _delegate.getTrackingAuthorizationStatus();
+  Future<TrackingStatus> getTrackingAuthorizationStatus() =>
+      _delegate.getTrackingAuthorizationStatus();
   @override
-  Future<TrackingStatus> requestTrackingAuthorization() => _delegate.requestTrackingAuthorization();
+  Future<TrackingStatus> requestTrackingAuthorization() =>
+      _delegate.requestTrackingAuthorization();
   @override
-  Future<PrivacyOptionsRequirementStatus> getPrivacyOptionsRequirementStatus() =>
+  Future<PrivacyOptionsRequirementStatus>
+  getPrivacyOptionsRequirementStatus() =>
       _delegate.getPrivacyOptionsRequirementStatus();
 }

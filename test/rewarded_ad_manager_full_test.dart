@@ -23,12 +23,14 @@ void main() {
     mockSdk = MockAdSdk();
     AdSdk.instance = mockSdk;
 
-    AdFlowConfig.setCurrent(const AdFlowConfig(
-      androidRewardedAdUnitId: 'test-rewarded',
-      iosRewardedAdUnitId: 'test-rewarded',
-      maxLoadRetries: 2,
-      retryDelay: Duration(milliseconds: 10),
-    ));
+    AdFlowConfig.setCurrent(
+      const AdFlowConfig(
+        androidRewardedAdUnitId: 'test-rewarded',
+        iosRewardedAdUnitId: 'test-rewarded',
+        maxLoadRetries: 2,
+        retryDelay: Duration(milliseconds: 10),
+      ),
+    );
     AdFlowPlatform.platformOverride = TargetPlatform.android;
 
     manager = RewardedAdManager();
@@ -132,16 +134,21 @@ void main() {
       expect(mockSdk.loadRewardedCalls, 1);
     });
 
-    test('skips load when ads disabled and config says not to ignore', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidRewardedAdUnitId: 'test-rewarded',
-        iosRewardedAdUnitId: 'test-rewarded',
-        rewardedAdsIgnoreRemoveAds: false,
-      ));
-      await AdsEnabledManager.instance.disableAds();
-      await manager.loadAd();
-      expect(mockSdk.loadRewardedCalls, 0);
-    });
+    test(
+      'skips load when ads disabled and config says not to ignore',
+      () async {
+        AdFlowConfig.setCurrent(
+          const AdFlowConfig(
+            androidRewardedAdUnitId: 'test-rewarded',
+            iosRewardedAdUnitId: 'test-rewarded',
+            rewardedAdsIgnoreRemoveAds: false,
+          ),
+        );
+        await AdsEnabledManager.instance.disableAds();
+        await manager.loadAd();
+        expect(mockSdk.loadRewardedCalls, 0);
+      },
+    );
   });
 
   group('showAd - success', () {
@@ -150,9 +157,7 @@ void main() {
       mockSdk.rewardedAdToReturn = fakeAd;
       await manager.loadAd();
 
-      final result = await manager.showAd(
-        onUserEarnedReward: (_) {},
-      );
+      final result = await manager.showAd(onUserEarnedReward: (_) {});
 
       expect(result, true);
       expect(fakeAd.wasShown, true);
@@ -225,27 +230,35 @@ void main() {
       expect(result, false);
     });
 
-    test('returns false when ads disabled and rewardedAdsIgnoreRemoveAds is false', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidRewardedAdUnitId: 'test',
-        iosRewardedAdUnitId: 'test',
-        maxLoadRetries: 0,
-        rewardedAdsIgnoreRemoveAds: false,
-      ));
-      await manager.loadAd();
-      await AdsEnabledManager.instance.disableAds();
-      final result = await manager.showAd(onUserEarnedReward: (_) {});
-      expect(result, false);
-    });
+    test(
+      'returns false when ads disabled and rewardedAdsIgnoreRemoveAds is false',
+      () async {
+        AdFlowConfig.setCurrent(
+          const AdFlowConfig(
+            androidRewardedAdUnitId: 'test',
+            iosRewardedAdUnitId: 'test',
+            maxLoadRetries: 0,
+            rewardedAdsIgnoreRemoveAds: false,
+          ),
+        );
+        await manager.loadAd();
+        await AdsEnabledManager.instance.disableAds();
+        final result = await manager.showAd(onUserEarnedReward: (_) {});
+        expect(result, false);
+      },
+    );
 
-    test('allows showAd when ads disabled but rewardedAdsIgnoreRemoveAds is true (default)', () async {
-      final fakeAd = FakeRewardedAd();
-      mockSdk.rewardedAdToReturn = fakeAd;
-      await manager.loadAd();
-      await AdsEnabledManager.instance.disableAds();
-      final result = await manager.showAd(onUserEarnedReward: (_) {});
-      expect(result, true);
-    });
+    test(
+      'allows showAd when ads disabled but rewardedAdsIgnoreRemoveAds is true (default)',
+      () async {
+        final fakeAd = FakeRewardedAd();
+        mockSdk.rewardedAdToReturn = fakeAd;
+        await manager.loadAd();
+        await AdsEnabledManager.instance.disableAds();
+        final result = await manager.showAd(onUserEarnedReward: (_) {});
+        expect(result, true);
+      },
+    );
 
     test('returns false when already showing', () async {
       final fakeAd = FakeRewardedAd();

@@ -330,7 +330,10 @@ class _AllSizesSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('$name ($dimensions)', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+          Text(
+            '$name ($dimensions)',
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+          ),
           const SizedBox(height: 8),
           if (size != null)
             Center(child: EasyBannerAd(adSize: size))

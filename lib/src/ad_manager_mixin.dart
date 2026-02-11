@@ -212,13 +212,10 @@ mixin AdRetryHandler {
     if (_retryAttempts < AdFlowConfig.current.maxLoadRetries) {
       debugPrint('$name: Retrying load (attempt $_retryAttempts)...');
       _retryTimer?.cancel();
-      _retryTimer = Timer(
-        AdFlowConfig.current.retryDelay * _retryAttempts,
-        () {
-          if (checkDisposed()) return;
-          onRetry();
-        },
-      );
+      _retryTimer = Timer(AdFlowConfig.current.retryDelay * _retryAttempts, () {
+        if (checkDisposed()) return;
+        onRetry();
+      });
       return true;
     } else {
       _lastMaxRetryFailureTime = DateTime.now();

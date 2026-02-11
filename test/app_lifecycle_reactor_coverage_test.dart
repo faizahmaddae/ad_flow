@@ -24,10 +24,12 @@ void main() {
     mockSdk = MockAdSdk();
     AdSdk.instance = mockSdk;
 
-    AdFlowConfig.setCurrent(const AdFlowConfig(
-      androidAppOpenAdUnitId: 'test-app-open',
-      iosAppOpenAdUnitId: 'test-app-open',
-    ));
+    AdFlowConfig.setCurrent(
+      const AdFlowConfig(
+        androidAppOpenAdUnitId: 'test-app-open',
+        iosAppOpenAdUnitId: 'test-app-open',
+      ),
+    );
     AdFlowPlatform.platformOverride = TargetPlatform.android;
 
     appOpenManager = AppOpenAdManager();
@@ -105,9 +107,7 @@ void main() {
     });
 
     test('preloads ad when no ad available on resume', () async {
-      final reactor = AppLifecycleReactor(
-        appOpenAdManager: appOpenManager,
-      );
+      final reactor = AppLifecycleReactor(appOpenAdManager: appOpenManager);
       reactor.startListening();
 
       // No ad loaded, trigger resume
@@ -223,9 +223,7 @@ void main() {
       await tester.pump();
 
       // Replace to trigger dispose
-      await tester.pumpWidget(
-        const MaterialApp(home: Text('Disposed')),
-      );
+      await tester.pumpWidget(const MaterialApp(home: Text('Disposed')));
       // No error
     });
   });

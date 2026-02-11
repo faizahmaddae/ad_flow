@@ -81,9 +81,9 @@ class _AppOpenExamplePageState extends State<AppOpenExamplePage> {
     if (shown) {
       _log('Ad shown ✓');
     } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No app open ad available')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No app open ad available')));
     }
   }
 
@@ -120,7 +120,10 @@ class _AppOpenExamplePageState extends State<AppOpenExamplePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Status', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    'Status',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 12),
                   StatusChip(loaded: mgr.isLoaded, loading: mgr.isLoading),
                   const SizedBox(height: 8),

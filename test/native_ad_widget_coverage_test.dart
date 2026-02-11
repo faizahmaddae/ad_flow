@@ -40,11 +40,7 @@ void main() {
       final manager = NativeAdManager();
       await tester.pumpWidget(
         MaterialApp(
-          home: NativeAdWidget(
-            manager: manager,
-            height: 300,
-            width: 250,
-          ),
+          home: NativeAdWidget(manager: manager, height: 300, width: 250),
         ),
       );
       expect(find.byType(NativeAdWidget), findsOneWidget);
@@ -138,8 +134,9 @@ void main() {
       await tester.pump();
     });
 
-    testWidgets('shows default error container when no errorWidget',
-        (tester) async {
+    testWidgets('shows default error container when no errorWidget', (
+      tester,
+    ) async {
       final originalOnError = FlutterError.onError;
       FlutterError.onError = (details) {};
       addTearDown(() => FlutterError.onError = originalOnError);
@@ -148,12 +145,7 @@ void main() {
       mockSdk.nativeLoadError = LoadAdError(1, 'test', 'failed', null);
 
       await tester.pumpWidget(
-        const MaterialApp(
-          home: EasyNativeAd(
-            height: 300,
-            hideOnError: false,
-          ),
-        ),
+        const MaterialApp(home: EasyNativeAd(height: 300, hideOnError: false)),
       );
       await tester.pump();
       await tester.pump();
@@ -174,9 +166,7 @@ void main() {
       mockSdk.nativeLoadError = LoadAdError(1, 'test', 'failed', null);
 
       await tester.pumpWidget(
-        const MaterialApp(
-          home: EasyNativeAd(height: 300, hideOnError: true),
-        ),
+        const MaterialApp(home: EasyNativeAd(height: 300, hideOnError: true)),
       );
       await tester.pump();
       await tester.pump();
@@ -187,8 +177,9 @@ void main() {
       await tester.pump();
     });
 
-    testWidgets('shows loading indicator when hideOnLoading=false',
-        (tester) async {
+    testWidgets('shows loading indicator when hideOnLoading=false', (
+      tester,
+    ) async {
       // Don't initialize AdFlow so ad stays in loading state
       await tester.pumpWidget(
         const MaterialApp(
@@ -215,12 +206,11 @@ void main() {
       expect(find.text('Loading...'), findsOneWidget);
     });
 
-    testWidgets('shows SizedBox.shrink when hideOnLoading=true',
-        (tester) async {
+    testWidgets('shows SizedBox.shrink when hideOnLoading=true', (
+      tester,
+    ) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: EasyNativeAd(height: 300, hideOnLoading: true),
-        ),
+        const MaterialApp(home: EasyNativeAd(height: 300, hideOnLoading: true)),
       );
       await tester.pump();
 
@@ -237,10 +227,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: EasyNativeAd(
-            height: 300,
-            onAdLoaded: () => wasLoaded = true,
-          ),
+          home: EasyNativeAd(height: 300, onAdLoaded: () => wasLoaded = true),
         ),
       );
       await tester.pump();

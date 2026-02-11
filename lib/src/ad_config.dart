@@ -216,8 +216,6 @@ class AdFlowConfig {
   /// Default is 5 minutes.
   final Duration retryCooldownAfterMaxAttempts;
 
-
-
   /// Maximum ad content rating for all ad requests.
   ///
   /// Use [MaxAdContentRating] constants to restrict ad content:

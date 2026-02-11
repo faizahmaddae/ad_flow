@@ -25,11 +25,13 @@ void main() {
       final errors = <AdFlowError>[];
       final sub = handler.errorStream.listen(errors.add);
 
-      handler.reportError(AdFlowError(
-        type: AdErrorType.bannerLoad,
-        message: 'test error',
-        code: 1,
-      ));
+      handler.reportError(
+        AdFlowError(
+          type: AdErrorType.bannerLoad,
+          message: 'test error',
+          code: 1,
+        ),
+      );
 
       await Future.delayed(Duration.zero);
       expect(errors.length, 1);
@@ -43,11 +45,13 @@ void main() {
       AdFlowError? captured;
       handler.setErrorCallback((e) => captured = e);
 
-      handler.reportError(AdFlowError(
-        type: AdErrorType.interstitialShow,
-        message: 'show error',
-        code: 2,
-      ));
+      handler.reportError(
+        AdFlowError(
+          type: AdErrorType.interstitialShow,
+          message: 'show error',
+          code: 2,
+        ),
+      );
 
       expect(captured, isNotNull);
       expect(captured!.message, 'show error');
@@ -58,11 +62,9 @@ void main() {
       handler.setErrorCallback((e) => captured = e);
       handler.clearErrorCallback();
 
-      handler.reportError(AdFlowError(
-        type: AdErrorType.bannerLoad,
-        message: 'test',
-        code: 0,
-      ));
+      handler.reportError(
+        AdFlowError(type: AdErrorType.bannerLoad, message: 'test', code: 0),
+      );
 
       expect(captured, isNull);
     });
@@ -126,11 +128,13 @@ void main() {
       final errors = <AdFlowError>[];
       final sub = handler.errorStream.listen(errors.add);
 
-      handler.reportError(AdFlowError(
-        type: AdErrorType.bannerLoad,
-        message: 'after reset',
-        code: 0,
-      ));
+      handler.reportError(
+        AdFlowError(
+          type: AdErrorType.bannerLoad,
+          message: 'after reset',
+          code: 0,
+        ),
+      );
 
       await Future.delayed(Duration.zero);
       expect(errors.length, 1);
@@ -143,11 +147,13 @@ void main() {
       final sub1 = handler.errorStream.listen(errors1.add);
       final sub2 = handler.errorStream.listen(errors2.add);
 
-      handler.reportError(AdFlowError(
-        type: AdErrorType.bannerLoad,
-        message: 'broadcast',
-        code: 0,
-      ));
+      handler.reportError(
+        AdFlowError(
+          type: AdErrorType.bannerLoad,
+          message: 'broadcast',
+          code: 0,
+        ),
+      );
 
       await Future.delayed(Duration.zero);
       expect(errors1.length, 1);

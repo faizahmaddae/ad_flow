@@ -143,49 +143,49 @@ class RewardedAdManager
         httpTimeoutMillis: AdFlowConfig.current.httpTimeoutMillis,
       ),
       onLoaded: (RewardedAd ad) {
-          debugPrint('RewardedAdManager: Ad loaded successfully');
-          _rewardedAd = ad;
-          _isLoaded = true;
-          _isLoading = false;
-          resetRetryAttempts();
+        debugPrint('RewardedAdManager: Ad loaded successfully');
+        _rewardedAd = ad;
+        _isLoaded = true;
+        _isLoading = false;
+        resetRetryAttempts();
 
-          // Set up full screen content callbacks
-          _setupFullScreenContentCallback();
+        // Set up full screen content callbacks
+        _setupFullScreenContentCallback();
 
-          // Apply server-side verification if configured
-          if (serverSideVerificationOptions != null) {
-            ad.setServerSideOptions(serverSideVerificationOptions!);
-          }
+        // Apply server-side verification if configured
+        if (serverSideVerificationOptions != null) {
+          ad.setServerSideOptions(serverSideVerificationOptions!);
+        }
 
-          onAdLoaded?.call(ad);
-          notifyStatusListeners();
-        },
-        onFailed: (LoadAdError error) {
-          debugPrint('RewardedAdManager: Ad failed to load: ${error.message}');
-          _isLoaded = false;
-          _isLoading = false;
-          notifyStatusListeners();
+        onAdLoaded?.call(ad);
+        notifyStatusListeners();
+      },
+      onFailed: (LoadAdError error) {
+        debugPrint('RewardedAdManager: Ad failed to load: ${error.message}');
+        _isLoaded = false;
+        _isLoading = false;
+        notifyStatusListeners();
 
-          // Report error to centralized handler
-          AdFlowErrorHandler.instance.reportLoadError(
-            error,
-            type: AdErrorType.rewardedLoad,
-            adUnitId: adUnitId ?? AdFlowConfig.current.rewardedAdUnitId,
-          );
+        // Report error to centralized handler
+        AdFlowErrorHandler.instance.reportLoadError(
+          error,
+          type: AdErrorType.rewardedLoad,
+          adUnitId: adUnitId ?? AdFlowConfig.current.rewardedAdUnitId,
+        );
 
-          // Retry loading with linear backoff
-          final retried = handleLoadFailure(
-            checkDisposed: () => isDisposed,
-            onRetry: () => loadAd(adUnitId: adUnitId),
-            managerName: 'RewardedAdManager',
-          );
+        // Retry loading with linear backoff
+        final retried = handleLoadFailure(
+          checkDisposed: () => isDisposed,
+          onRetry: () => loadAd(adUnitId: adUnitId),
+          managerName: 'RewardedAdManager',
+        );
 
-          // Only report to callback when all retries exhausted
-          if (!retried) {
-            onAdFailedToLoad?.call(error);
-          }
-        },
-      );
+        // Only report to callback when all retries exhausted
+        if (!retried) {
+          onAdFailedToLoad?.call(error);
+        }
+      },
+    );
   }
 
   /// Sets up the full screen content callbacks.
@@ -223,11 +223,13 @@ class RewardedAdManager
         notifyStatusListeners();
 
         // Report show error to centralized handler
-        AdFlowErrorHandler.instance.reportError(AdFlowError(
-          type: AdErrorType.rewardedShow,
-          code: error.code,
-          message: error.message,
-        ));
+        AdFlowErrorHandler.instance.reportError(
+          AdFlowError(
+            type: AdErrorType.rewardedShow,
+            code: error.code,
+            message: error.message,
+          ),
+        );
 
         onAdFailedToShow?.call();
 

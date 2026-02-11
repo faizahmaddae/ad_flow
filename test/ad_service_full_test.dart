@@ -86,9 +86,7 @@ void main() {
 
   group('initialize', () {
     test('calls consent gathering', () async {
-      await AdFlow.instance.initialize(
-        config: AdFlowConfig.testMode(),
-      );
+      await AdFlow.instance.initialize(config: AdFlowConfig.testMode());
       // Give async callbacks time to complete
       await Future.delayed(Duration.zero);
       await Future.delayed(Duration.zero);
@@ -99,9 +97,7 @@ void main() {
 
     test('initializes Mobile Ads SDK when consent allows', () async {
       mockSdk.canRequestAdsResult = true;
-      await AdFlow.instance.initialize(
-        config: AdFlowConfig.testMode(),
-      );
+      await AdFlow.instance.initialize(config: AdFlowConfig.testMode());
       await Future.delayed(Duration.zero);
       await Future.delayed(Duration.zero);
       await Future.delayed(Duration.zero);
@@ -128,9 +124,7 @@ void main() {
     });
 
     test('sets isInitialized after complete', () async {
-      await AdFlow.instance.initialize(
-        config: AdFlowConfig.testMode(),
-      );
+      await AdFlow.instance.initialize(config: AdFlowConfig.testMode());
       await Future.delayed(Duration.zero);
       await Future.delayed(Duration.zero);
       await Future.delayed(Duration.zero);
@@ -140,9 +134,7 @@ void main() {
     });
 
     test('no-ops when called twice', () async {
-      await AdFlow.instance.initialize(
-        config: AdFlowConfig.testMode(),
-      );
+      await AdFlow.instance.initialize(config: AdFlowConfig.testMode());
       await Future.delayed(Duration.zero);
       await Future.delayed(Duration.zero);
       await Future.delayed(Duration.zero);
@@ -285,10 +277,7 @@ void main() {
 
   group('waitForInit', () {
     test('throws StateError when init not started', () async {
-      expect(
-        () => AdFlow.instance.waitForInit(),
-        throwsStateError,
-      );
+      expect(() => AdFlow.instance.waitForInit(), throwsStateError);
     });
 
     test('returns immediately if already initialized', () async {

@@ -40,11 +40,13 @@ void main() {
   // ─────────────────────────────────────────────────────────────────────
   group('InterstitialAdManager fullscreen callbacks', () {
     test('onAdWillDismiss fires on iOS', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidInterstitialAdUnitId: 'test',
-        iosInterstitialAdUnitId: 'test',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidInterstitialAdUnitId: 'test',
+          iosInterstitialAdUnitId: 'test',
+          maxLoadRetries: 0,
+        ),
+      );
       final fakeAd = FakeInterstitialAd();
       mockSdk.interstitialAdToReturn = fakeAd;
 
@@ -68,11 +70,13 @@ void main() {
   // ─────────────────────────────────────────────────────────────────────
   group('RewardedAdManager fullscreen callbacks', () {
     test('onAdWillDismiss fires', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidRewardedAdUnitId: 'test',
-        iosRewardedAdUnitId: 'test',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidRewardedAdUnitId: 'test',
+          iosRewardedAdUnitId: 'test',
+          maxLoadRetries: 0,
+        ),
+      );
       final fakeAd = FakeRewardedAd();
       mockSdk.rewardedAdToReturn = fakeAd;
 
@@ -91,11 +95,13 @@ void main() {
     });
 
     test('server side verification options', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidRewardedAdUnitId: 'test',
-        iosRewardedAdUnitId: 'test',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidRewardedAdUnitId: 'test',
+          iosRewardedAdUnitId: 'test',
+          maxLoadRetries: 0,
+        ),
+      );
 
       final manager = RewardedAdManager();
       manager.serverSideVerificationOptions = ServerSideVerificationOptions(
@@ -113,11 +119,13 @@ void main() {
   // ─────────────────────────────────────────────────────────────────────
   group('AppOpenAdManager additional', () {
     test('willDismiss callback fires', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidAppOpenAdUnitId: 'test',
-        iosAppOpenAdUnitId: 'test',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidAppOpenAdUnitId: 'test',
+          iosAppOpenAdUnitId: 'test',
+          maxLoadRetries: 0,
+        ),
+      );
       final fakeAd = FakeAppOpenAd();
       mockSdk.appOpenAdToReturn = fakeAd;
 
@@ -132,11 +140,13 @@ void main() {
     });
 
     test('showAdIfAvailable when already showing returns false', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidAppOpenAdUnitId: 'test',
-        iosAppOpenAdUnitId: 'test',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidAppOpenAdUnitId: 'test',
+          iosAppOpenAdUnitId: 'test',
+          maxLoadRetries: 0,
+        ),
+      );
       final fakeAd = FakeAppOpenAd();
       mockSdk.appOpenAdToReturn = fakeAd;
 
@@ -157,11 +167,13 @@ void main() {
     });
 
     test('loadAdAndWait returns result', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidAppOpenAdUnitId: 'test',
-        iosAppOpenAdUnitId: 'test',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidAppOpenAdUnitId: 'test',
+          iosAppOpenAdUnitId: 'test',
+          maxLoadRetries: 0,
+        ),
+      );
       final manager = AppOpenAdManager();
       final result = await manager.loadAdAndWait();
       expect(result, true);
@@ -174,11 +186,13 @@ void main() {
   // ─────────────────────────────────────────────────────────────────────
   group('AppLifecycleReactor cooldown & isShowing', () {
     test('cooldown blocks second foreground ad show', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidAppOpenAdUnitId: 'test',
-        iosAppOpenAdUnitId: 'test',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidAppOpenAdUnitId: 'test',
+          iosAppOpenAdUnitId: 'test',
+          maxLoadRetries: 0,
+        ),
+      );
 
       final appOpenManager = AppOpenAdManager();
       final fakeAd = FakeAppOpenAd();
@@ -221,11 +235,13 @@ void main() {
     });
 
     test('isShowing guard prevents foreground ad show', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidAppOpenAdUnitId: 'test',
-        iosAppOpenAdUnitId: 'test',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidAppOpenAdUnitId: 'test',
+          iosAppOpenAdUnitId: 'test',
+          maxLoadRetries: 0,
+        ),
+      );
 
       final appOpenManager = AppOpenAdManager();
       final fakeAd = FakeAppOpenAd();
@@ -323,9 +339,7 @@ void main() {
   group('AdService SDK init with null timeout', () {
     test('initializes without timeout', () async {
       await AdFlow.instance.initialize(
-        config: const AdFlowConfig(
-          maxLoadRetries: 0,
-        ),
+        config: const AdFlowConfig(maxLoadRetries: 0),
       );
       await Future.delayed(Duration.zero);
       await Future.delayed(Duration.zero);
@@ -343,9 +357,7 @@ void main() {
       );
 
       await AdFlow.instance.initialize(
-        config: const AdFlowConfig(
-          maxLoadRetries: 0,
-        ),
+        config: const AdFlowConfig(maxLoadRetries: 0),
       );
       await Future.delayed(Duration.zero);
       await Future.delayed(Duration.zero);
@@ -421,11 +433,13 @@ void main() {
   // ─────────────────────────────────────────────────────────────────────
   group('AdManagerMixin retry reset', () {
     test('resetRetryState clears cooldown', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidInterstitialAdUnitId: 'test',
-        iosInterstitialAdUnitId: 'test',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidInterstitialAdUnitId: 'test',
+          iosInterstitialAdUnitId: 'test',
+          maxLoadRetries: 0,
+        ),
+      );
 
       // Make ad fail to exhaust retries
       mockSdk.interstitialLoadError = LoadAdError(1, 'fail', 'fail', null);
@@ -451,14 +465,21 @@ void main() {
   // ─────────────────────────────────────────────────────────────────────
   group('NativeAdManager additional', () {
     test('loadAd onAdFailedToLoad callback with factory hint', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidNativeAdUnitId: 'test-native',
-        iosNativeAdUnitId: 'test-native',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidNativeAdUnitId: 'test-native',
+          iosNativeAdUnitId: 'test-native',
+          maxLoadRetries: 0,
+        ),
+      );
 
       // Error code 0 triggers factory hint message
-      mockSdk.nativeLoadError = LoadAdError(0, 'factory', 'Factory "missing" not found', null);
+      mockSdk.nativeLoadError = LoadAdError(
+        0,
+        'factory',
+        'Factory "missing" not found',
+        null,
+      );
 
       bool failCalled = false;
       final manager = NativeAdManager();
@@ -477,11 +498,13 @@ void main() {
   // ─────────────────────────────────────────────────────────────────────
   group('BannerAdManager consent check', () {
     test('loadBanner with consent check - cannot request ads', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidBannerAdUnitId: 'test-banner',
-        iosBannerAdUnitId: 'test-banner',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidBannerAdUnitId: 'test-banner',
+          iosBannerAdUnitId: 'test-banner',
+          maxLoadRetries: 0,
+        ),
+      );
       mockSdk.canRequestAdsResult = false;
 
       final manager = BannerAdManager();
@@ -498,11 +521,13 @@ void main() {
   // ─────────────────────────────────────────────────────────────────────
   group('AppOpenAdManager consent', () {
     test('loadAd skips when cannot request ads', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidAppOpenAdUnitId: 'test',
-        iosAppOpenAdUnitId: 'test',
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidAppOpenAdUnitId: 'test',
+          iosAppOpenAdUnitId: 'test',
+          maxLoadRetries: 0,
+        ),
+      );
       mockSdk.canRequestAdsResult = false;
 
       final manager = AppOpenAdManager();
@@ -518,12 +543,14 @@ void main() {
   // ─────────────────────────────────────────────────────────────────────
   group('RewardedAdManager ads disabled', () {
     test('showAd returns false when ads disabled', () async {
-      AdFlowConfig.setCurrent(const AdFlowConfig(
-        androidRewardedAdUnitId: 'test',
-        iosRewardedAdUnitId: 'test',
-        rewardedAdsIgnoreRemoveAds: false,
-        maxLoadRetries: 0,
-      ));
+      AdFlowConfig.setCurrent(
+        const AdFlowConfig(
+          androidRewardedAdUnitId: 'test',
+          iosRewardedAdUnitId: 'test',
+          rewardedAdsIgnoreRemoveAds: false,
+          maxLoadRetries: 0,
+        ),
+      );
 
       await AdsEnabledManager.instance.disableAds();
 

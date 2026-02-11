@@ -120,7 +120,10 @@ class _RewardedExamplePageState extends State<RewardedExamplePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Status', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    'Status',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 12),
                   StatusChip(loaded: mgr.isLoaded, loading: mgr.isLoading),
                   const SizedBox(height: 8),
@@ -136,13 +139,19 @@ class _RewardedExamplePageState extends State<RewardedExamplePage> {
 
           // ── Wallet ──
           Card(
-            color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+            color: Theme.of(
+              context,
+            ).colorScheme.primaryContainer.withValues(alpha: 0.3),
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _WalletItem(icon: Icons.monetization_on, label: 'Coins', value: _coins),
+                  _WalletItem(
+                    icon: Icons.monetization_on,
+                    label: 'Coins',
+                    value: _coins,
+                  ),
                   _WalletItem(icon: Icons.diamond, label: 'Gems', value: _gems),
                 ],
               ),
@@ -207,8 +216,8 @@ class _RewardedExamplePageState extends State<RewardedExamplePage> {
                         mgr.isLoaded
                             ? 'Watch Ad for 5 Gems'
                             : mgr.isLoading
-                                ? 'Loading…'
-                                : 'No Ad Available',
+                            ? 'Loading…'
+                            : 'No Ad Available',
                       ),
                     ),
                   ),
@@ -307,9 +316,9 @@ class _WalletItem extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           '$value',
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
         ),
         Text(label, style: Theme.of(context).textTheme.bodySmall),
       ],

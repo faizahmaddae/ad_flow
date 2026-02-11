@@ -124,46 +124,46 @@ class InterstitialAdManager
         httpTimeoutMillis: AdFlowConfig.current.httpTimeoutMillis,
       ),
       onLoaded: (InterstitialAd ad) {
-          debugPrint('InterstitialAdManager: Ad loaded successfully');
-          _interstitialAd = ad;
-          _isLoaded = true;
-          _isLoading = false;
-          resetRetryAttempts();
+        debugPrint('InterstitialAdManager: Ad loaded successfully');
+        _interstitialAd = ad;
+        _isLoaded = true;
+        _isLoading = false;
+        resetRetryAttempts();
 
-          // Set up full screen content callbacks
-          _setupFullScreenContentCallback();
+        // Set up full screen content callbacks
+        _setupFullScreenContentCallback();
 
-          onAdLoaded?.call(ad);
-          notifyStatusListeners();
-        },
-        onFailed: (LoadAdError error) {
-          debugPrint(
-            'InterstitialAdManager: Ad failed to load: ${error.message}',
-          );
-          _isLoaded = false;
-          _isLoading = false;
-          notifyStatusListeners();
+        onAdLoaded?.call(ad);
+        notifyStatusListeners();
+      },
+      onFailed: (LoadAdError error) {
+        debugPrint(
+          'InterstitialAdManager: Ad failed to load: ${error.message}',
+        );
+        _isLoaded = false;
+        _isLoading = false;
+        notifyStatusListeners();
 
-          // Report error to centralized handler
-          AdFlowErrorHandler.instance.reportLoadError(
-            error,
-            type: AdErrorType.interstitialLoad,
-            adUnitId: adUnitId ?? AdFlowConfig.current.interstitialAdUnitId,
-          );
+        // Report error to centralized handler
+        AdFlowErrorHandler.instance.reportLoadError(
+          error,
+          type: AdErrorType.interstitialLoad,
+          adUnitId: adUnitId ?? AdFlowConfig.current.interstitialAdUnitId,
+        );
 
-          // Retry loading with linear backoff
-          final retried = handleLoadFailure(
-            checkDisposed: () => isDisposed,
-            onRetry: () => loadAd(adUnitId: adUnitId),
-            managerName: 'InterstitialAdManager',
-          );
+        // Retry loading with linear backoff
+        final retried = handleLoadFailure(
+          checkDisposed: () => isDisposed,
+          onRetry: () => loadAd(adUnitId: adUnitId),
+          managerName: 'InterstitialAdManager',
+        );
 
-          // Only report to callback when all retries exhausted
-          if (!retried) {
-            onAdFailedToLoad?.call(error);
-          }
-        },
-      );
+        // Only report to callback when all retries exhausted
+        if (!retried) {
+          onAdFailedToLoad?.call(error);
+        }
+      },
+    );
   }
 
   /// Sets up the full screen content callbacks.
@@ -204,11 +204,13 @@ class InterstitialAdManager
         notifyStatusListeners();
 
         // Report show error to centralized handler
-        AdFlowErrorHandler.instance.reportError(AdFlowError(
-          type: AdErrorType.interstitialShow,
-          code: error.code,
-          message: error.message,
-        ));
+        AdFlowErrorHandler.instance.reportError(
+          AdFlowError(
+            type: AdErrorType.interstitialShow,
+            code: error.code,
+            message: error.message,
+          ),
+        );
 
         onAdFailedToShow?.call();
 

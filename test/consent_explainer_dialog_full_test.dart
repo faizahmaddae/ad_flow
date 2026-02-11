@@ -28,10 +28,7 @@ void main() {
 
     test('copyWith replaces fields', () {
       const texts = ConsentExplainerTexts();
-      final copy = texts.copyWith(
-        title: 'Test Title',
-        continueButton: 'Go',
-      );
+      final copy = texts.copyWith(title: 'Test Title', continueButton: 'Go');
       expect(copy.title, 'Test Title');
       expect(copy.continueButton, 'Go');
       expect(copy.description, texts.description);
@@ -106,8 +103,9 @@ void main() {
   });
 
   group('ConsentExplainerDialog widget', () {
-    testWidgets('shows dialog with default texts and continue returns true',
-        (tester) async {
+    testWidgets('shows dialog with default texts and continue returns true', (
+      tester,
+    ) async {
       // Use a large surface so content fits
       tester.view.physicalSize = const Size(800, 1200);
       tester.view.devicePixelRatio = 1.0;
@@ -173,8 +171,9 @@ void main() {
       await tester.pumpAndSettle();
     });
 
-    testWidgets('skip button returns false, continue returns true',
-        (tester) async {
+    testWidgets('skip button returns false, continue returns true', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(800, 1200);
       tester.view.devicePixelRatio = 1.0;
       addTeardownViewReset(tester);
@@ -247,10 +246,7 @@ void main() {
 
       ATTExplainerDialog.show(
         capturedContext,
-        texts: const ATTExplainerTexts(
-          title: 'Custom ATT',
-          gotItButton: 'OK',
-        ),
+        texts: const ATTExplainerTexts(title: 'Custom ATT', gotItButton: 'OK'),
       );
       await tester.pumpAndSettle();
 

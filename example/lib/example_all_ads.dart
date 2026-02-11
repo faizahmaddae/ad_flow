@@ -157,8 +157,7 @@ class _InterstitialCardState extends State<_InterstitialCard> {
       final msg = AdFlow.instance.interstitial.isLoaded
           ? 'Cooldown active — wait before showing again'
           : 'Interstitial not loaded yet';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(msg)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
   }
 
@@ -171,9 +170,16 @@ class _InterstitialCardState extends State<_InterstitialCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Interstitial', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'Interstitial',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 12),
-            StatusChip(loaded: mgr.isLoaded, loading: mgr.isLoading, canShow: mgr.canShowAd),
+            StatusChip(
+              loaded: mgr.isLoaded,
+              loading: mgr.isLoading,
+              canShow: mgr.canShowAd,
+            ),
             const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: _show,
@@ -295,13 +301,19 @@ class _BannerShowcaseCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Banner Variants', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'Banner Variants',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 16),
             Text('Collapsible', style: Theme.of(context).textTheme.labelLarge),
             const SizedBox(height: 8),
             const EasyBannerAd(collapsible: true),
             const SizedBox(height: 16),
-            Text('Fixed Size (320×50)', style: Theme.of(context).textTheme.labelLarge),
+            Text(
+              'Fixed Size (320×50)',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
             const SizedBox(height: 8),
             const Center(child: EasyBannerAd(adSize: AdSize.banner)),
           ],
@@ -354,7 +366,10 @@ class _ErrorStreamCardState extends State<_ErrorStreamCard> {
           children: [
             Row(
               children: [
-                Text('Error Stream', style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  'Error Stream',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
                 const Spacer(),
                 if (_errors.isNotEmpty)
                   TextButton(
@@ -365,12 +380,18 @@ class _ErrorStreamCardState extends State<_ErrorStreamCard> {
             ),
             const SizedBox(height: 8),
             if (_errors.isEmpty)
-              const Text('No errors yet', style: TextStyle(color: Colors.grey, fontSize: 12))
+              const Text(
+                'No errors yet',
+                style: TextStyle(color: Colors.grey, fontSize: 12),
+              )
             else
               ..._errors.map(
                 (e) => Padding(
                   padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Text('• $e', style: const TextStyle(fontSize: 12, color: Colors.red)),
+                  child: Text(
+                    '• $e',
+                    style: const TextStyle(fontSize: 12, color: Colors.red),
+                  ),
                 ),
               ),
           ],
@@ -401,8 +422,16 @@ class StatusChip extends StatelessWidget {
       spacing: 8,
       children: [
         _chip(
-          loading ? 'Loading…' : loaded ? 'Loaded' : 'Not loaded',
-          loading ? Colors.orange : loaded ? Colors.green : Colors.grey,
+          loading
+              ? 'Loading…'
+              : loaded
+              ? 'Loaded'
+              : 'Not loaded',
+          loading
+              ? Colors.orange
+              : loaded
+              ? Colors.green
+              : Colors.grey,
         ),
         if (canShow != null)
           _chip(

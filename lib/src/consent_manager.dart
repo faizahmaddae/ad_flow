@@ -313,11 +313,10 @@ class ConsentManager {
       onComplete: onComplete,
       onBeforeForm: () async {
         // Check if consent form will be shown
-        final formStatus =
-            await AdSdk.instance.isConsentFormAvailable();
-        final consentStatus =
-            await AdSdk.instance.getConsentStatus();
-        final needsForm = formStatus &&
+        final formStatus = await AdSdk.instance.isConsentFormAvailable();
+        final consentStatus = await AdSdk.instance.getConsentStatus();
+        final needsForm =
+            formStatus &&
             (consentStatus == ConsentStatus.required ||
                 consentStatus == ConsentStatus.unknown);
 
@@ -373,8 +372,7 @@ class ConsentManager {
   /// Updates internal state for whether ads can be requested.
   Future<void> _updateCanRequestAds() async {
     _canRequestAds = await AdSdk.instance.canRequestAds();
-    final status = await AdSdk.instance
-        .getPrivacyOptionsRequirementStatus();
+    final status = await AdSdk.instance.getPrivacyOptionsRequirementStatus();
     _isPrivacyOptionsRequired =
         status == PrivacyOptionsRequirementStatus.required;
     debugPrint('ConsentManager: Can request ads: $_canRequestAds');
@@ -385,8 +383,7 @@ class ConsentManager {
 
   /// Checks if privacy options form is required (async).
   Future<bool> isPrivacyOptionsRequiredAsync() async {
-    final status = await AdSdk.instance
-        .getPrivacyOptionsRequirementStatus();
+    final status = await AdSdk.instance.getPrivacyOptionsRequirementStatus();
     return status == PrivacyOptionsRequirementStatus.required;
   }
 

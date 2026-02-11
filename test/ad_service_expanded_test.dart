@@ -109,11 +109,9 @@ void main() {
     test('setErrorCallback sets callback', () {
       AdFlowError? captured;
       AdFlow.instance.setErrorCallback((e) => captured = e);
-      AdFlowErrorHandler.instance.reportError(AdFlowError(
-        type: AdErrorType.bannerLoad,
-        message: 'test',
-        code: 0,
-      ));
+      AdFlowErrorHandler.instance.reportError(
+        AdFlowError(type: AdErrorType.bannerLoad, message: 'test', code: 0),
+      );
       expect(captured, isNotNull);
     });
 
@@ -214,9 +212,7 @@ void main() {
       await AdFlow.instance.initialize(config: AdFlowConfig.testMode());
       await _pumpMicrotasks();
 
-      AdFlow.instance.showPrivacyOptions(
-        onComplete: () {},
-      );
+      AdFlow.instance.showPrivacyOptions(onComplete: () {});
       // Should not crash
     });
 
@@ -246,23 +242,25 @@ void main() {
       await AdFlow.instance.preloadAds();
     });
 
-    test('preloadAds with production config preloads configured types',
-        () async {
-      await AdFlow.instance.initialize(
-        config: const AdFlowConfig(
-          androidInterstitialAdUnitId: 'ca-app-pub-1234567890/int',
-          iosInterstitialAdUnitId: 'ca-app-pub-1234567890/int-ios',
-          androidRewardedAdUnitId: 'ca-app-pub-1234567890/rew',
-          iosRewardedAdUnitId: 'ca-app-pub-1234567890/rew-ios',
-          androidAppOpenAdUnitId: 'ca-app-pub-1234567890/ao',
-          iosAppOpenAdUnitId: 'ca-app-pub-1234567890/ao-ios',
-        ),
-      );
-      await _pumpMicrotasks();
+    test(
+      'preloadAds with production config preloads configured types',
+      () async {
+        await AdFlow.instance.initialize(
+          config: const AdFlowConfig(
+            androidInterstitialAdUnitId: 'ca-app-pub-1234567890/int',
+            iosInterstitialAdUnitId: 'ca-app-pub-1234567890/int-ios',
+            androidRewardedAdUnitId: 'ca-app-pub-1234567890/rew',
+            iosRewardedAdUnitId: 'ca-app-pub-1234567890/rew-ios',
+            androidAppOpenAdUnitId: 'ca-app-pub-1234567890/ao',
+            iosAppOpenAdUnitId: 'ca-app-pub-1234567890/ao-ios',
+          ),
+        );
+        await _pumpMicrotasks();
 
-      await AdFlow.instance.preloadAds();
-      // Should have loaded configured ad types
-    });
+        await AdFlow.instance.preloadAds();
+        // Should have loaded configured ad types
+      },
+    );
   });
 
   group('AdFlow with mediation', () {
