@@ -1,3 +1,14 @@
+## 1.3.16
+
+* **FIX**: App Open ad no longer shows immediately after closing an interstitial or rewarded ad
+  - OS lifecycle (`paused → resumed`) from fullscreen ad overlays was mistaken for a real foreground event
+  - Added fullscreen-ad suppression with 5-second grace period in `AppLifecycleReactor`
+  - `InterstitialAdManager` and `RewardedAdManager` now signal showing/dismiss to the reactor
+* **IMPROVED**: Example launcher now distinguishes "initialized" from "can request ads"
+  - Shows 3 states: Initializing, Initialized (No Consent), AdFlow Ready
+  - No longer shows "Initializing…" forever when consent is denied
+* **IMPROVED**: Test suite expanded to 1031 tests
+
 ## 1.3.15
 
 * **IMPROVED**: Comprehensive README rewrite with step-by-step integration guide
