@@ -84,7 +84,8 @@ class LauncherPage extends StatefulWidget {
 }
 
 class _LauncherPageState extends State<LauncherPage> {
-  bool _adFlowReady = false;
+  bool _adFlowInitialized = false;
+  bool _canRequestAds = false;
   StreamSubscription<bool>? _initSub;
 
   @override
@@ -92,7 +93,12 @@ class _LauncherPageState extends State<LauncherPage> {
     super.initState();
 
     _initSub = AdFlow.instance.initStream.listen((canRequestAds) {
-      if (mounted) setState(() => _adFlowReady = canRequestAds);
+      if (mounted) {
+        setState(() {
+          _adFlowInitialized = true;
+          _canRequestAds = canRequestAds;
+        });
+      }
     });
 
     // Initialize after first frame (needs BuildContext for explainer dialog)
@@ -140,13 +146,25 @@ class _LauncherPageState extends State<LauncherPage> {
           Card(
             child: ListTile(
               leading: Icon(
-                _adFlowReady ? Icons.check_circle : Icons.hourglass_top,
-                color: _adFlowReady ? Colors.green : Colors.orange,
+                _adFlowInitialized
+                    ? (_canRequestAds ? Icons.check_circle : Icons.info)
+                    : Icons.hourglass_top,
+                color: _adFlowInitialized
+                    ? (_canRequestAds ? Colors.green : Colors.orange)
+                    : Colors.grey,
               ),
-              title: Text(_adFlowReady ? 'AdFlow Ready' : 'Initializing…'),
+              title: Text(
+                _adFlowInitialized
+                    ? (_canRequestAds
+                          ? 'AdFlow Ready'
+                          : 'Initialized (No Consent)')
+                    : 'Initializing…',
+              ),
               subtitle: Text(
-                _adFlowReady
-                    ? 'Tap any example below'
+                _adFlowInitialized
+                    ? (_canRequestAds
+                          ? 'Tap any example below'
+                          : 'Consent denied — ads will not load. Tap any example to explore the UI.')
                     : 'Ads loading in the background',
               ),
             ),
