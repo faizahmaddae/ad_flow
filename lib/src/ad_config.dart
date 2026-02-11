@@ -240,6 +240,13 @@ class AdFlowConfig {
   /// Default: 3 seconds. Set to `null` to wait indefinitely (not recommended).
   final Duration? coldStartAdTimeout;
 
+  /// Sentinel value used by [copyWith] to distinguish between "not provided"
+  /// and an explicit `null`. Allows callers to null-out nullable fields:
+  /// ```dart
+  /// config.copyWith(coldStartAdTimeout: null) // actually sets it to null
+  /// ```
+  static const _sentinel = Object();
+
   /// Creates a custom ad configuration.
   ///
   /// At minimum, provide your ad unit IDs for production use.
@@ -301,23 +308,24 @@ class AdFlowConfig {
 
   /// Creates a copy of this config with the given fields replaced.
   ///
+  /// Nullable fields (ad unit IDs, [coldStartAdTimeout], [maxAdContentRating])
+  /// can be explicitly set to `null` to clear them:
   /// ```dart
-  /// final custom = baseConfig.copyWith(
-  ///   maxLoadRetries: 5,
-  ///   minInterstitialInterval: Duration(seconds: 90),
-  /// );
+  /// final cleared = config.copyWith(coldStartAdTimeout: null); // now null
   /// ```
+  ///
+  /// Non-nullable fields retain their current value when omitted.
   AdFlowConfig copyWith({
-    String? androidBannerAdUnitId,
-    String? iosBannerAdUnitId,
-    String? androidInterstitialAdUnitId,
-    String? iosInterstitialAdUnitId,
-    String? androidAppOpenAdUnitId,
-    String? iosAppOpenAdUnitId,
-    String? androidNativeAdUnitId,
-    String? iosNativeAdUnitId,
-    String? androidRewardedAdUnitId,
-    String? iosRewardedAdUnitId,
+    Object? androidBannerAdUnitId = _sentinel,
+    Object? iosBannerAdUnitId = _sentinel,
+    Object? androidInterstitialAdUnitId = _sentinel,
+    Object? iosInterstitialAdUnitId = _sentinel,
+    Object? androidAppOpenAdUnitId = _sentinel,
+    Object? iosAppOpenAdUnitId = _sentinel,
+    Object? androidNativeAdUnitId = _sentinel,
+    Object? iosNativeAdUnitId = _sentinel,
+    Object? androidRewardedAdUnitId = _sentinel,
+    Object? iosRewardedAdUnitId = _sentinel,
     List<String>? testDeviceIds,
     bool? enableConsentDebug,
     bool? tagForUnderAgeOfConsent,
@@ -329,26 +337,41 @@ class AdFlowConfig {
     bool? rewardedAdsIgnoreRemoveAds,
     int? httpTimeoutMillis,
     Duration? retryCooldownAfterMaxAttempts,
-    String? maxAdContentRating,
-    Duration? coldStartAdTimeout,
+    Object? maxAdContentRating = _sentinel,
+    Object? coldStartAdTimeout = _sentinel,
   }) {
     return AdFlowConfig(
-      androidBannerAdUnitId:
-          androidBannerAdUnitId ?? this.androidBannerAdUnitId,
-      iosBannerAdUnitId: iosBannerAdUnitId ?? this.iosBannerAdUnitId,
+      androidBannerAdUnitId: identical(androidBannerAdUnitId, _sentinel)
+          ? this.androidBannerAdUnitId
+          : androidBannerAdUnitId as String?,
+      iosBannerAdUnitId: identical(iosBannerAdUnitId, _sentinel)
+          ? this.iosBannerAdUnitId
+          : iosBannerAdUnitId as String?,
       androidInterstitialAdUnitId:
-          androidInterstitialAdUnitId ?? this.androidInterstitialAdUnitId,
-      iosInterstitialAdUnitId:
-          iosInterstitialAdUnitId ?? this.iosInterstitialAdUnitId,
-      androidAppOpenAdUnitId:
-          androidAppOpenAdUnitId ?? this.androidAppOpenAdUnitId,
-      iosAppOpenAdUnitId: iosAppOpenAdUnitId ?? this.iosAppOpenAdUnitId,
-      androidNativeAdUnitId:
-          androidNativeAdUnitId ?? this.androidNativeAdUnitId,
-      iosNativeAdUnitId: iosNativeAdUnitId ?? this.iosNativeAdUnitId,
-      androidRewardedAdUnitId:
-          androidRewardedAdUnitId ?? this.androidRewardedAdUnitId,
-      iosRewardedAdUnitId: iosRewardedAdUnitId ?? this.iosRewardedAdUnitId,
+          identical(androidInterstitialAdUnitId, _sentinel)
+          ? this.androidInterstitialAdUnitId
+          : androidInterstitialAdUnitId as String?,
+      iosInterstitialAdUnitId: identical(iosInterstitialAdUnitId, _sentinel)
+          ? this.iosInterstitialAdUnitId
+          : iosInterstitialAdUnitId as String?,
+      androidAppOpenAdUnitId: identical(androidAppOpenAdUnitId, _sentinel)
+          ? this.androidAppOpenAdUnitId
+          : androidAppOpenAdUnitId as String?,
+      iosAppOpenAdUnitId: identical(iosAppOpenAdUnitId, _sentinel)
+          ? this.iosAppOpenAdUnitId
+          : iosAppOpenAdUnitId as String?,
+      androidNativeAdUnitId: identical(androidNativeAdUnitId, _sentinel)
+          ? this.androidNativeAdUnitId
+          : androidNativeAdUnitId as String?,
+      iosNativeAdUnitId: identical(iosNativeAdUnitId, _sentinel)
+          ? this.iosNativeAdUnitId
+          : iosNativeAdUnitId as String?,
+      androidRewardedAdUnitId: identical(androidRewardedAdUnitId, _sentinel)
+          ? this.androidRewardedAdUnitId
+          : androidRewardedAdUnitId as String?,
+      iosRewardedAdUnitId: identical(iosRewardedAdUnitId, _sentinel)
+          ? this.iosRewardedAdUnitId
+          : iosRewardedAdUnitId as String?,
       testDeviceIds: testDeviceIds ?? this.testDeviceIds,
       enableConsentDebug: enableConsentDebug ?? this.enableConsentDebug,
       tagForUnderAgeOfConsent:
@@ -366,8 +389,12 @@ class AdFlowConfig {
       httpTimeoutMillis: httpTimeoutMillis ?? this.httpTimeoutMillis,
       retryCooldownAfterMaxAttempts:
           retryCooldownAfterMaxAttempts ?? this.retryCooldownAfterMaxAttempts,
-      maxAdContentRating: maxAdContentRating ?? this.maxAdContentRating,
-      coldStartAdTimeout: coldStartAdTimeout ?? this.coldStartAdTimeout,
+      maxAdContentRating: identical(maxAdContentRating, _sentinel)
+          ? this.maxAdContentRating
+          : maxAdContentRating as String?,
+      coldStartAdTimeout: identical(coldStartAdTimeout, _sentinel)
+          ? this.coldStartAdTimeout
+          : coldStartAdTimeout as Duration?,
     );
   }
 

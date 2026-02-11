@@ -82,6 +82,95 @@ void main() {
         expect(config.retryDelay.inSeconds, 15);
       });
     });
+
+    group('copyWith', () {
+      test('preserves all values when no arguments given', () {
+        final config = AdFlowConfig(
+          androidBannerAdUnitId: 'banner-id',
+          maxAdContentRating: MaxAdContentRating.g,
+          coldStartAdTimeout: const Duration(seconds: 5),
+          maxLoadRetries: 7,
+        );
+
+        final copy = config.copyWith();
+
+        expect(copy.androidBannerAdUnitId, 'banner-id');
+        expect(copy.maxAdContentRating, MaxAdContentRating.g);
+        expect(copy.coldStartAdTimeout, const Duration(seconds: 5));
+        expect(copy.maxLoadRetries, 7);
+      });
+
+      test('replaces non-nullable fields', () {
+        const config = AdFlowConfig(maxLoadRetries: 3);
+
+        final copy = config.copyWith(maxLoadRetries: 10);
+
+        expect(copy.maxLoadRetries, 10);
+      });
+
+      test('replaces nullable fields with new values', () {
+        const config = AdFlowConfig();
+
+        final copy = config.copyWith(
+          androidBannerAdUnitId: 'new-id',
+          maxAdContentRating: MaxAdContentRating.pg,
+          coldStartAdTimeout: const Duration(seconds: 10),
+        );
+
+        expect(copy.androidBannerAdUnitId, 'new-id');
+        expect(copy.maxAdContentRating, MaxAdContentRating.pg);
+        expect(copy.coldStartAdTimeout, const Duration(seconds: 10));
+      });
+
+      test('can null-out coldStartAdTimeout', () {
+        const config = AdFlowConfig(coldStartAdTimeout: Duration(seconds: 3));
+        expect(config.coldStartAdTimeout, isNotNull);
+
+        final copy = config.copyWith(coldStartAdTimeout: null);
+
+        expect(copy.coldStartAdTimeout, isNull);
+      });
+
+      test('can null-out maxAdContentRating', () {
+        final config = AdFlowConfig(maxAdContentRating: MaxAdContentRating.g);
+        expect(config.maxAdContentRating, isNotNull);
+
+        final copy = config.copyWith(maxAdContentRating: null);
+
+        expect(copy.maxAdContentRating, isNull);
+      });
+
+      test('can null-out ad unit IDs', () {
+        const config = AdFlowConfig(
+          androidBannerAdUnitId: 'some-id',
+          iosBannerAdUnitId: 'some-ios-id',
+        );
+
+        final copy = config.copyWith(
+          androidBannerAdUnitId: null,
+          iosBannerAdUnitId: null,
+        );
+
+        expect(copy.androidBannerAdUnitId, isNull);
+        expect(copy.iosBannerAdUnitId, isNull);
+      });
+
+      test('null-out does not affect other fields', () {
+        final config = AdFlowConfig(
+          androidBannerAdUnitId: 'banner',
+          androidInterstitialAdUnitId: 'interstitial',
+          coldStartAdTimeout: const Duration(seconds: 3),
+          maxAdContentRating: MaxAdContentRating.t,
+        );
+
+        final copy = config.copyWith(coldStartAdTimeout: null);
+
+        expect(copy.coldStartAdTimeout, isNull);
+        expect(copy.androidBannerAdUnitId, 'banner');
+        expect(copy.androidInterstitialAdUnitId, 'interstitial');
+        expect(copy.maxAdContentRating, MaxAdContentRating.t);
+      });
+    });
   });
 
   group('AdConfig static proxy', () {

@@ -793,6 +793,29 @@ class AdFlow {
     );
   }
 
+  /// Refreshes consent status and shows the consent form if needed.
+  ///
+  /// Call this for long-running sessions to handle TCF consent expiration.
+  /// Safe to call multiple times — only shows the form when the UMP SDK
+  /// determines it is required.
+  ///
+  /// Does **not** re-trigger the iOS ATT prompt (permanent per install).
+  ///
+  /// Returns `true` if ads can be requested after the refresh.
+  ///
+  /// Example:
+  /// ```dart
+  /// // After returning from background or on a timer
+  /// final canRequest = await AdFlow.instance.refreshConsentIfNeeded();
+  /// ```
+  Future<bool> refreshConsentIfNeeded() async {
+    if (!_isInitialized) {
+      adFlowLog('AdFlow: Cannot refresh consent — not yet initialized');
+      return false;
+    }
+    return consent.refreshConsentIfNeeded();
+  }
+
   /// Opens the Ad Inspector for debugging.
   ///
   /// This is useful during development to inspect ad behavior.

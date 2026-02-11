@@ -147,17 +147,18 @@ class AdsEnabledManager {
 
   /// Adds a listener for ads enabled status changes.
   ///
-  /// **Important:** The callback is invoked **immediately** with the current
-  /// value upon registration, then again on every change. Do NOT call this
-  /// from within a [State.build] method — the synchronous callback could
-  /// trigger [setState] during build, causing a framework exception.
-  /// Instead, call it from [State.initState] or a post-frame callback.
+  /// The listener is called whenever the ads-enabled state changes
+  /// (via [disableAds], [enableAds], [toggle], or [reset]).
+  ///
+  /// To read the current value at registration time, use [isEnabled]:
+  /// ```dart
+  /// _adsEnabled = AdsEnabledManager.instance.isEnabled;
+  /// AdsEnabledManager.instance.addListener(_onChanged);
+  /// ```
   ///
   /// Remember to call [removeListener] when done to prevent memory leaks.
   void addListener(AdsEnabledCallback callback) {
     _listeners.add(callback);
-    // Immediately notify with current value
-    callback(_isEnabled);
   }
 
   /// Removes a previously added listener.

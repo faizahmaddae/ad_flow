@@ -79,11 +79,12 @@ void main() {
       expect(AdsEnabledManager.instance.isEnabled, true);
     });
 
-    test('addListener gets called with current value immediately', () async {
+    test('addListener does not fire immediately', () async {
       await AdsEnabledManager.instance.initialize();
       bool? received;
       AdsEnabledManager.instance.addListener((v) => received = v);
-      expect(received, true);
+      expect(received, isNull);
+      expect(AdsEnabledManager.instance.isEnabled, true);
       AdsEnabledManager.instance.removeListener((v) {});
     });
 
@@ -92,14 +93,14 @@ void main() {
       final values = <bool>[];
       void listener(bool v) => values.add(v);
       AdsEnabledManager.instance.addListener(listener);
-      // addListener calls with current value immediately
-      expect(values, [true]);
+      // addListener no longer fires immediately
+      expect(values, isEmpty);
 
       await AdsEnabledManager.instance.disableAds();
-      expect(values, [true, false]);
+      expect(values, [false]);
 
       await AdsEnabledManager.instance.enableAds();
-      expect(values, [true, false, true]);
+      expect(values, [false, true]);
 
       AdsEnabledManager.instance.removeListener(listener);
     });
@@ -140,7 +141,6 @@ void main() {
       int callCount = 0;
       void listener(bool v) => callCount++;
       AdsEnabledManager.instance.addListener(listener);
-      callCount = 0; // Reset after immediate call
 
       AdsEnabledManager.instance.dispose();
       // After dispose, no more notifications expected from listener list

@@ -418,4 +418,52 @@ void main() {
       expect(result, '1YNN');
     });
   });
+
+  group('refreshConsentIfNeeded', () {
+    test('calls requestConsentInfoUpdate and loadAndShowForm', () async {
+      // First initialize normally
+      await _gatherConsentAndWait(ConsentManager.instance);
+
+      final updateCallsBefore = mockSdk.requestConsentInfoUpdateCalls;
+      final formCallsBefore = mockSdk.loadAndShowConsentFormCalls;
+
+      final result = await ConsentManager.instance.refreshConsentIfNeeded();
+      // Needs extra microtask pumps for callback chain
+      await Future.delayed(Duration.zero);
+      await Future.delayed(Duration.zero);
+
+      expect(result, isA<bool>());
+      expect(
+        mockSdk.requestConsentInfoUpdateCalls,
+        greaterThan(updateCallsBefore),
+      );
+      expect(mockSdk.loadAndShowConsentFormCalls, greaterThan(formCallsBefore));
+    });
+
+    test('returns canRequestAds status', () async {
+      mockSdk.canRequestAdsResult = true;
+      await _gatherConsentAndWait(ConsentManager.instance);
+
+      final result = await ConsentManager.instance.refreshConsentIfNeeded();
+      await Future.delayed(Duration.zero);
+
+      expect(result, true);
+    });
+
+    test('handles consent update error gracefully', () async {
+      await _gatherConsentAndWait(ConsentManager.instance);
+
+      // Make next update fail
+      mockSdk.consentUpdateError = FormError(
+        errorCode: 99,
+        message: 'Network error',
+      );
+
+      final result = await ConsentManager.instance.refreshConsentIfNeeded();
+      await Future.delayed(Duration.zero);
+
+      // Should still return a result (not throw)
+      expect(result, isA<bool>());
+    });
+  });
 }

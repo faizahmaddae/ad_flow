@@ -436,6 +436,79 @@ class ConsentManager {
     return await AdSdk.instance.getConsentStatus();
   }
 
+  /// Refreshes consent status and shows the consent form if needed.
+  ///
+  /// Call this periodically for long-running sessions to handle TCF consent
+  /// expiration or changed regulatory status. This is safe to call multiple
+  /// times — it only shows the consent form if the UMP SDK determines it is
+  /// required (e.g., after a TCF string expires or in a new GDPR region).
+  ///
+  /// Unlike [gatherConsent], this does **not** re-trigger the iOS ATT prompt
+  /// (ATT status is permanent per install) and does not show explainer dialogs.
+  ///
+  /// Returns `true` if ads can be requested after the refresh.
+  ///
+  /// Example:
+  /// ```dart
+  /// // Periodically re-check consent (e.g., every 24 hours)
+  /// final canRequest = await ConsentManager.instance.refreshConsentIfNeeded();
+  /// if (!canRequest) {
+  ///   // Consent was revoked or expired — stop loading ads
+  /// }
+  /// ```
+  Future<bool> refreshConsentIfNeeded() async {
+    adFlowLog('ConsentManager: Refreshing consent status...');
+
+    final params = ConsentRequestParameters(
+      tagForUnderAgeOfConsent: AdFlowConfig.current.tagForUnderAgeOfConsent,
+      consentDebugSettings: _buildDebugSettings(),
+    );
+
+    final completer = Completer<bool>();
+
+    AdSdk.instance.requestConsentInfoUpdate(
+      params,
+      () async {
+        // Consent info updated — show form if required
+        AdSdk.instance.loadAndShowConsentFormIfRequired((
+          FormError? error,
+        ) async {
+          try {
+            if (error != null) {
+              adFlowLog(
+                'ConsentManager: Consent refresh form error: ${error.message}',
+              );
+              AdFlowErrorHandler.instance.reportConsentError(error);
+            }
+            await _updateCanRequestAds();
+            adFlowLog(
+              'ConsentManager: Consent refresh complete. Can request ads: $_canRequestAds',
+            );
+          } catch (e) {
+            adFlowLog('ConsentManager: Error in consent refresh callback: $e');
+          } finally {
+            if (!completer.isCompleted) completer.complete(_canRequestAds);
+          }
+        });
+      },
+      (FormError error) async {
+        try {
+          adFlowLog(
+            'ConsentManager: Consent refresh update failed: ${error.message}',
+          );
+          AdFlowErrorHandler.instance.reportConsentError(error);
+          await _updateCanRequestAds();
+        } catch (e) {
+          adFlowLog('ConsentManager: Error in consent refresh error path: $e');
+        } finally {
+          if (!completer.isCompleted) completer.complete(_canRequestAds);
+        }
+      },
+    );
+
+    return completer.future;
+  }
+
   /// Gets a human-readable consent status description.
   Future<String> getConsentStatusDescription() async {
     final status = await getConsentStatus();

@@ -93,12 +93,12 @@ void main() {
         }
 
         AdsEnabledManager.instance.addListener(listener);
-        // Listener receives immediate callback with current value
-        expect(receivedValues, [false]);
+        // addListener no longer fires immediately — read isEnabled instead
+        expect(receivedValues, isEmpty);
 
         await AdsEnabledManager.instance.disableAds();
-        // No additional callback since state didn't change
-        expect(receivedValues, [false]);
+        // No callback since state didn't change
+        expect(receivedValues, isEmpty);
 
         AdsEnabledManager.instance.removeListener(listener);
       });
@@ -134,12 +134,12 @@ void main() {
         }
 
         AdsEnabledManager.instance.addListener(listener);
-        // Listener receives immediate callback
-        expect(receivedValues, [true]);
+        // addListener no longer fires immediately
+        expect(receivedValues, isEmpty);
 
         await AdsEnabledManager.instance.enableAds();
-        // No additional callback since state didn't change
-        expect(receivedValues, [true]);
+        // No callback since state didn't change
+        expect(receivedValues, isEmpty);
 
         AdsEnabledManager.instance.removeListener(listener);
       });
@@ -178,7 +178,7 @@ void main() {
 
     group('listeners', () {
       test(
-        'addListener calls callback immediately with current value',
+        'addListener does not fire immediately (read isEnabled instead)',
         () async {
           await AdsEnabledManager.instance.initialize();
 
@@ -189,7 +189,9 @@ void main() {
 
           AdsEnabledManager.instance.addListener(listener);
 
-          expect(receivedValue, true);
+          // No immediate invocation — use isEnabled for current value
+          expect(receivedValue, isNull);
+          expect(AdsEnabledManager.instance.isEnabled, true);
 
           AdsEnabledManager.instance.removeListener(listener);
         },
@@ -207,7 +209,7 @@ void main() {
 
         await AdsEnabledManager.instance.disableAds();
 
-        expect(receivedValues, [true, false]); // Initial + change
+        expect(receivedValues, [false]); // Only change, no initial
 
         AdsEnabledManager.instance.removeListener(listener);
       });
@@ -225,8 +227,8 @@ void main() {
 
         await AdsEnabledManager.instance.disableAds();
 
-        // Only the initial callback should have been received
-        expect(receivedValues, [true]);
+        // No callbacks at all — addListener doesn't fire, and removed before change
+        expect(receivedValues, isEmpty);
       });
 
       test('multiple listeners all receive callbacks', () async {
@@ -243,8 +245,8 @@ void main() {
 
         await AdsEnabledManager.instance.disableAds();
 
-        expect(listener1Count, 2); // Initial + change
-        expect(listener2Count, 2);
+        expect(listener1Count, 1); // Change only, no initial
+        expect(listener2Count, 1);
 
         AdsEnabledManager.instance.removeListener(listener1);
         AdsEnabledManager.instance.removeListener(listener2);
@@ -311,8 +313,8 @@ void main() {
         }
 
         AdsEnabledManager.instance.addListener(listener);
-        // Initial callback with false (disabled)
-        expect(receivedValues.last, false);
+        // No immediate callback — receivedValues is still empty
+        expect(receivedValues, isEmpty);
 
         await AdsEnabledManager.instance.reset();
         // Should receive true (reset to enabled)

@@ -6,3 +6,7 @@ include: package:flutter_lints/flutter.yaml
 linter:
   rules:
     - unawaited_futures
+    - prefer_final_locals
+    - cancel_subscriptions
+    - close_sinks
+    - avoid_print
