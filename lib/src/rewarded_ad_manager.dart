@@ -10,6 +10,7 @@ import 'ad_error_handler.dart';
 import 'ad_manager_mixin.dart';
 import 'ad_sdk.dart';
 import 'ads_enabled_manager.dart';
+import 'app_lifecycle_reactor.dart';
 import 'ad_flow_logger.dart';
 
 /// Callback for rewarded ad events
@@ -203,11 +204,13 @@ class RewardedAdManager
       onAdShowedFullScreenContent: (Ad ad) {
         adFlowLog('RewardedAdManager: Ad showed full screen content');
         _isShowing = true;
+        AppLifecycleReactor.notifyFullscreenAdShowing();
         notifyStatusListeners();
       },
       onAdDismissedFullScreenContent: (Ad ad) {
         adFlowLog('RewardedAdManager: Ad dismissed');
         _isShowing = false;
+        AppLifecycleReactor.notifyFullscreenAdDismissed();
         final onDismissed = _pendingOnAdDismissed;
         _pendingOnAdDismissed = null;
         _pendingOnAdFailedToShow = null;
@@ -223,6 +226,7 @@ class RewardedAdManager
       onAdFailedToShowFullScreenContent: (Ad ad, AdError error) {
         adFlowLog('RewardedAdManager: Ad failed to show: ${error.message}');
         _isShowing = false;
+        AppLifecycleReactor.notifyFullscreenAdDismissed();
         final onFailed = _pendingOnAdFailedToShow;
         _pendingOnAdDismissed = null;
         _pendingOnAdFailedToShow = null;

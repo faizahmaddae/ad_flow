@@ -10,6 +10,7 @@ import 'ad_error_handler.dart';
 import 'ad_manager_mixin.dart';
 import 'ad_sdk.dart';
 import 'ads_enabled_manager.dart';
+import 'app_lifecycle_reactor.dart';
 import 'ad_flow_logger.dart';
 
 /// Callback for interstitial ad events
@@ -181,12 +182,14 @@ class InterstitialAdManager
       onAdShowedFullScreenContent: (Ad ad) {
         adFlowLog('InterstitialAdManager: Ad showed full screen content');
         _isShowing = true;
+        AppLifecycleReactor.notifyFullscreenAdShowing();
         notifyStatusListeners();
       },
       onAdDismissedFullScreenContent: (Ad ad) {
         adFlowLog('InterstitialAdManager: Ad dismissed');
         _isShowing = false;
         _lastShowTime = DateTime.now();
+        AppLifecycleReactor.notifyFullscreenAdDismissed();
         // Capture and clear callbacks before any side-effects
         final onDismissed = _pendingOnAdDismissed;
         _pendingOnAdDismissed = null;
@@ -203,6 +206,7 @@ class InterstitialAdManager
       onAdFailedToShowFullScreenContent: (Ad ad, AdError error) {
         adFlowLog('InterstitialAdManager: Ad failed to show: ${error.message}');
         _isShowing = false;
+        AppLifecycleReactor.notifyFullscreenAdDismissed();
         // Capture and clear callbacks before any side-effects
         final onFailed = _pendingOnAdFailedToShow;
         _pendingOnAdDismissed = null;

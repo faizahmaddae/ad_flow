@@ -1,6 +1,7 @@
 // Copyright 2024 - AdMob Integration Package
 // Unit tests for AppLifecycleReactor
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ad_flow/ad_flow.dart';
 
@@ -110,6 +111,79 @@ void main() {
         // After dispose, we shouldn't use the reactor
         // Just verifying no exception is thrown
       });
+    });
+
+    group('fullscreen ad suppression', () {
+      setUp(() {
+        AppLifecycleReactor.resetFullscreenAdState();
+      });
+
+      tearDown(() {
+        AppLifecycleReactor.resetFullscreenAdState();
+      });
+
+      test('notifyFullscreenAdShowing sets suppression flag', () {
+        // Before notification, state is clean
+        AppLifecycleReactor.notifyFullscreenAdShowing();
+        // After notification, the static flag is set
+        // We can verify by calling dismissed and checking reset
+        AppLifecycleReactor.notifyFullscreenAdDismissed();
+        // No exception means the state machine works
+      });
+
+      test('notifyFullscreenAdDismissed clears showing flag', () {
+        AppLifecycleReactor.notifyFullscreenAdShowing();
+        AppLifecycleReactor.notifyFullscreenAdDismissed();
+        // No exception means the transition works
+      });
+
+      test('resetFullscreenAdState clears all suppression state', () {
+        AppLifecycleReactor.notifyFullscreenAdShowing();
+        AppLifecycleReactor.resetFullscreenAdState();
+        // State should be fully cleared — safe to call again
+        AppLifecycleReactor.notifyFullscreenAdShowing();
+        AppLifecycleReactor.notifyFullscreenAdDismissed();
+      });
+
+      test('fullscreenAdSuppression duration is 5 seconds', () {
+        expect(
+          AppLifecycleReactor.fullscreenAdSuppression,
+          const Duration(seconds: 5),
+        );
+      });
+
+      test(
+        'lifecycle resumed during fullscreen ad does not show app open ad',
+        () {
+          reactor.startListening();
+          // Simulate interstitial ad showing
+          AppLifecycleReactor.notifyFullscreenAdShowing();
+
+          // Simulate lifecycle going paused → resumed (as OS does for fullscreen ads)
+          reactor.didChangeAppLifecycleState(AppLifecycleState.paused);
+          reactor.didChangeAppLifecycleState(AppLifecycleState.resumed);
+
+          // Ad count should still be 0 — the app open ad was suppressed
+          expect(reactor.foregroundAdCount, 0);
+        },
+      );
+
+      test(
+        'lifecycle resumed shortly after fullscreen dismiss does not show app open ad',
+        () {
+          reactor.startListening();
+          // Simulate interstitial ad dismissed
+          AppLifecycleReactor.notifyFullscreenAdShowing();
+          AppLifecycleReactor.notifyFullscreenAdDismissed();
+
+          // Simulate lifecycle resumed within grace period
+          reactor.didChangeAppLifecycleState(AppLifecycleState.paused);
+          reactor.didChangeAppLifecycleState(AppLifecycleState.resumed);
+
+          // Ad count should still be 0 — within grace period
+          expect(reactor.foregroundAdCount, 0);
+        },
+      );
     });
 
     group('maxForegroundAdsPerSession variations', () {

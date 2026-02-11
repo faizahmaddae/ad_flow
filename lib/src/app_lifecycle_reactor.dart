@@ -43,6 +43,45 @@ class AppLifecycleReactor with WidgetsBindingObserver {
   /// This prevents ads from showing in a loop when dismissing triggers resume.
   static const Duration _minTimeBetweenAds = Duration(seconds: 10);
 
+  // ── Fullscreen ad suppression ──────────────────────────────────────
+  // When interstitial / rewarded ads are showing, the OS lifecycle goes
+  // paused → resumed. Without suppression the reactor would treat that
+  // as a real foreground event and immediately show an App Open ad.
+
+  static bool _isFullscreenAdShowing = false;
+  static DateTime? _lastFullscreenAdDismissTime;
+
+  /// Grace period after a fullscreen ad is dismissed before an App Open
+  /// ad is allowed. Covers the small delay between dismiss and the
+  /// lifecycle `resumed` event arriving.
+  static const Duration fullscreenAdSuppression = Duration(seconds: 5);
+
+  /// Called by fullscreen ad managers (interstitial, rewarded) when they
+  /// **begin** showing an ad.
+  static void notifyFullscreenAdShowing() {
+    _isFullscreenAdShowing = true;
+    adFlowLog(
+      '🔄 AppLifecycleReactor: Fullscreen ad showing — suppressing app open ads',
+    );
+  }
+
+  /// Called by fullscreen ad managers when the ad is dismissed or fails
+  /// to show. Starts the suppression grace period.
+  static void notifyFullscreenAdDismissed() {
+    _isFullscreenAdShowing = false;
+    _lastFullscreenAdDismissTime = DateTime.now();
+    adFlowLog(
+      '🔄 AppLifecycleReactor: Fullscreen ad dismissed — grace period started',
+    );
+  }
+
+  /// Resets the static fullscreen-suppression state.
+  /// Useful in tests.
+  static void resetFullscreenAdState() {
+    _isFullscreenAdShowing = false;
+    _lastFullscreenAdDismissTime = null;
+  }
+
   /// Creates an [AppLifecycleReactor] with the given [AppOpenAdManager].
   ///
   /// [maxForegroundAdsPerSession] limits how many ads show when returning
@@ -146,6 +185,25 @@ class AppLifecycleReactor with WidgetsBindingObserver {
 
   /// Shows an app open ad if available.
   Future<void> _showAppOpenAd() async {
+    // Suppress if a fullscreen ad (interstitial/rewarded) is currently showing
+    if (_isFullscreenAdShowing) {
+      adFlowLog(
+        '🔄 AppLifecycleReactor: Fullscreen ad is showing, skipping app open ad',
+      );
+      return;
+    }
+
+    // Suppress if a fullscreen ad was recently dismissed (grace period)
+    if (_lastFullscreenAdDismissTime != null) {
+      final elapsed = DateTime.now().difference(_lastFullscreenAdDismissTime!);
+      if (elapsed < fullscreenAdSuppression) {
+        adFlowLog(
+          '🔄 AppLifecycleReactor: Fullscreen ad dismissed ${elapsed.inSeconds}s ago, suppressing app open ad',
+        );
+        return;
+      }
+    }
+
     // Check if we've hit the session limit
     if (maxForegroundAdsPerSession > 0 &&
         _foregroundAdCount >= maxForegroundAdsPerSession) {
