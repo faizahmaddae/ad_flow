@@ -38,7 +38,15 @@ class EasyBannerAd extends StatefulWidget {
   /// Ignored if [adSize] is provided.
   final bool collapsible;
 
-  const EasyBannerAd({super.key, this.adSize, this.collapsible = false});
+  // Optional if user want to use it or not. Default (true)
+  final bool useSafeArea;
+
+  const EasyBannerAd({
+    super.key,
+    this.adSize,
+    this.collapsible = false,
+    this.useSafeArea = true,
+  });
 
   @override
   State<EasyBannerAd> createState() => _EasyBannerAdState();
@@ -239,6 +247,9 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
         _currentOrientation = orientation;
 
         if (!_isLoaded) return const SizedBox.shrink();
+        if (!widget.useSafeArea) {
+          return _bannerManager.buildAdWidget() ?? const SizedBox.shrink();
+        }
         return SafeArea(
           child: _bannerManager.buildAdWidget() ?? const SizedBox.shrink(),
         );
