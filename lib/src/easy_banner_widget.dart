@@ -38,7 +38,11 @@ class EasyBannerAd extends StatefulWidget {
   /// Ignored if [adSize] is provided.
   final bool collapsible;
 
-  // Optional if user want to use it or not. Default (true)
+  /// Whether to wrap the ad widget in a [SafeArea].
+  ///
+  /// Set to `false` if the banner is already inside a [SafeArea] or
+  /// a [Scaffold] that handles insets, to avoid extra padding/black space.
+  /// Defaults to `true`.
   final bool useSafeArea;
 
   const EasyBannerAd({
@@ -210,6 +214,12 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
     super.dispose();
   }
 
+  /// Wraps [child] in a [SafeArea] when [EasyBannerAd.useSafeArea] is true.
+  Widget _wrapWithSafeArea(Widget child) {
+    if (!widget.useSafeArea) return child;
+    return SafeArea(child: child);
+  }
+
   @override
   Widget build(BuildContext context) {
     // Don't show anything if ads are disabled
@@ -218,8 +228,8 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
     // Fixed size banners don't need orientation handling
     if (widget.adSize != null) {
       if (!_isLoaded) return const SizedBox.shrink();
-      return SafeArea(
-        child: _bannerManager.buildAdWidget() ?? const SizedBox.shrink(),
+      return _wrapWithSafeArea(
+        _bannerManager.buildAdWidget() ?? const SizedBox.shrink(),
       );
     }
 
@@ -247,11 +257,8 @@ class _EasyBannerAdState extends State<EasyBannerAd> {
         _currentOrientation = orientation;
 
         if (!_isLoaded) return const SizedBox.shrink();
-        if (!widget.useSafeArea) {
-          return _bannerManager.buildAdWidget() ?? const SizedBox.shrink();
-        }
-        return SafeArea(
-          child: _bannerManager.buildAdWidget() ?? const SizedBox.shrink(),
+        return _wrapWithSafeArea(
+          _bannerManager.buildAdWidget() ?? const SizedBox.shrink(),
         );
       },
     );
