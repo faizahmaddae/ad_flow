@@ -212,6 +212,119 @@ void main() {
     });
   });
 
+  group('EasyBannerAd useSafeArea', () {
+    testWidgets('fixed size banner omits SafeArea when useSafeArea is false', (
+      tester,
+    ) async {
+      final originalOnError = FlutterError.onError;
+      FlutterError.onError = (details) {};
+      addTearDown(() => FlutterError.onError = originalOnError);
+
+      await AdFlow.instance.initialize();
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: EasyBannerAd(adSize: AdSize.banner, useSafeArea: false),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // The EasyBannerAd subtree should not contain a SafeArea
+      final easyBannerFinder = find.byType(EasyBannerAd);
+      expect(easyBannerFinder, findsOneWidget);
+      expect(
+        find.descendant(of: easyBannerFinder, matching: find.byType(SafeArea)),
+        findsNothing,
+      );
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('fixed size banner wraps with SafeArea by default', (
+      tester,
+    ) async {
+      final originalOnError = FlutterError.onError;
+      FlutterError.onError = (details) {};
+      addTearDown(() => FlutterError.onError = originalOnError);
+
+      await AdFlow.instance.initialize();
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(body: EasyBannerAd(adSize: AdSize.banner)),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final easyBannerFinder = find.byType(EasyBannerAd);
+      expect(
+        find.descendant(of: easyBannerFinder, matching: find.byType(SafeArea)),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('adaptive banner omits SafeArea when useSafeArea is false', (
+      tester,
+    ) async {
+      final originalOnError = FlutterError.onError;
+      FlutterError.onError = (details) {};
+      addTearDown(() => FlutterError.onError = originalOnError);
+
+      await AdFlow.instance.initialize();
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(body: EasyBannerAd(useSafeArea: false)),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final easyBannerFinder = find.byType(EasyBannerAd);
+      expect(easyBannerFinder, findsOneWidget);
+      expect(
+        find.descendant(of: easyBannerFinder, matching: find.byType(SafeArea)),
+        findsNothing,
+      );
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('adaptive banner wraps with SafeArea by default', (
+      tester,
+    ) async {
+      final originalOnError = FlutterError.onError;
+      FlutterError.onError = (details) {};
+      addTearDown(() => FlutterError.onError = originalOnError);
+
+      await AdFlow.instance.initialize();
+
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: EasyBannerAd())),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final easyBannerFinder = find.byType(EasyBannerAd);
+      expect(
+        find.descendant(of: easyBannerFinder, matching: find.byType(SafeArea)),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+  });
+
   group('EasyBannerAd ads disabled on init', () {
     testWidgets('does not load when ads disabled from start', (tester) async {
       await AdsEnabledManager.instance.disableAds();
