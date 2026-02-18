@@ -1,3 +1,13 @@
+## 1.3.18
+
+* **NEW**: `EasyBannerAd` now supports optional `SafeArea` wrapping ([#6](https://github.com/faizahmaddae/ad_flow/pull/6))
+  - Added `useSafeArea` parameter (default: `true`) to prevent extra black space
+  - Set to `false` when the banner is already inside a `SafeArea` or `Scaffold` that handles insets
+  - Works for fixed-size, adaptive, and collapsible banners
+* **IMPROVED**: Extracted `_wrapWithSafeArea()` helper in `EasyBannerAd` for cleaner SafeArea logic
+* **IMPROVED**: Test suite expanded to 1035 tests
+* **IMPROVED**: Branch protection enabled on `main` (requires PR review before merge)
+
 ## 1.3.17
 
 * Re-release of v1.3.16 (no code changes)

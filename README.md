@@ -32,7 +32,7 @@ Add `ad_flow` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  ad_flow: ^1.3.14
+  ad_flow: ^1.3.18
 ```
 
 Then run:
