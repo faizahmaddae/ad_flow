@@ -21,7 +21,7 @@ dependencies:
   #
   # gma_mediation_unity: ^1.6.2       # Unity Ads
   # gma_mediation_applovin: ^2.5.1    # AppLovin
-  # gma_mediation_meta: ^1.5.0        # Meta Audience Network
+  # gma_mediation_meta: ^1.5.1        # Meta Audience Network
   # gma_mediation_liftoff: ^1.2.2     # Liftoff (Vungle)
   # gma_mediation_ironsource: ^1.1.1  # ironSource
   # gma_mediation_pangle: ^1.3.2      # Pangle

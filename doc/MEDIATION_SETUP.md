@@ -20,6 +20,7 @@ ad_flow provides built-in support for:
 |---------|---------|-----------------|
 | Unity Ads | `gma_mediation_unity` | GDPR, CCPA |
 | AppLovin | `gma_mediation_applovin` | GDPR (hasUserConsent), CCPA (doNotSell) |
+| Meta Audience Network | `gma_mediation_meta` | Auto-read from UMP/ATT (no manual forwarding needed) |
 
 You can also register **custom adapters** for any other mediation network.
 
@@ -41,6 +42,7 @@ dependencies:
   # Add only the networks you want to use:
   gma_mediation_unity: ^1.6.2      # Unity Ads
   gma_mediation_applovin: ^2.5.1   # AppLovin
+  gma_mediation_meta: ^1.5.1       # Meta Audience Network
 ```
 
 Then run:
@@ -56,6 +58,7 @@ flutter pub get
 import 'package:ad_flow/ad_flow.dart';
 import 'package:gma_mediation_unity/gma_mediation_unity.dart';
 import 'package:gma_mediation_applovin/gma_mediation_applovin.dart';
+import 'package:gma_mediation_meta/gma_mediation_meta.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -74,7 +77,11 @@ void main() async {
     setDoNotSell: applovin.setDoNotSell,
   );
   
-  // Step 3: Initialize ad_flow (consent is auto-forwarded)
+  // Step 3: Register Meta Audience Network adapter
+  // (consent is read automatically from UMP/ATT — no callbacks needed)
+  MediationHelper.registerMetaAdapter();
+  
+  // Step 4: Initialize ad_flow (consent is auto-forwarded)
   await AdFlow.instance.initializeWithExplainer(
     config: AdFlowConfig(
       androidBannerAdUnitId: 'ca-app-pub-xxx/yyy',
@@ -124,6 +131,14 @@ MediationHelper.registerApplovinWithCallbacks(
   setHasUserConsent: applovin.setHasUserConsent,
   setDoNotSell: applovin.setDoNotSell,
 );
+```
+
+```dart
+// Meta Audience Network only
+import 'package:gma_mediation_meta/gma_mediation_meta.dart';
+
+// Meta reads consent automatically from UMP/ATT — no callbacks needed
+MediationHelper.registerMetaAdapter();
 ```
 
 ### Custom Consent Configuration
@@ -201,6 +216,9 @@ dependencies {
     
     // AppLovin
     implementation("com.google.ads.mediation:applovin:13.0.1.0")
+    
+    // Meta Audience Network
+    implementation("com.google.ads.mediation:facebook:6.18.0.0")
 }
 ```
 
@@ -227,6 +245,7 @@ After adding mediation packages, configure your ad units in the [AdMob Console](
 Refer to Google's documentation for detailed console setup:
 - [Unity Ads Mediation](https://developers.google.com/admob/flutter/mediation/unity)
 - [AppLovin Mediation](https://developers.google.com/admob/flutter/mediation/applovin)
+- [Meta Audience Network Mediation](https://developers.google.com/admob/flutter/mediation/meta)
 
 ---
 
@@ -283,6 +302,11 @@ print('Can show personalized: ${AdFlow.instance.consent.canShowPersonalizedAds}'
 - Verify SDK key in AndroidManifest.xml / Info.plist
 - Check AppLovin dashboard for integration status
 
+**Meta Audience Network:**
+- Ensure ATT and UMP consent flows run before ads load (ad_flow handles this automatically)
+- Add the native dependency `com.google.ads.mediation:facebook:6.18.0.0` to `android/app/build.gradle.kts`
+- Verify your Meta App ID and Placement IDs are configured in the AdMob console
+
 ---
 
 ## API Reference
@@ -294,6 +318,7 @@ print('Can show personalized: ${AdFlow.instance.consent.canShowPersonalizedAds}'
 | `registerAdapter(networkName, forwarder)` | Register a custom mediation adapter |
 | `registerUnityWithCallbacks(...)` | Register Unity Ads with consent callbacks |
 | `registerApplovinWithCallbacks(...)` | Register AppLovin with consent callbacks |
+| `registerMetaAdapter()` | Register Meta Audience Network (consent auto-read from UMP/ATT) |
 | `forwardConsent([config])` | Forward consent to all registered adapters |
 | `clearAdapters()` | Remove all registered adapters |
 | `hasRegisteredAdapters` | Check if any adapters are registered |

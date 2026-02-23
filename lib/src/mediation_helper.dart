@@ -371,6 +371,45 @@ class MediationHelper {
     );
   }
 
+  /// Convenience method to register Meta Audience Network adapter.
+  ///
+  /// **Requires:** `gma_mediation_meta: ^1.5.1` package in pubspec.yaml
+  ///
+  /// Meta Audience Network reads consent automatically from the UMP/ATT
+  /// framework that ad_flow already handles. You do **not** need to forward
+  /// GDPR/CCPA signals manually. Calling this method simply registers Meta
+  /// in the adapter list for logging and tracking purposes.
+  ///
+  /// Usage:
+  /// ```dart
+  /// import 'package:gma_mediation_meta/gma_mediation_meta.dart';
+  ///
+  /// // Register before AdFlow.instance.initialize()
+  /// MediationHelper.registerMetaAdapter();
+  /// ```
+  ///
+  /// Then add the Flutter package to pubspec.yaml:
+  /// ```yaml
+  /// dependencies:
+  ///   gma_mediation_meta: ^1.5.1
+  /// ```
+  ///
+  /// And the native Android dependency to android/app/build.gradle.kts:
+  /// ```kotlin
+  /// implementation("com.google.ads.mediation:facebook:6.18.0.0")
+  /// ```
+  ///
+  /// See also: https://developers.google.com/admob/flutter/mediation/meta
+  static void registerMetaAdapter() {
+    registerAdapter(
+      name: 'Meta Audience Network',
+      forwarder: ({required gdprConsent, required ccpaOptOut}) async {
+        // Meta Audience Network reads consent automatically from the UMP/ATT
+        // framework. No explicit consent API calls are required.
+      },
+    );
+  }
+
   /// Resets all state. Called by [AdFlow.reset] and useful for testing.
   static void reset() {
     _adapters.clear();

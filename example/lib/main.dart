@@ -43,6 +43,15 @@ void main() {
   //   setCCPAConsent: unity.setCCPAConsent,
   // );
 
+  // final applovin = GmaMediationApplovin();
+  // MediationHelper.registerApplovinWithCallbacks(
+  //   setHasUserConsent: applovin.setHasUserConsent,
+  //   setDoNotSell: applovin.setDoNotSell,
+  // );
+
+  // Meta Audience Network reads consent automatically from UMP/ATT:
+  // MediationHelper.registerMetaAdapter();
+
   // ------------------------------------------------------------------
   // Global error handling — log every ad error to your analytics
   // ------------------------------------------------------------------
