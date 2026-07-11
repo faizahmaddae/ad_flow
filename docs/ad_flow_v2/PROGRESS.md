@@ -1,7 +1,7 @@
 # PROGRESS — ad_flow v2
 
 ## Current phase
-**Phase 5 — Policies** (Phases 2–4 complete).
+**Phase 6 — Banner** (Phases 2–5 complete).
 
 ## Done
 - Phase 1 — Planning artifacts (committed `4e4132e`).
@@ -17,19 +17,25 @@
 - Phase 4 — Consent ✅ (this commit)
   - `consent/consent_gateway.dart`: `ConsentGateway` interface + `UmpConsentGateway` — info update (30s timeout) → unconditional `loadAndShowConsentFormIfRequired` (plugin no-ops when not required) → `canRequestAds()`; degrades on failure with typed `lastError` (ADR-020); in-flight join as the double-load guard; `isPrivacyOptionsRequired` refreshed after update AND after form dismissal
   - ADR-019: ATT is UMP's job — no `app_tracking_transparency` dependency (resolves the Phase 4 open question)
-  - `FakeAdSdk` gained `consentUpdateHold` (hang simulation) for the timeout test
+  - `FakeAdSdk` gained `consentUpdateHold` (hang simulation) for the timeout test (`c1a491b`)
+- Phase 5 — Policies ✅ (this commit)
+  - `policy/key_value_store.dart`: `KeyValueStore` (getInt/setInt/getHistory/setHistory) + `SharedPrefsKeyValueStore` (`SharedPreferencesAsync`, `ad_flow.` namespace, corrupt-entry tolerant) + `InMemoryKeyValueStore` — ADR-P2 confirmed
+  - `policy/retry_policy.dart`: exp backoff ×2 from `baseDelay`, ±jitter, `maxDelay` cap, injectable RNG; `shouldRetry` budget matches v1 semantics (3 = 3 total attempts)
+  - `policy/full_screen_ad_coordinator.dart`: depth-counted `enter/exit` with clamped exit (can't wedge), `ValueListenable<bool>`
+  - `policy/frequency_cap_policy.dart`: `StoredFrequencyCapPolicy` — session counts in-memory, hourly window via pruned persisted history, `minGap` via a separately persisted last-impression timestamp (works for gaps > 1h), global `_global` slot recorded on every impression
+  - `policy/ad_gate.dart`: `canLoad` = enabled && canRequestAds (cheap current check, NOT the consent flow); `canShow` = coordinator && canLoad && caps
 
 ## In progress
-- Nothing mid-slice. **The very next concrete step:** Phase 5 — `lib/src/policy/`: `RetryPolicy` (exp backoff + jitter from `RetryConfig`, injectable RNG for determinism), `KeyValueStore` (interface + shared_preferences impl + in-memory fake), `FrequencyCapPolicy` (per-slot + global caps over an injectable clock), `FullScreenAdCoordinator` (ValueListenable<bool>), `AdGate` (consent+enabled+caps composition). Heavy unit tests — this is where correctness lives.
+- Nothing mid-slice. **The very next concrete step:** Phase 6 — `lib/src/core/ad_controller.dart` (AdController + FullScreenAdController contracts) then `controllers/banner_ad_controller.dart` (gate-checked load, RetryPolicy timer with auto re-arm after cooldown, refresh ≥ minRefresh clamped to ≥30s, dispose) + `widgets/ad_flow_banner.dart` (reserved height placeholder → handle.buildWidget(), dispose on unmount). Widget tests use `FakeAdSdk` with `enforceConsentGate = true`.
 
 ## Next (ordered)
-1. Phase 5 — Policies. Confirm ADR-P2 (shared_preferences behind `KeyValueStore`) while building it. Inject a clock (`DateTime Function() now`) everywhere time matters.
-2. Phase 6 — Banner controller + widget.
-3. Continue PLAN.md phase by phase (7 interstitial → 8 rewarded → …).
+1. Phase 6 — Banner controller + widget.
+2. Phase 7 — Interstitial controller.
+3. Continue PLAN.md phase by phase (8 rewarded → 9 native → 10 app-open → …).
 
 ## How to verify the current state
 `flutter analyze && flutter test`
-Expected: analyze clean, **73 tests passing** (core 6, fake seam 28, gma mappers 8, config 16, consent 15).
+Expected: analyze clean, **108 tests passing** (core 6, fake seam 28, gma mappers 8, config 16, consent 15, policy 35).
 
 ## Open questions / assumptions
 - ADR-P2 (shared_preferences behind KeyValueStore) — dependency already kept in pubspec; confirm at Phase 5. ADR-P3 (public re-export list; whether `FakeAdSdk` ships for consumers' tests) — Phase 11.

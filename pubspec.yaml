@@ -22,6 +22,8 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  # In-memory SharedPreferencesAsync backend for KeyValueStore tests.
+  shared_preferences_platform_interface: ^2.4.0
 
 # This is a pure Dart package - no native plugin code needed.
 # Native functionality comes from google_mobile_ads.

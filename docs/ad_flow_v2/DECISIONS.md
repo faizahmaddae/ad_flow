@@ -115,5 +115,5 @@ Status legend: `accepted` (agreed with the maintainer / by design), `proposed` (
 
 ## Proposed / to confirm while building
 - ~~**ADR-P1 — Immutability codegen (`freezed`).**~~ Resolved by ADR-017 (hand-written, no codegen).
-- **ADR-P2 — Persistence dependency for frequency caps.** *Proposed:* keep v1's `shared_preferences` behind an injected `KeyValueStore` interface (so tests use an in-memory fake and consumers could swap it). Confirm on build.
+- ~~**ADR-P2 — Persistence dependency for frequency caps.**~~ **Confirmed at Phase 5:** `shared_preferences` (`SharedPreferencesAsync`, keys namespaced `ad_flow.`) behind the `KeyValueStore` interface; `InMemoryKeyValueStore` for tests. Design note: the last-impression timestamp is persisted separately from the pruned hourly history so `minGap` values longer than the 1h history window still work; session counts are deliberately in-memory only.
 - **ADR-P3 — Minimum public surface.** *Proposed:* re-export only the `google_mobile_ads` types consumers genuinely need (`AdSize`, `RewardItem`, `LoadAdError`, `AdRequest`, template style types) rather than v1's broad re-export. Finalize the list during Phase 11.
