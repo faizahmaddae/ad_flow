@@ -340,7 +340,7 @@ class NativeLoadSpec {
   final String? factoryId;
 
   /// Options passed through to a platform factory.
-  final Map<String, Object?>? factoryExtras;
+  final Map<String, Object>? factoryExtras;
 
   /// Per-request options.
   final AdRequestOptions request;

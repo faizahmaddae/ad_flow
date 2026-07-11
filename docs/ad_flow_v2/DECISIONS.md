@@ -76,6 +76,18 @@ Status legend: `accepted` (agreed with the maintainer / by design), `proposed` (
 **Decision.** Version the rewrite `2.0.0`; maintain a clear `CHANGELOG.md`; keep the same package name, repo, and pub.dev identity.
 **Consequences.** Same publishing pipeline; consumers opt in via a major bump.
 
+## ADR-015 — v1 parked under `legacy/v1/`, excluded from analysis and publish  ·  accepted
+**Context.** Phase 2 scaffolds a new `lib/` in the same paths v1 occupied, but PROGRESS requires keeping v1 greppable until its battle-tested logic (retry timing, consent-sample flow, test-mode) is ported. Leaving v1 in `lib/` would collide with the new tree and break `flutter analyze` under gma 9 lints.
+**Decision.** `git mv` v1 `lib/`, `test/`, `example/` → `legacy/v1/`; exclude `legacy/**` in `analysis_options.yaml`; add `legacy/` (plus `docs/`, `.claude/`) to `.pubignore`.
+**Rationale.** Satisfies both constraints: v1 stays greppable in the working tree for porting, while the package analyzes clean and publishes without it. Git history additionally preserves v1 at tag/commit `c9d95d5` (v1.3.17) / `4ecef71` (v1.3.18).
+**Consequences.** Delete `legacy/` once porting is complete (Phase 13/14). `flutter test` no longer runs v1's ~1000 tests — v2 rebuilds coverage phase by phase.
+
+## ADR-016 — Seam refinements: UMP primitives live in AdSdk; view handles build their own widget  ·  accepted
+**Context.** ARCHITECTURE's sketch had `ConsentGateway` "wrapping UMP", and banner/native loads "return the plugin object because a real AdWidget must host it". Invariant 8 says only the seam imports `google_mobile_ads`.
+**Decision.** (a) `AdSdk` exposes raw UMP one-call wrappers (`requestConsentInfoUpdate`, `canRequestAds`, `loadAndShowConsentFormIfRequired`, `showPrivacyOptionsForm`, statuses, `resetConsent`) as clean `Future`s; `ConsentGateway` (Phase 4) becomes pure orchestration over the seam. (b) `BannerHandle`/`NativeHandle` expose `buildWidget()` — `GmaAdSdk` returns a real `AdWidget`, `FakeAdSdk` a `SizedBox` — instead of leaking the plugin ad object.
+**Rationale.** (a) keeps invariant 8 literal (one gma import) and makes ConsentGateway fully testable with `FakeAdSdk`; UMP callbacks are wrapped into Futures exactly once, per the v1 trap. (b) removes the last reason for widgets to import the plugin and lets widget tests pump real trees with fakes.
+**Consequences.** `GmaAdSdk` is the single gma import in `lib/` (widgets no longer need one). Fake handles are drivable test doubles shipped in `lib/src/seam/fake_ad_sdk.dart` (whether to export them for consumers' tests is part of ADR-P3).
+
 ---
 
 ## Proposed / to confirm while building

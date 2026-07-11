@@ -7,3 +7,8 @@
 ///
 /// This barrel exports the public API only. Internals live under `src/`.
 library;
+
+export 'src/core/ad_flow_error.dart';
+export 'src/core/ad_load_state.dart';
+export 'src/seam/ad_sdk.dart';
+export 'src/seam/ad_sdk_types.dart';

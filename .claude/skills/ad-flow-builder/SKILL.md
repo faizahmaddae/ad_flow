@@ -143,6 +143,9 @@ A clean stop with a clear question beats a large, broken, speculative change eve
 - **Rewarded interstitial is not just a rewarded ad.** It needs the mandatory intro/skip screen; shipping it without one is a policy violation, not a UX nicety.
 - **`dispose()` discipline.** Every `BannerAd`/`NativeAd`/full-screen ad and every stream subscription must be disposed. Lint with `close_sinks` / `cancel_subscriptions`; a leaked ad is a real memory and correctness bug.
 - **app-ads.txt is required (since Jan 2025)** for full ad serving. It's a publisher-side setup step, but the README must call it out prominently or the maintainer's apps silently under-serve.
+- **`AppStateEventNotifier.appStateStream` is dead until `startListening()`.** The plugin only starts emitting foreground/background events after `AppStateEventNotifier.startListening()` runs. `GmaAdSdk.appForegroundEvents` calls it lazily on first access — if you ever bypass the seam, remember it, or app-open-on-foreground silently never fires.
+- **`BannerAd.isCollapsible` and inline-adaptive real height are async post-load calls.** `isCollapsible` is `Future<bool>`, and an inline adaptive banner's real height comes from `getPlatformAdSize()` after load. `GmaAdSdk` resolves both inside the load flow so `BannerHandle.size`/`isCollapsible` are plain sync getters above the seam.
+- **`RequestConfiguration` tags are ints, not bools** (`TagFor*.yes/no/unspecified` = 1/0/-1; `maxAdContentRating` is a String constant). The seam maps `bool?`/enum → plugin encoding in `toGmaRequestConfiguration`; never pass raw bools through.
 
 ---
 
