@@ -67,8 +67,18 @@ class BannerAdController implements AdController {
   /// [AdLoaded].
   BannerHandle? get handle => _handle;
 
-  /// Height to reserve before the ad loads, avoiding layout shift:
-  /// exact for fixed sizes, a 50px estimate for adaptive banners.
+  /// This slot's sizing strategy — lets [AdFlowBanner] compute a better,
+  /// device-aware placeholder for adaptive kinds than [reservedHeight]'s
+  /// width-only floor estimate (review finding #8).
+  BannerKind get kind => _config.kind;
+
+  /// Height to reserve before the ad loads, avoiding layout shift: exact
+  /// for fixed sizes. For adaptive kinds this is only the documented
+  /// *floor* (AdMob's anchored adaptive banners are 50–90dp depending on
+  /// device/width — there is no pure-width formula, per Google's own
+  /// docs), so real ads on wider layouts commonly land taller than this
+  /// — prefer [AdFlowBanner]'s own device-aware estimate, or pass an
+  /// explicit `placeholderHeight`, for adaptive placements.
   double get reservedHeight => switch (_config.kind) {
     BannerKind.fixed => switch (_config.fixedSize) {
       FixedBannerSize.banner => 50,

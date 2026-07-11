@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 
+import '../config/ad_flow_config.dart';
 import '../controllers/banner_ad_controller.dart';
 import '../core/ad_load_state.dart';
 
@@ -28,7 +29,11 @@ class AdFlowBanner extends StatefulWidget {
   final bool ownsController;
 
   /// Height reserved before the ad loads. Defaults to the controller's
-  /// estimate (exact for fixed sizes, 50px for adaptive).
+  /// exact size for fixed banners, or a device-aware estimate for
+  /// adaptive banners (see [_estimatedHeight]) — pass this explicitly for
+  /// adaptive placements if you know the real height in advance (e.g.
+  /// from a previous load) to avoid any residual shift (review finding
+  /// #8).
   final double? placeholderHeight;
 
   @override
@@ -68,12 +73,28 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
               width: constraints.maxWidth.isFinite
                   ? constraints.maxWidth
                   : null,
-              height:
-                  widget.placeholderHeight ?? widget.controller.reservedHeight,
+              height: widget.placeholderHeight ?? _estimatedHeight(context),
             );
           },
         );
       },
     );
+  }
+
+  /// A better placeholder estimate than [BannerAdController.reservedHeight]
+  /// for adaptive kinds: Google documents anchored adaptive banners as
+  /// 50–90dp, capped at 15% of device height (review finding #8 — there is
+  /// no pure-width formula, so this can't be exact). Reserving the upper
+  /// end of that range — rather than the 50dp floor — means a same-size-
+  /// or-smaller real ad never pushes content below it down when it loads,
+  /// which is the direction that risks "Layout Encourages Accidental
+  /// Clicks" enforcement; the cost is some unused placeholder whitespace
+  /// on devices where the real ad lands shorter. Fixed sizes stay exact.
+  double _estimatedHeight(BuildContext context) {
+    if (widget.controller.kind == BannerKind.fixed) {
+      return widget.controller.reservedHeight;
+    }
+    final deviceHeight = MediaQuery.sizeOf(context).height;
+    return (deviceHeight * 0.15).clamp(50.0, 90.0);
   }
 }

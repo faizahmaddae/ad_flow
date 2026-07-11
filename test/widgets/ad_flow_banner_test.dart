@@ -62,9 +62,14 @@ void main() {
       host(AdFlowBanner(controller: c, ownsController: true)),
     );
 
-    // First frame: placeholder with the reserved height, before any load.
+    // First frame: placeholder reserved BEFORE any load. Anchored adaptive
+    // banners have no pure-width height formula (Google docs: 50–90dp,
+    // capped at 15% of device height), so the widget reserves the
+    // device-height-aware estimate rather than the controller's 50dp
+    // floor (review finding #8) — on the default 800x600 test surface,
+    // 15% of 600 is exactly the 90dp ceiling.
     final placeholder = tester.getSize(find.byType(AdFlowBanner));
-    expect(placeholder.height, c.reservedHeight);
+    expect(placeholder.height, 90);
 
     await tester.pumpAndSettle();
 
@@ -79,6 +84,34 @@ void main() {
 
     await tester.pumpWidget(host(const SizedBox()));
   });
+
+  testWidgets(
+    'adaptive placeholder height scales with device height, clamped to '
+    'Google\'s documented 50-90dp bounds (review finding #8)',
+    (tester) async {
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      tester.view.devicePixelRatio = 1.0;
+
+      // A short viewport: 15% of height is below the documented floor.
+      tester.view.physicalSize = const Size(400, 200);
+      final c1 = controller();
+      await tester.pumpWidget(
+        host(AdFlowBanner(controller: c1, ownsController: true)),
+      );
+      expect(tester.getSize(find.byType(AdFlowBanner)).height, 50);
+      await tester.pumpWidget(host(const SizedBox()));
+
+      // A mid-height viewport: 15% falls between the floor and ceiling.
+      tester.view.physicalSize = const Size(400, 400);
+      final c2 = controller();
+      await tester.pumpWidget(
+        host(AdFlowBanner(controller: c2, ownsController: true)),
+      );
+      expect(tester.getSize(find.byType(AdFlowBanner)).height, 60);
+      await tester.pumpWidget(host(const SizedBox()));
+    },
+  );
 
   testWidgets('fixed-size config reserves the exact height', (tester) async {
     final c = controller(

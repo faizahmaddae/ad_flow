@@ -136,6 +136,13 @@ configured via `BannerConfig(kind:, fixedSize:, collapsible:)`. Refresh is
 client-driven every `minRefresh` (≥ 60s recommended, values under 30s are
 clamped).
 
+Adaptive banners have no pure-width height formula — Google documents
+50–90dp depending on device and width. `AdFlowBanner` reserves a
+device-height-aware estimate (15% of screen height, clamped to that
+50–90dp range) rather than a flat guess, but if you already know the real
+height for a placement (e.g. from a previous load), pass it explicitly via
+`placeholderHeight` to eliminate any residual shift entirely.
+
 ### Interstitial
 
 ```dart
