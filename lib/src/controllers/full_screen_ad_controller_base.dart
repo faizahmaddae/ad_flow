@@ -89,9 +89,16 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
 
   /// Drops the current handle (without showing it) and preloads a fresh
   /// one — used by app-open to discard expired ads.
+  ///
+  /// A no-op while a load is already in flight (same reasoning as review
+  /// finding #4 on `NativeAdController.reload()`): today's one caller
+  /// (`AppOpenAdController.show()`) only invokes this after confirming
+  /// `isReady` (implies `AdLoaded`), so this guard is currently
+  /// unreachable in practice — kept as defense-in-depth since this is a
+  /// `@protected` method a future subclass could call from elsewhere.
   @protected
   void discardCurrentAd() {
-    if (_disposed) return;
+    if (_disposed || _state.value is AdLoading) return;
     _dropHandle();
     _state.value = const AdIdle();
     unawaited(load());

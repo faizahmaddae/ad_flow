@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/controllers/native_ad_controller.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
@@ -187,6 +189,38 @@ void main() {
         expect(sdk.natives, hasLength(1)); // no second, stray load
         expect(loaded.disposed, isFalse);
         expect(c.handle, same(loaded));
+
+        c.dispose();
+      });
+    },
+  );
+
+  test(
+    'reload() while a load is already in flight does not double-load '
+    '(review finding #4)',
+    () {
+      fakeAsync((async) {
+        sdk.loadHold = Completer<void>();
+        final c = controller();
+
+        c.load(); // load #1: reaches the SDK call and suspends there
+        async.flushMicrotasks();
+        expect(c.state.value, const AdLoading());
+        expect(sdk.natives, isEmpty); // still in flight, no handle yet
+
+        // reload() arrives while load #1 is still pending. Before the fix
+        // this reset state to AdIdle, defeating load()'s synchronous
+        // AdLoading re-entry guard (ADR-024) and letting a second,
+        // concurrent loadNative() call start.
+        c.reload();
+        async.flushMicrotasks();
+
+        sdk.loadHold!.complete();
+        async.flushMicrotasks();
+
+        expect(sdk.natives, hasLength(1)); // exactly one SDK call, not two
+        expect(c.state.value, const AdLoaded());
+        expect(c.handle, same(sdk.natives.single));
 
         c.dispose();
       });

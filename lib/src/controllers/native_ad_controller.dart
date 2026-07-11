@@ -108,8 +108,15 @@ class NativeAdController implements AdController {
 
   /// Disposes the current ad and loads a fresh one (native ads never
   /// refresh on their own).
+  ///
+  /// A no-op while a load is already in flight: resetting to [AdIdle]
+  /// here would defeat [load]'s own synchronous re-entry guard (ADR-024)
+  /// and let two concurrent SDK loads race, each overwriting [_handle]
+  /// with no dispose for the loser (review finding #4). Let the in-flight
+  /// load finish naturally instead.
   Future<void> reload() async {
     if (_disposed) return;
+    if (_state.value is AdLoading) return;
     _timer?.cancel();
     _dropHandle();
     _state.value = const AdIdle();
