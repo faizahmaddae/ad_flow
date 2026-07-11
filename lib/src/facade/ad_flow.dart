@@ -133,6 +133,7 @@ class AdFlow {
         controller: appOpenController,
         sdk: _sdk,
         config: config.appOpen!,
+        coordinator: _coordinator,
       );
     }
   }

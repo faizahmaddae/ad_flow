@@ -21,8 +21,8 @@ void main() {
     sdk.enforceConsentGate = true;
     sdk.canRequestAdsResult = true;
     consented = true;
-    coordinator = FullScreenAdCoordinator();
     now = DateTime(2026, 7, 11, 12);
+    coordinator = FullScreenAdCoordinator(now: () => now);
     caps = StoredFrequencyCapPolicy(
       store: InMemoryKeyValueStore(),
       slotCaps: const {},
@@ -56,17 +56,22 @@ void main() {
         now: () => now,
       );
 
-  AppOpenAdManager manager(AppOpenAdController c, {AppOpenConfig? config}) =>
-      AppOpenAdManager(
-        controller: c,
-        sdk: sdk,
-        config:
-            config ??
-            const AppOpenConfig(
-              adUnitId: PlatformAdUnitId(android: 'unit-ao'),
-              cap: FrequencyCap(),
-            ),
-      );
+  AppOpenAdManager manager(
+    AppOpenAdController c, {
+    AppOpenConfig? config,
+    bool withCoordinator = true,
+  }) => AppOpenAdManager(
+    controller: c,
+    sdk: sdk,
+    config:
+        config ??
+        const AppOpenConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-ao'),
+          cap: FrequencyCap(),
+        ),
+    coordinator: withCoordinator ? coordinator : null,
+    now: () => now,
+  );
 
   Future<void> settle() => Future<void>.delayed(Duration.zero);
 
@@ -168,6 +173,14 @@ void main() {
       expect(sdk.appOpens.single.showCalls, 0);
 
       coordinator.exit();
+      // Immediately after the OTHER ad exits is still within the
+      // post-dismiss suppression window (review finding #7) — must not
+      // show yet, even though the coordinator itself is clear again.
+      sdk.emitAppForeground();
+      await settle();
+      expect(sdk.appOpens.single.showCalls, 0);
+
+      now = now.add(const Duration(seconds: 1));
       sdk.emitAppForeground();
       await settle();
       expect(sdk.appOpens.single.showCalls, 1);
@@ -175,6 +188,62 @@ void main() {
       m.dispose();
       c.dispose();
     });
+
+    test(
+      'never shows immediately behind ANOTHER format\'s dismiss, even '
+      'with no global frequency-cap minGap configured (review finding #7)',
+      () async {
+        final c = controller();
+        final m = manager(c);
+        m.start();
+        await settle();
+        sdk.emitAppForeground(); // consume cold-start event
+        await settle();
+
+        // A completely unrelated interstitial (or any other format)
+        // shows and dismisses, touching only the shared coordinator —
+        // this manager never sees it directly.
+        coordinator.enter();
+        coordinator.exit();
+
+        // The warm-start signal arrives right on its heels.
+        sdk.emitAppForeground();
+        await settle();
+        expect(sdk.appOpens.single.showCalls, 0); // suppressed
+        expect(coordinator.isFullScreenAdVisible, isFalse); // not "busy"
+
+        now = now.add(const Duration(seconds: 1));
+        sdk.emitAppForeground();
+        await settle();
+        expect(sdk.appOpens.single.showCalls, 1); // allowed once past it
+
+        m.dispose();
+        c.dispose();
+      },
+    );
+
+    test(
+      'without a coordinator wired in, no suppression applies (documents '
+      'why the facade always passes one — see AdFlow._appOpen)',
+      () async {
+        final c = controller();
+        final m = manager(c, withCoordinator: false);
+        m.start();
+        await settle();
+        sdk.emitAppForeground(); // consume cold-start event
+        await settle();
+
+        coordinator.enter();
+        coordinator.exit();
+
+        sdk.emitAppForeground();
+        await settle();
+        expect(sdk.appOpens.single.showCalls, 1); // no suppression signal
+
+        m.dispose();
+        c.dispose();
+      },
+    );
 
     test('expired ad on foreground is discarded, not shown', () async {
       final c = controller();

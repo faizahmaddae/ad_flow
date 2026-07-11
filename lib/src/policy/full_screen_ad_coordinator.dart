@@ -6,8 +6,22 @@ import 'package:flutter/foundation.dart';
 /// and the app-open manager, so an app-open ad can never fire over an
 /// interstitial and vice versa.
 class FullScreenAdCoordinator {
+  /// Creates a coordinator. [now] is an injectable clock (tests only) for
+  /// [lastExitAt].
+  FullScreenAdCoordinator({DateTime Function()? now})
+    : _now = now ?? DateTime.now;
+
   final ValueNotifier<bool> _visible = ValueNotifier<bool>(false);
+  final DateTime Function() _now;
   int _depth = 0;
+  DateTime? _lastExitAt;
+
+  /// When the last full-screen ad (of any format) exited, or `null` if
+  /// none has yet this session. Consulted by [AppOpenAdManager] to avoid
+  /// showing an app-open ad immediately behind another format's dismiss
+  /// (review finding #7) — purely informational otherwise, and does not
+  /// affect [tryEnter]/[isFullScreenAdVisible] at all.
+  DateTime? get lastExitAt => _lastExitAt;
 
   /// Whether a full-screen ad is currently showing.
   bool get isFullScreenAdVisible => _depth > 0;
@@ -42,6 +56,7 @@ class FullScreenAdCoordinator {
   /// enter must never wedge suppression on).
   void exit() {
     if (_depth > 0) _depth--;
+    if (_depth == 0) _lastExitAt = _now();
     _visible.value = _depth > 0;
   }
 
