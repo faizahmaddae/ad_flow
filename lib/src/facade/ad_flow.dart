@@ -215,10 +215,21 @@ class AdFlow {
 
   void _dispatchPaid(AdPaidEvent event) => onPaidEvent?.call(event);
 
+  /// Bounds [AdSdk.initialize] the same way [UmpConsentGateway] bounds its
+  /// own network-bound step. RESEARCH.md documents the native SDK's own
+  /// init call as completing "on init or a 30s timeout," but that is the
+  /// native SDK's promise, not ours — on a device/emulator with a stuck
+  /// Play Services Dynamite-module bootstrap it can fail to call back at
+  /// all, well past 30s. Without this, [_start] (and therefore every
+  /// caller's `FutureBuilder`-gated UI, as the example app does) would
+  /// hang forever.
+  static const _initTimeout = Duration(seconds: 30);
+
   Future<void> _start(ConsentDebugOptions? debug) async {
     await Future.wait([
-      // Init failures must not brick the app; loads will retry anyway.
-      _sdk.initialize().catchError((Object _) {}),
+      // Init failures — including a native init call that never returns —
+      // must not brick the app; loads will retry anyway.
+      _sdk.initialize().timeout(_initTimeout).catchError((Object _) {}),
       _consent.ensureCanRequestAds(debug: debug),
       // Sends no ad request (pure config), so it must NOT be gated on
       // consent: if the gate is still closed here and only resolves

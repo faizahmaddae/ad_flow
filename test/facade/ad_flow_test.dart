@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:ad_flow/ad_flow.dart';
 import 'package:ad_flow/ad_flow_testing.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -106,6 +109,36 @@ void main() {
         expect(sdk.requestConfigs, hasLength(1));
         expect(sdk.requestConfigs.single.testDeviceIds, ['dev-1']);
         ads.dispose();
+      },
+    );
+
+    test(
+      'a native SDK that never calls initialize() back does not wedge '
+      'AdFlow.initialize() forever (reproduced on a real device: GMS Ads '
+      'Dynamite-module bootstrap can hang indefinitely, well past the '
+      "native SDK's own documented ~30s timeout)",
+      () {
+        fakeAsync((async) {
+          sdk.initializeHold = Completer<void>();
+          sdk.consentStatus = AdConsentStatus.notRequired;
+          sdk.canRequestAdsResult = true;
+
+          AdFlow? ads;
+          unawaited(
+            AdFlow.initialize(
+              fullConfig,
+              sdk: sdk,
+              store: InMemoryKeyValueStore(),
+              platform: AdPlatform.android,
+              rewardedIntroPresenter: (_) async => true,
+            ).then((flow) => ads = flow),
+          );
+
+          async.elapse(const Duration(seconds: 31));
+
+          expect(ads, isNotNull);
+          ads!.dispose();
+        });
       },
     );
 

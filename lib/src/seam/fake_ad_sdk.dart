@@ -90,6 +90,10 @@ class FakeAdSdk implements AdSdk {
   /// incomplete to keep a load in flight (e.g. to dispose mid-load).
   Completer<void>? loadHold;
 
+  /// If set, [initialize] awaits this before completing — leave it
+  /// incomplete to simulate a native SDK init call that never calls back.
+  Completer<void>? initializeHold;
+
   /// If set, [requestConsentInfoUpdate] throws this.
   AdFlowError? consentUpdateError;
 
@@ -178,6 +182,8 @@ class FakeAdSdk implements AdSdk {
   @override
   Future<void> initialize() async {
     initializeCalls++;
+    final hold = initializeHold;
+    if (hold != null) await hold.future;
   }
 
   @override
