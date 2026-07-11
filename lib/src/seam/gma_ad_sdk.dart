@@ -134,6 +134,12 @@ class GmaAdSdk implements AdSdk {
             unawaited(_finishBannerLoad(handle, spec, completer)),
         onAdFailedToLoad: (ad, e) {
           unawaited(ad.dispose());
+          // handle's two StreamControllers are constructed eagerly, before
+          // ad.load() even runs, so a failed load must still close them —
+          // otherwise they're simply dropped unclosed once this function
+          // returns (nit flagged alongside review finding #2's audit).
+          unawaited(handle._events.close());
+          unawaited(handle._paid.close());
           completer.completeError(loadErrorFrom(e));
         },
         onAdOpened: (_) => handle._events.add(ViewAdEvent.opened),
@@ -257,6 +263,9 @@ class GmaAdSdk implements AdSdk {
         onAdLoaded: (_) => completer.complete(handle),
         onAdFailedToLoad: (ad, e) {
           unawaited(ad.dispose());
+          // See the identical comment in loadBanner's onAdFailedToLoad.
+          unawaited(handle._events.close());
+          unawaited(handle._paid.close());
           completer.completeError(loadErrorFrom(e));
         },
         onAdOpened: (_) => handle._events.add(ViewAdEvent.opened),
