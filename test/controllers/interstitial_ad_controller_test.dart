@@ -1,4 +1,5 @@
 import 'package:ad_flow/src/config/ad_flow_config.dart';
+import 'package:ad_flow/src/controllers/app_open_ad_controller.dart';
 import 'package:ad_flow/src/controllers/interstitial_ad_controller.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/core/ad_load_state.dart';
@@ -286,5 +287,61 @@ void main() {
         c.dispose();
       },
     );
+  });
+
+  group('show() rejection (review finding #1 — blocker)', () {
+    test('a rejected handle.show() does not wedge the coordinator or leave '
+        'the controller stuck — recovers for the next show()', () async {
+      final c = controller();
+      await c.load();
+      final first = sdk.interstitials.single;
+      first.showRejectsWith = Exception('ad already released');
+
+      // Must not throw uncaught, must not return true, must roll back.
+      final shown = await c.show();
+      expect(shown, isFalse);
+      expect(coordinator.isFullScreenAdVisible, isFalse);
+
+      // The controller must reload and be usable again — a single
+      // rejected show() must not wedge the rest of the session.
+      await Future<void>.delayed(Duration.zero);
+      expect(sdk.interstitials, hasLength(2));
+      expect(c.isReady, isTrue);
+      expect(await c.show(), isTrue);
+
+      c.dispose();
+    });
+
+    test('a rejected show() releases the coordinator for OTHER full-screen '
+        'controllers sharing it', () async {
+      final c = controller();
+      final appOpen = AppOpenAdController(
+        sdk: sdk,
+        gate: AdGate(
+          canRequestAds: () async => consented && sdk.canRequestAdsResult,
+          isEnabled: () => true,
+          caps: caps,
+          coordinator: coordinator,
+        ),
+        caps: caps,
+        coordinator: coordinator,
+        config: const AppOpenConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-ao'),
+          cap: FrequencyCap(),
+        ),
+        adUnitId: 'unit-ao',
+      );
+      await c.load();
+      await appOpen.load();
+      sdk.interstitials.single.showRejectsWith = Exception('rejected');
+
+      await c.show();
+      // Before the fix, the coordinator stays claimed forever, so every
+      // OTHER full-screen controller is wedged too.
+      expect(await appOpen.show(), isTrue);
+
+      c.dispose();
+      appOpen.dispose();
+    });
   });
 }

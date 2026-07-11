@@ -191,7 +191,26 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         onReward(reward);
       };
     }
-    await handle.show(onUserEarnedReward: onRewardOnce);
+    try {
+      await handle.show(onUserEarnedReward: onRewardOnce);
+    } catch (e) {
+      // The documented AdSdk.show contract says failures arrive via
+      // AdFailedToShowEvent, never a rejected Future — but a real
+      // implementation can still violate that (ad released between load
+      // and show, channel error, mediation failure). Without this guard
+      // the coordinator claim and AdShowing state above are never rolled
+      // back, wedging every full-screen format for the rest of the
+      // session (review finding #1).
+      _exitCoordinator();
+      _dropHandle();
+      if (!_disposed) {
+        _state.value = AdFailed(
+          AdFlowError(AdFlowErrorKind.showFailed, '$e'),
+        );
+        unawaited(load());
+      }
+      return false;
+    }
     onShown();
     return true;
   }
