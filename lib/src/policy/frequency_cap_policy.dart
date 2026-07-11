@@ -69,8 +69,7 @@ class StoredFrequencyCapPolicy implements FrequencyCapPolicy {
 
   Future<bool> _allows(String slot, FrequencyCap cap) async {
     final maxPerSession = cap.maxPerSession;
-    if (maxPerSession != null &&
-        (_sessionCounts[slot] ?? 0) >= maxPerSession) {
+    if (maxPerSession != null && (_sessionCounts[slot] ?? 0) >= maxPerSession) {
       return false;
     }
 

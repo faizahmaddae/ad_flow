@@ -70,33 +70,37 @@ void main() {
       c.dispose();
     });
 
-    test('show without a loaded ad returns false and warms a preload',
-        () async {
-      final c = controller();
-      expect(await c.show(), isFalse);
-      await Future<void>.delayed(Duration.zero); // let the preload land
-      expect(sdk.interstitials, hasLength(1)); // preload kicked off
-      c.dispose();
-    });
+    test(
+      'show without a loaded ad returns false and warms a preload',
+      () async {
+        final c = controller();
+        expect(await c.show(), isFalse);
+        await Future<void>.delayed(Duration.zero); // let the preload land
+        expect(sdk.interstitials, hasLength(1)); // preload kicked off
+        c.dispose();
+      },
+    );
   });
 
   group('show', () {
-    test('shows a warm ad, enters the coordinator, records the impression',
-        () async {
-      final c = controller();
-      await c.load();
-      expect(c.isReady, isTrue);
+    test(
+      'shows a warm ad, enters the coordinator, records the impression',
+      () async {
+        final c = controller();
+        await c.load();
+        expect(c.isReady, isTrue);
 
-      final shown = await c.show();
-      await Future<void>.delayed(Duration.zero); // let recordImpression land
+        final shown = await c.show();
+        await Future<void>.delayed(Duration.zero); // let recordImpression land
 
-      expect(shown, isTrue);
-      expect(c.state.value, const AdShowing());
-      expect(sdk.interstitials.single.showCalls, 1);
-      expect(coordinator.isFullScreenAdVisible, isTrue);
-      expect(await caps.canShow('interstitial'), isFalse); // minGap running
-      c.dispose();
-    });
+        expect(shown, isTrue);
+        expect(c.state.value, const AdShowing());
+        expect(sdk.interstitials.single.showCalls, 1);
+        expect(coordinator.isFullScreenAdVisible, isTrue);
+        expect(await caps.canShow('interstitial'), isFalse); // minGap running
+        c.dispose();
+      },
+    );
 
     test('never double-shows while an ad is on screen', () async {
       final c = controller();
@@ -118,8 +122,7 @@ void main() {
       c.dispose();
     });
 
-    test('frequency cap blocks the next show until the gap elapses',
-        () async {
+    test('frequency cap blocks the next show until the gap elapses', () async {
       final c = controller();
       await c.load();
       await c.show();
@@ -268,18 +271,20 @@ void main() {
       c.dispose();
     });
 
-    test('two concurrent show() calls invoke the SDK show() exactly once',
-        () async {
-      final c = controller();
-      await c.load();
+    test(
+      'two concurrent show() calls invoke the SDK show() exactly once',
+      () async {
+        final c = controller();
+        await c.load();
 
-      final f1 = c.show();
-      final f2 = c.show();
-      final results = await Future.wait([f1, f2]);
+        final f1 = c.show();
+        final f2 = c.show();
+        final results = await Future.wait([f1, f2]);
 
-      expect(results.where((r) => r).length, 1); // exactly one succeeded
-      expect(sdk.interstitials.single.showCalls, 1);
-      c.dispose();
-    });
+        expect(results.where((r) => r).length, 1); // exactly one succeeded
+        expect(sdk.interstitials.single.showCalls, 1);
+        c.dispose();
+      },
+    );
   });
 }

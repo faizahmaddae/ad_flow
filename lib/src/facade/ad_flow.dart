@@ -35,12 +35,14 @@ class AdFlow {
     required AdFlowConfig config,
     required AdSdk sdk,
     required ConsentGateway consentGateway,
+    required bool ownsConsent,
     required AdPlatform platform,
     required KeyValueStore store,
     RewardedIntroPresenter? rewardedIntroPresenter,
   }) : _config = config,
        _sdk = sdk,
        _consent = consentGateway,
+       _ownsConsent = ownsConsent,
        _platform = platform,
        _coordinator = FullScreenAdCoordinator(),
        _retry = RetryPolicy(config.retry) {
@@ -162,6 +164,9 @@ class AdFlow {
             resolvedSdk,
             tagForUnderAgeOfConsent: config.tagForUnderAgeOfConsent,
           ),
+      // Only dispose a consent gateway this facade created itself — an
+      // injected one may be shared/reused by the caller beyond dispose().
+      ownsConsent: consent == null,
       platform: platform ?? currentAdPlatform(),
       store: store ?? SharedPrefsKeyValueStore(),
       rewardedIntroPresenter: rewardedIntroPresenter,
@@ -187,6 +192,7 @@ class AdFlow {
   final AdFlowConfig _config;
   final AdSdk _sdk;
   final ConsentGateway _consent;
+  final bool _ownsConsent;
   final AdPlatform _platform;
   final FullScreenAdCoordinator _coordinator;
   final RetryPolicy _retry;
@@ -282,9 +288,7 @@ class AdFlow {
         'AdFlowConfig.banner.',
       );
     }
-    final adUnitId = (_config.testMode
-            ? TestAdUnitIds.banner
-            : config.adUnitId)
+    final adUnitId = (_config.testMode ? TestAdUnitIds.banner : config.adUnitId)
         .resolve(_platform);
     if (adUnitId == null) {
       throw AdFlowError(
@@ -314,9 +318,7 @@ class AdFlow {
         'AdFlowConfig.nativeAd.',
       );
     }
-    final adUnitId = (_config.testMode
-            ? TestAdUnitIds.native
-            : config.adUnitId)
+    final adUnitId = (_config.testMode ? TestAdUnitIds.native : config.adUnitId)
         .resolve(_platform);
     if (adUnitId == null) {
       throw AdFlowError(
@@ -349,6 +351,7 @@ class AdFlow {
     _appOpenController?.dispose();
     _coordinator.dispose();
     _adsEnabled.dispose();
+    if (_ownsConsent) _consent.dispose();
     if (identical(_instance, this)) _instance = null;
   }
 }

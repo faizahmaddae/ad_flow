@@ -69,8 +69,7 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
                   ? constraints.maxWidth
                   : null,
               height:
-                  widget.placeholderHeight ??
-                  widget.controller.reservedHeight,
+                  widget.placeholderHeight ?? widget.controller.reservedHeight,
             );
           },
         );

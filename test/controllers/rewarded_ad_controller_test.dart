@@ -12,11 +12,13 @@ void main() {
   late FakeAdSdk sdk;
   late FullScreenAdCoordinator coordinator;
   late StoredFrequencyCapPolicy caps;
+  late bool consented;
 
   setUp(() {
     sdk = FakeAdSdk();
     sdk.enforceConsentGate = true;
     sdk.canRequestAdsResult = true;
+    consented = true;
     coordinator = FullScreenAdCoordinator();
     caps = StoredFrequencyCapPolicy(
       store: InMemoryKeyValueStore(),
@@ -33,7 +35,7 @@ void main() {
       RewardedAdController(
         sdk: sdk,
         gate: AdGate(
-          canRequestAds: sdk.canRequestAds,
+          canRequestAds: () async => consented && sdk.canRequestAdsResult,
           isEnabled: () => true,
           caps: caps,
           coordinator: coordinator,
@@ -45,6 +47,15 @@ void main() {
             const RewardedConfig(adUnitId: PlatformAdUnitId(android: 'unit-r')),
         adUnitId: 'unit-r',
       );
+
+  test('no load while consent is closed (invariant 1)', () async {
+    consented = false;
+    sdk.canRequestAdsResult = false;
+    final c = controller();
+    await c.load();
+    expect(sdk.loadLog, isEmpty); // enforceConsentGate would throw if hit
+    c.dispose();
+  });
 
   test('loads through the rewarded seam path', () async {
     final c = controller();
@@ -67,8 +78,7 @@ void main() {
     c.dispose();
   });
 
-  test('reward callback fires exactly once even if the SDK misfires',
-      () async {
+  test('reward callback fires exactly once even if the SDK misfires', () async {
     final c = controller();
     await c.load();
 

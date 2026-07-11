@@ -36,14 +36,13 @@ void main() {
     });
 
     test('collapsible placement is merged into extras', () {
-      expect(
-        mergeCollapsibleExtras(null, CollapsiblePlacement.bottom),
-        {'collapsible': 'bottom'},
-      );
-      expect(
-        mergeCollapsibleExtras({'a': 'b'}, CollapsiblePlacement.top),
-        {'a': 'b', 'collapsible': 'top'},
-      );
+      expect(mergeCollapsibleExtras(null, CollapsiblePlacement.bottom), {
+        'collapsible': 'bottom',
+      });
+      expect(mergeCollapsibleExtras({'a': 'b'}, CollapsiblePlacement.top), {
+        'a': 'b',
+        'collapsible': 'top',
+      });
     });
   });
 
@@ -160,9 +159,7 @@ void main() {
         PrivacyOptionsRequirement.required,
       );
       expect(
-        privacyRequirementFrom(
-          gma.PrivacyOptionsRequirementStatus.notRequired,
-        ),
+        privacyRequirementFrom(gma.PrivacyOptionsRequirementStatus.notRequired),
         PrivacyOptionsRequirement.notRequired,
       );
     });

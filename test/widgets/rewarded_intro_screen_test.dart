@@ -31,9 +31,7 @@ void main() {
     return result;
   }
 
-  testWidgets('renders the reward disclosure and both choices', (
-    tester,
-  ) async {
+  testWidgets('renders the reward disclosure and both choices', (tester) async {
     await pumpAndOpen(tester);
     expect(find.text('Get 50 coins'), findsOneWidget);
     expect(find.text('Watch a short ad to earn 50 coins.'), findsOneWidget);

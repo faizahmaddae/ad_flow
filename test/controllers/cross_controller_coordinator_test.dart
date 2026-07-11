@@ -16,69 +16,72 @@ import 'package:flutter_test/flutter_test.dart';
 /// navigation event at the same moment the app-open manager reacts to a
 /// foreground event).
 void main() {
-  test('two independent controllers racing for show() — only one wins',
-      () async {
-    final sdk = FakeAdSdk()
-      ..enforceConsentGate = true
-      ..canRequestAdsResult = true;
-    final coordinator = FullScreenAdCoordinator();
-    final caps = StoredFrequencyCapPolicy(
-      store: InMemoryKeyValueStore(),
-      slotCaps: const {},
-      globalCap: const FrequencyCap(),
-    );
-    final gate = AdGate(
-      canRequestAds: sdk.canRequestAds,
-      isEnabled: () => true,
-      caps: caps,
-      coordinator: coordinator,
-    );
+  test(
+    'two independent controllers racing for show() — only one wins',
+    () async {
+      final sdk = FakeAdSdk()
+        ..enforceConsentGate = true
+        ..canRequestAdsResult = true;
+      final coordinator = FullScreenAdCoordinator();
+      final caps = StoredFrequencyCapPolicy(
+        store: InMemoryKeyValueStore(),
+        slotCaps: const {},
+        globalCap: const FrequencyCap(),
+      );
+      final gate = AdGate(
+        canRequestAds: sdk.canRequestAds,
+        isEnabled: () => true,
+        caps: caps,
+        coordinator: coordinator,
+      );
 
-    final interstitial = InterstitialAdController(
-      sdk: sdk,
-      gate: gate,
-      caps: caps,
-      coordinator: coordinator,
-      config: const InterstitialConfig(
-        adUnitId: PlatformAdUnitId(android: 'unit-i'),
-        cap: FrequencyCap(),
-      ),
-      adUnitId: 'unit-i',
-    );
-    final appOpen = AppOpenAdController(
-      sdk: sdk,
-      gate: gate,
-      caps: caps,
-      coordinator: coordinator,
-      config: const AppOpenConfig(
-        adUnitId: PlatformAdUnitId(android: 'unit-ao'),
-        cap: FrequencyCap(),
-      ),
-      adUnitId: 'unit-ao',
-    );
-    await interstitial.load();
-    await appOpen.load();
+      final interstitial = InterstitialAdController(
+        sdk: sdk,
+        gate: gate,
+        caps: caps,
+        coordinator: coordinator,
+        config: const InterstitialConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-i'),
+          cap: FrequencyCap(),
+        ),
+        adUnitId: 'unit-i',
+      );
+      final appOpen = AppOpenAdController(
+        sdk: sdk,
+        gate: gate,
+        caps: caps,
+        coordinator: coordinator,
+        config: const AppOpenConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-ao'),
+          cap: FrequencyCap(),
+        ),
+        adUnitId: 'unit-ao',
+      );
+      await interstitial.load();
+      await appOpen.load();
 
-    // Same-turn shows, e.g. a navigation-triggered interstitial and a
-    // foreground-triggered app-open ad firing at once.
-    final f1 = interstitial.show();
-    final f2 = appOpen.show();
-    final results = await Future.wait([f1, f2]);
+      // Same-turn shows, e.g. a navigation-triggered interstitial and a
+      // foreground-triggered app-open ad firing at once.
+      final f1 = interstitial.show();
+      final f2 = appOpen.show();
+      final results = await Future.wait([f1, f2]);
 
-    expect(results.where((r) => r).length, 1); // exactly one shown
-    final showingCount = [interstitial.state.value, appOpen.state.value]
-        .whereType<AdShowing>()
-        .length;
-    expect(showingCount, 1); // never both AdShowing at once
-    expect(
-      sdk.interstitials.single.showCalls + sdk.appOpens.single.showCalls,
-      1,
-    );
-    expect(coordinator.isFullScreenAdVisible, isTrue);
+      expect(results.where((r) => r).length, 1); // exactly one shown
+      final showingCount = [
+        interstitial.state.value,
+        appOpen.state.value,
+      ].whereType<AdShowing>().length;
+      expect(showingCount, 1); // never both AdShowing at once
+      expect(
+        sdk.interstitials.single.showCalls + sdk.appOpens.single.showCalls,
+        1,
+      );
+      expect(coordinator.isFullScreenAdVisible, isTrue);
 
-    interstitial.dispose();
-    appOpen.dispose();
-    coordinator.dispose();
-    await sdk.dispose();
-  });
+      interstitial.dispose();
+      appOpen.dispose();
+      coordinator.dispose();
+      await sdk.dispose();
+    },
+  );
 }

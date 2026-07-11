@@ -26,7 +26,10 @@ void main() {
       await store.setHistory('h', source);
       source.add(3);
       expect(await store.getHistory('h'), [1, 2]);
-      expect(() async => (await store.getHistory('h')).add(9), throwsA(anything));
+      expect(
+        () async => (await store.getHistory('h')).add(9),
+        throwsA(anything),
+      );
     });
   });
 

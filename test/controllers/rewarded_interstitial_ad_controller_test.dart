@@ -16,11 +16,13 @@ void main() {
   late StoredFrequencyCapPolicy caps;
   late List<RewardIntroContent> introsShown;
   late bool introAnswer;
+  late bool consented;
 
   setUp(() {
     sdk = FakeAdSdk();
     sdk.enforceConsentGate = true;
     sdk.canRequestAdsResult = true;
+    consented = true;
     coordinator = FullScreenAdCoordinator();
     caps = StoredFrequencyCapPolicy(
       store: InMemoryKeyValueStore(),
@@ -39,7 +41,7 @@ void main() {
       RewardedInterstitialAdController(
         sdk: sdk,
         gate: AdGate(
-          canRequestAds: sdk.canRequestAds,
+          canRequestAds: () async => consented && sdk.canRequestAdsResult,
           isEnabled: () => true,
           caps: caps,
           coordinator: coordinator,
@@ -57,6 +59,16 @@ void main() {
           return introAnswer;
         },
       );
+
+  test('no load while consent is closed (invariant 1)', () async {
+    consented = false;
+    sdk.canRequestAdsResult = false;
+    final c = controller();
+    await c.load();
+    expect(sdk.loadLog, isEmpty); // enforceConsentGate would throw if hit
+    expect(introsShown, isEmpty); // never reaches the intro without an ad
+    c.dispose();
+  });
 
   test('the intro always precedes the ad (policy, ADR-013)', () async {
     final c = controller();
@@ -130,6 +142,40 @@ void main() {
     expect(introsShown, hasLength(1));
     expect(sdk.rewardedInterstitials.single.showCalls, 1);
     c.dispose();
+  });
+
+  test('dispose while the intro is on screen never shows the ad once the '
+      'intro later resolves', () async {
+    final introGate = Completer<bool>();
+    final c = RewardedInterstitialAdController(
+      sdk: sdk,
+      gate: AdGate(
+        canRequestAds: sdk.canRequestAds,
+        isEnabled: () => true,
+        caps: caps,
+        coordinator: coordinator,
+      ),
+      caps: caps,
+      coordinator: coordinator,
+      config: const RewardedInterstitialConfig(
+        adUnitId: PlatformAdUnitId(android: 'unit-ri'),
+      ),
+      adUnitId: 'unit-ri',
+      showIntro: (content) {
+        introsShown.add(content);
+        return introGate.future;
+      },
+    );
+    await c.load();
+    final handle = sdk.rewardedInterstitials.single;
+
+    final shown = c.show(onReward: (_) {});
+    await Future<void>.delayed(Duration.zero); // intro is now "on screen"
+    c.dispose(); // e.g. the hosting screen was popped mid-intro
+    introGate.complete(true); // user taps "watch" after the screen is gone
+
+    expect(await shown, isFalse);
+    expect(handle.showCalls, 0);
   });
 
   test('forwards SSV options to the seam', () async {

@@ -92,9 +92,7 @@ class GmaAdSdk implements AdSdk {
                   await ad.setServerSideOptions(toGmaSsvOptions(ssv));
                 } catch (_) {}
               }
-              completer.complete(
-                _GmaRewardedInterstitialHandle(adUnitId, ad),
-              );
+              completer.complete(_GmaRewardedInterstitialHandle(adUnitId, ad));
             }()),
             onAdFailedToLoad: (e) => completer.completeError(loadErrorFrom(e)),
           ),
@@ -132,9 +130,8 @@ class GmaAdSdk implements AdSdk {
         extras: mergeCollapsibleExtras(spec.request.extras, spec.collapsible),
       ),
       listener: gma.BannerAdListener(
-        onAdLoaded: (_) => unawaited(
-          _finishBannerLoad(handle, spec, completer),
-        ),
+        onAdLoaded: (_) =>
+            unawaited(_finishBannerLoad(handle, spec, completer)),
         onAdFailedToLoad: (ad, e) {
           unawaited(ad.dispose());
           completer.completeError(loadErrorFrom(e));
@@ -201,7 +198,8 @@ class GmaAdSdk implements AdSdk {
       case AnchoredAdaptiveSizeSpec(:final width, :final orientation):
         final gma.AdSize? size = orientation == null
             ? await gma.AdSize.getLargeAnchoredAdaptiveBannerAdSize(width)
-            : await gma.AdSize.getLargeAnchoredAdaptiveBannerAdSizeWithOrientation(
+            : await gma
+                  .AdSize.getLargeAnchoredAdaptiveBannerAdSizeWithOrientation(
                 toGmaOrientation(orientation),
                 width,
               );
@@ -222,8 +220,9 @@ class GmaAdSdk implements AdSdk {
           return gma.AdSize.getInlineAdaptiveBannerAdSize(width, maxHeight);
         }
         return switch (orientation) {
-          null =>
-            gma.AdSize.getCurrentOrientationInlineAdaptiveBannerAdSize(width),
+          null => gma.AdSize.getCurrentOrientationInlineAdaptiveBannerAdSize(
+            width,
+          ),
           AdOrientation.portrait =>
             gma.AdSize.getPortraitInlineAdaptiveBannerAdSize(width),
           AdOrientation.landscape =>
@@ -341,11 +340,10 @@ class GmaAdSdk implements AdSdk {
       gma.ConsentInformation.instance.isConsentFormAvailable();
 
   @override
-  Future<PrivacyOptionsRequirement> getPrivacyOptionsRequirementStatus() async =>
-      privacyRequirementFrom(
-        await gma.ConsentInformation.instance
-            .getPrivacyOptionsRequirementStatus(),
-      );
+  Future<PrivacyOptionsRequirement>
+  getPrivacyOptionsRequirementStatus() async => privacyRequirementFrom(
+    await gma.ConsentInformation.instance.getPrivacyOptionsRequirementStatus(),
+  );
 
   @override
   Future<void> loadAndShowConsentFormIfRequired() {
@@ -410,9 +408,7 @@ gma.RequestConfiguration toGmaRequestConfiguration(AdRequestConfig config) {
     maxAdContentRating: config.maxAdContentRating == null
         ? null
         : toGmaMaxContentRating(config.maxAdContentRating!),
-    tagForChildDirectedTreatment: toGmaTag(
-      config.tagForChildDirectedTreatment,
-    ),
+    tagForChildDirectedTreatment: toGmaTag(config.tagForChildDirectedTreatment),
     tagForUnderAgeOfConsent: toGmaTag(config.tagForUnderAgeOfConsent),
   );
 }
@@ -472,13 +468,12 @@ AdRevenuePrecision revenuePrecisionFrom(gma.PrecisionType precision) =>
     };
 
 /// Maps the plugin's consent status to the seam's.
-AdConsentStatus consentStatusFrom(gma.ConsentStatus status) =>
-    switch (status) {
-      gma.ConsentStatus.unknown => AdConsentStatus.unknown,
-      gma.ConsentStatus.required => AdConsentStatus.required,
-      gma.ConsentStatus.notRequired => AdConsentStatus.notRequired,
-      gma.ConsentStatus.obtained => AdConsentStatus.obtained,
-    };
+AdConsentStatus consentStatusFrom(gma.ConsentStatus status) => switch (status) {
+  gma.ConsentStatus.unknown => AdConsentStatus.unknown,
+  gma.ConsentStatus.required => AdConsentStatus.required,
+  gma.ConsentStatus.notRequired => AdConsentStatus.notRequired,
+  gma.ConsentStatus.obtained => AdConsentStatus.obtained,
+};
 
 /// Maps the plugin's privacy-options requirement to the seam's.
 PrivacyOptionsRequirement privacyRequirementFrom(
@@ -520,26 +515,22 @@ AdFlowError showErrorFrom(gma.AdError error) => AdFlowError(
 );
 
 /// Builds a typed consent error from a UMP form error.
-AdFlowError consentErrorFrom(gma.FormError error) => AdFlowError(
-  AdFlowErrorKind.consent,
-  error.message,
-  code: error.errorCode,
-);
+AdFlowError consentErrorFrom(gma.FormError error) =>
+    AdFlowError(AdFlowErrorKind.consent, error.message, code: error.errorCode);
 
 // ── Handles ───────────────────────────────────────────────────────────────
 
 /// Shared full-screen handle plumbing over a `gma.AdWithoutView` subtype.
 abstract class _GmaFullScreenHandle<T extends gma.AdWithoutView> {
   _GmaFullScreenHandle(this.adUnitId, this._ad) {
-    _ad.onPaidEvent = (ad, valueMicros, precision, currencyCode) =>
-        _paid.add(
-          AdPaidEvent(
-            adUnitId: adUnitId,
-            valueMicros: valueMicros,
-            currencyCode: currencyCode,
-            precision: revenuePrecisionFrom(precision),
-          ),
-        );
+    _ad.onPaidEvent = (ad, valueMicros, precision, currencyCode) => _paid.add(
+      AdPaidEvent(
+        adUnitId: adUnitId,
+        valueMicros: valueMicros,
+        currencyCode: currencyCode,
+        precision: revenuePrecisionFrom(precision),
+      ),
+    );
   }
 
   final String adUnitId;

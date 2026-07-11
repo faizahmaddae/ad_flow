@@ -43,8 +43,8 @@ class SharedPrefsKeyValueStore implements KeyValueStore {
   }
 
   @override
-  Future<void> setHistory(String key, List<int> values) => _prefs
-      .setStringList(_k(key), [for (final value in values) '$value']);
+  Future<void> setHistory(String key, List<int> values) =>
+      _prefs.setStringList(_k(key), [for (final value in values) '$value']);
 }
 
 /// In-memory [KeyValueStore] for tests (and consumers' tests).

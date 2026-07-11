@@ -27,16 +27,21 @@ class PrivacyOptionsButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!consent.isPrivacyOptionsRequired) return const SizedBox.shrink();
-    return TextButton(
-      onPressed: () async {
-        try {
-          await consent.showPrivacyOptions();
-        } catch (e) {
-          onError?.call(e);
-        }
+    return ValueListenableBuilder(
+      valueListenable: consent.privacyOptionsRequired,
+      builder: (context, required, _) {
+        if (!required) return const SizedBox.shrink();
+        return TextButton(
+          onPressed: () async {
+            try {
+              await consent.showPrivacyOptions();
+            } catch (e) {
+              onError?.call(e);
+            }
+          },
+          child: Text(label),
+        );
       },
-      child: Text(label),
     );
   }
 }

@@ -60,9 +60,7 @@ void main() {
 
     test('minGap longer than the pruned history window still works', () async {
       final caps = policy(
-        slotCaps: {
-          'app_open': const FrequencyCap(minGap: Duration(hours: 4)),
-        },
+        slotCaps: {'app_open': const FrequencyCap(minGap: Duration(hours: 4))},
       );
       await caps.recordImpression('app_open');
       advance(const Duration(hours: 2)); // history pruned by now
@@ -87,24 +85,26 @@ void main() {
       expect(await caps.canShow('interstitial'), isTrue);
     });
 
-    test('minGap survives a restart (new policy over the same store)',
-        () async {
-      final first = policy(
-        slotCaps: {
-          'interstitial': const FrequencyCap(minGap: Duration(minutes: 5)),
-        },
-      );
-      await first.recordImpression('interstitial');
+    test(
+      'minGap survives a restart (new policy over the same store)',
+      () async {
+        final first = policy(
+          slotCaps: {
+            'interstitial': const FrequencyCap(minGap: Duration(minutes: 5)),
+          },
+        );
+        await first.recordImpression('interstitial');
 
-      final second = policy(
-        slotCaps: {
-          'interstitial': const FrequencyCap(minGap: Duration(minutes: 5)),
-        },
-      );
-      expect(await second.canShow('interstitial'), isFalse);
-      advance(const Duration(minutes: 5));
-      expect(await second.canShow('interstitial'), isTrue);
-    });
+        final second = policy(
+          slotCaps: {
+            'interstitial': const FrequencyCap(minGap: Duration(minutes: 5)),
+          },
+        );
+        expect(await second.canShow('interstitial'), isFalse);
+        advance(const Duration(minutes: 5));
+        expect(await second.canShow('interstitial'), isTrue);
+      },
+    );
 
     test('session counts do NOT survive a restart', () async {
       final first = policy(
@@ -121,22 +121,21 @@ void main() {
   });
 
   group('global cross-format cap (ADR-009)', () {
-    test('an interstitial impression blocks an app-open via global minGap',
-        () async {
-      final caps = policy(
-        globalCap: const FrequencyCap(minGap: Duration(seconds: 15)),
-      );
-      await caps.recordImpression('interstitial');
-      expect(await caps.canShow('app_open'), isFalse);
-      advance(const Duration(seconds: 15));
-      expect(await caps.canShow('app_open'), isTrue);
-    });
+    test(
+      'an interstitial impression blocks an app-open via global minGap',
+      () async {
+        final caps = policy(
+          globalCap: const FrequencyCap(minGap: Duration(seconds: 15)),
+        );
+        await caps.recordImpression('interstitial');
+        expect(await caps.canShow('app_open'), isFalse);
+        advance(const Duration(seconds: 15));
+        expect(await caps.canShow('app_open'), isTrue);
+      },
+    );
 
-    test('global maxPerSession counts impressions across all slots',
-        () async {
-      final caps = policy(
-        globalCap: const FrequencyCap(maxPerSession: 2),
-      );
+    test('global maxPerSession counts impressions across all slots', () async {
+      final caps = policy(globalCap: const FrequencyCap(maxPerSession: 2));
       await caps.recordImpression('interstitial');
       await caps.recordImpression('rewarded');
       expect(await caps.canShow('app_open'), isFalse);

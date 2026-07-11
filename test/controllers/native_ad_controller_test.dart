@@ -74,8 +74,7 @@ void main() {
     c.dispose();
   });
 
-  test('factory path passes factoryId and extras through the spec',
-      () async {
+  test('factory path passes factoryId and extras through the spec', () async {
     final c = controller(
       config: const NativeConfig(
         adUnitId: PlatformAdUnitId(android: 'unit-n'),

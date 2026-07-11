@@ -10,8 +10,8 @@ import '../config/ad_flow_config.dart';
 /// again; once it turns false, wait [cooldown], reset the attempt counter,
 /// and auto re-arm.
 class RetryPolicy {
-  /// Creates a policy from [config]. [random] (returning values in [0, 1))
-  /// is injectable for deterministic tests.
+  /// Creates a policy from a [RetryConfig]. [random] (returning values in
+  /// the half-open range 0 to 1) is injectable for deterministic tests.
   RetryPolicy(this._config, {double Function()? random})
     : _random = random ?? math.Random().nextDouble;
 

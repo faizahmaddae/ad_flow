@@ -1,7 +1,7 @@
 # PROGRESS — ad_flow v2
 
 ## Current phase
-**Phase 14 — Final verification** (Phases 2–13 complete).
+**Phase 14 — Final verification** — ✅ DONE. All phases (2–14) complete.
 
 ## Done
 - Phase 1 — Planning artifacts (committed `4e4132e`).
@@ -70,15 +70,30 @@
   - **Fixed all four**, root-caused as "synchronous check, asynchronous write" races — see ADR-024 for the exact mechanism and why the coordinator fix specifically required a new synchronous `FullScreenAdCoordinator.tryEnter()` (moving `coordinator.enter()` earlier inside `show()` was tried first and did NOT close the race — the window is between two *different* controller instances, not within one).
   - Probe/repro files deleted; permanent regression tests added: `full_screen_ad_coordinator_test.dart` (`tryEnter` group), `interstitial_ad_controller_test.dart` (`concurrency safety` group), new `cross_controller_coordinator_test.dart`, `banner_ad_controller_test.dart` (`gate-blocked recovery` group).
   - 194 tests green, analyze clean, example still builds (Android debug + Next-Gen flag).
+- Phase 14 continued — sequential manual invariant self-review (1, 2, 5, 6, 8, 9) ✅ (this commit, ADR-025)
+  - Done as a focused, SEQUENTIAL review (no parallel subagents — that's what hit the spend limit last time): state invariant → cite enforcing code → check every path (including the ADR-024 "check → await → act" race pattern, seam bypasses, static state, hardcoded ids) → write a failing repro first for any hole → fix → green; add/confirm a regression test either way.
+  - **Invariant 1** (consent gates every load): solid. Gap: no per-format "no load while closed" test for rewarded/rewarded-interstitial/app-open (only interstitial covered the shared mechanism) — added to all three test files.
+  - **Invariant 2** (privacy options entry point): **REAL BUG, fixed.** `PrivacyOptionsButton` read a plain `bool` getter once at build time — a widget mounted before the first `ensureCanRequestAds()` resolved (or across a later re-check) never rebuilt when the requirement later became true, permanently hiding the required control. `ConsentGateway` gained `ValueListenable<bool> get privacyOptionsRequired` + `dispose()`; `PrivacyOptionsButton` now uses `ValueListenableBuilder`; `AdFlow` tracks `_ownsConsent` and only disposes a self-created gateway, never an injected one.
+  - **Invariant 5** (rewarded interstitial intro+skip): solid — structurally enforced by Dart's per-file `_handle` privacy (the base's private field is unreachable from the subclass's file, so `super.show()` — which the override always gates behind the intro — is the ONLY path to a real show). Added a missing dispose-mid-intro test (already safe).
+  - **Invariant 6** (no hardcoded prod ids): solid, confirmed by grep across `lib/` and `example/`; testMode-with-platform-gap already covered.
+  - **Invariant 8** (seam is the only plugin door): solid (exactly one importing file). Now has a permanent executable guard: `test/architecture/seam_boundary_test.dart` (verified it actually catches a violation).
+  - **Invariant 9** (no global mutable state): solid (`AdFlow._instance` is the only mutable static, correctly the sanctioned ADR-004 pointer). Now has `test/architecture/no_global_state_test.dart` (verified it catches a violation too).
+  - **seam-api dimension closed**: re-verified remaining `GmaAdSdk` mappings against pub-cache (AppOpenAd genuinely has no SSV support unlike Rewarded/RewardedInterstitial; NativeAd.customOptions type; AdWidget/FullScreenContentCallback generics; rewarded `show()`'s required callback always satisfied). No new bugs.
+  - **test-gaps dimension closed**: added tests for `AdFlow.dispose()` idempotency, `_ownsConsent` disposal semantics (self-created gateway provably disposed, injected one provably survives), and banner-in-unbounded-width (confirmed already-correct behavior: no load attempted, no crash).
+  - 205 tests green, analyze clean, example still builds.
+- Phase 14 closed out — publish readiness ✅ (this commit, ADR-025 continued)
+  - `dart pub publish --dry-run`: clean except the expected "CHANGELOG doesn't mention 2.0.0-dev.1" note (intentional — resolves when actually bumping to `2.0.0` at publish time).
+  - `pana`: started at 140/160 (pubspec description over 180 chars losing 10/10 on "valid pubspec.yaml"; `dart format` flagging 8 files losing 10/50 on static analysis). Trimmed the description to fit, ran `dart format .` (27 files reformatted, whitespace/wrapping only — no logic changes), fixed 2 dartdoc unresolved-reference warnings (`[sdk]`/`[config]` referred to private constructor param names `_sdk`/`_config`, not the doc'd names — reworded to avoid the mismatch). **Final score: 160/160.**
+  - No further code changes; this was polish only, not a correctness pass — the correctness work is entirely in the invariant self-review above (ADR-025).
 
 ## In progress
-- Mid-Phase-14. **The very next concrete step:** finish final verification — `dart pub publish --dry-run` (note: pubspec still says `2.0.0-dev.1`; bump to `2.0.0` only when actually publishing), pana if available, and a full self-review of every ARCHITECTURE invariant + RESEARCH §6 policy item against the code/tests (the concurrency pass above covered invariants 3/4/7 specifically; invariants 1/2/5/6/8/9 have NOT had a fresh adversarial pass — the failed review's `invariants` dimension never completed). Given the background review already found 3 real bugs the original test suite missed, a proper (foreground, not spend-limited) adversarial pass over the remaining invariants before calling this phase done is strongly recommended.
+- Nothing. **ad_flow v2 is feature-complete and verified.** If resuming, there is no "next slice" — start from a fresh initiative (a v2.1 feature, a bug report, or the maintainer's next ask) rather than continuing this plan.
 
 ## Next (ordered)
-1. Finish Phase 14 — re-run (or manually redo) the invariants/concurrency-lifecycle/policy-revenue/seam-api/test-gaps review dimensions that the spend-limited run didn't complete or couldn't verify; fix anything confirmed; then publish-dry-run + pana + final sign-off.
+- None outstanding from PLAN.md. Optional future work (not blocking, not started): a real-device/CI smoke test of `GmaAdSdk`'s platform-channel paths (documented as an accepted gap since Phase 2 — pure mappers are tested, the channel calls are not); an `AdFlowBanner` DX improvement for the unbounded-width case (currently correct but silent — Phase-14 self-review confirmed no crash, just a permanent placeholder with no error surfaced).
 
 ## How to verify the current state
-`flutter analyze && flutter test` (root: 194 tests) · `cd example && flutter analyze && flutter build apk --debug`
+`flutter analyze && flutter test` (root: 205 tests) · `cd example && flutter analyze && flutter build apk --debug` · `dart pub publish --dry-run` · `pana` (160/160)
 
 ## Open questions / assumptions
 - ADR-P2 (shared_preferences behind KeyValueStore) — dependency already kept in pubspec; confirm at Phase 5. ADR-P3 (public re-export list; whether `FakeAdSdk` ships for consumers' tests) — Phase 11.

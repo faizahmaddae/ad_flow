@@ -119,27 +119,29 @@ void main() {
       c.dispose();
     });
 
-    test('fixed kind loads without a width and passes the right spec',
-        () async {
-      final c = controller(
-        config: const BannerConfig(
-          adUnitId: PlatformAdUnitId(android: 'unit-b'),
-          kind: BannerKind.fixed,
-          fixedSize: FixedBannerSize.mediumRectangle,
-        ),
-      );
-      await c.load();
-      expect(c.state.value, const AdLoaded());
-      expect(
-        sdk.bannerSpecs.single.size,
-        isA<FixedSizeSpec>().having(
-          (s) => s.size,
-          'size',
-          FixedBannerSize.mediumRectangle,
-        ),
-      );
-      c.dispose();
-    });
+    test(
+      'fixed kind loads without a width and passes the right spec',
+      () async {
+        final c = controller(
+          config: const BannerConfig(
+            adUnitId: PlatformAdUnitId(android: 'unit-b'),
+            kind: BannerKind.fixed,
+            fixedSize: FixedBannerSize.mediumRectangle,
+          ),
+        );
+        await c.load();
+        expect(c.state.value, const AdLoaded());
+        expect(
+          sdk.bannerSpecs.single.size,
+          isA<FixedSizeSpec>().having(
+            (s) => s.size,
+            'size',
+            FixedBannerSize.mediumRectangle,
+          ),
+        );
+        c.dispose();
+      },
+    );
 
     test('collapsible placement flows into the load spec', () async {
       final c = controller(
@@ -202,8 +204,7 @@ void main() {
       });
     });
 
-    test('after the budget, a cooldown auto re-arms the load (v1 fix #8)',
-        () {
+    test('after the budget, a cooldown auto re-arms the load (v1 fix #8)', () {
       fakeAsync((async) {
         sdk.alwaysLoadError = const AdFlowError(
           AdFlowErrorKind.loadFailed,

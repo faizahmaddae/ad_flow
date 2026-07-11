@@ -283,8 +283,8 @@ class FakeAdSdk implements AdSdk {
   Future<bool> isConsentFormAvailable() async => consentFormAvailable;
 
   @override
-  Future<PrivacyOptionsRequirement> getPrivacyOptionsRequirementStatus() async =>
-      privacyOptionsRequirement;
+  Future<PrivacyOptionsRequirement>
+  getPrivacyOptionsRequirementStatus() async => privacyOptionsRequirement;
 
   @override
   Future<void> loadAndShowConsentFormIfRequired() async {

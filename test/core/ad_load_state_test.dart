@@ -65,9 +65,7 @@ void main() {
 
       expect(describe(const AdIdle()), 'idle');
       expect(
-        describe(
-          const AdFailed(AdFlowError(AdFlowErrorKind.loadFailed, 'x')),
-        ),
+        describe(const AdFailed(AdFlowError(AdFlowErrorKind.loadFailed, 'x'))),
         'failed:loadFailed',
       );
     });

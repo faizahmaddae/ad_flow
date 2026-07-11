@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 import '../core/ad_flow_error.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
@@ -22,6 +24,15 @@ abstract interface class ConsentGateway {
   /// (GDPR: EEA + UK + Switzerland). Valid after [ensureCanRequestAds].
   bool get isPrivacyOptionsRequired;
 
+  /// Reactive view of [isPrivacyOptionsRequired].
+  ///
+  /// A widget rendered before the first [ensureCanRequestAds] resolves (or
+  /// live across a later re-check) must still end up showing the entry
+  /// point once the requirement becomes true — a plain bool getter read
+  /// once at build time cannot do that (invariant 2). Subscribe to this
+  /// instead of polling [isPrivacyOptionsRequired].
+  ValueListenable<bool> get privacyOptionsRequired;
+
   /// Shows the privacy-options form. Throws an [AdFlowError] (kind
   /// `consent`) if the form fails.
   Future<void> showPrivacyOptions();
@@ -35,11 +46,14 @@ abstract interface class ConsentGateway {
 
   /// Resets UMP consent state. Testing only — never call in production.
   Future<void> reset();
+
+  /// Releases the [privacyOptionsRequired] notifier.
+  void dispose();
 }
 
 /// The production [ConsentGateway]: orchestrates the seam's UMP primitives.
 class UmpConsentGateway implements ConsentGateway {
-  /// Creates a gateway over [sdk].
+  /// Creates a gateway over the given [AdSdk].
   ///
   /// [tagForUnderAgeOfConsent] is forwarded to every consent info update.
   /// [infoUpdateTimeout] bounds the network-bound info-update step only —
@@ -57,11 +71,14 @@ class UmpConsentGateway implements ConsentGateway {
   final Duration _infoUpdateTimeout;
 
   Future<bool>? _inFlight;
-  bool _privacyOptionsRequired = false;
+  final ValueNotifier<bool> _privacyOptionsRequired = ValueNotifier(false);
   AdFlowError? _lastError;
 
   @override
-  bool get isPrivacyOptionsRequired => _privacyOptionsRequired;
+  bool get isPrivacyOptionsRequired => _privacyOptionsRequired.value;
+
+  @override
+  ValueListenable<bool> get privacyOptionsRequired => _privacyOptionsRequired;
 
   @override
   AdFlowError? get lastError => _lastError;
@@ -108,7 +125,8 @@ class UmpConsentGateway implements ConsentGateway {
   Future<void> _refreshPrivacyRequirement() async {
     try {
       final status = await _sdk.getPrivacyOptionsRequirementStatus();
-      _privacyOptionsRequired = status == PrivacyOptionsRequirement.required;
+      _privacyOptionsRequired.value =
+          status == PrivacyOptionsRequirement.required;
     } on AdFlowError {
       // Keep the previous value; requirement status is best-effort.
     }
@@ -122,4 +140,7 @@ class UmpConsentGateway implements ConsentGateway {
 
   @override
   Future<void> reset() => _sdk.resetConsent();
+
+  @override
+  void dispose() => _privacyOptionsRequired.dispose();
 }

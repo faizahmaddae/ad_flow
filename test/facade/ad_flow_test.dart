@@ -94,32 +94,34 @@ void main() {
       ads.dispose();
     });
 
-    test('unconfigured slots build no controllers and throw on access',
-        () async {
-      final ads = await boot(
-        config: const AdFlowConfig(
-          interstitial: InterstitialConfig(
-            adUnitId: PlatformAdUnitId(android: 'i-a'),
-            cap: FrequencyCap(),
+    test(
+      'unconfigured slots build no controllers and throw on access',
+      () async {
+        final ads = await boot(
+          config: const AdFlowConfig(
+            interstitial: InterstitialConfig(
+              adUnitId: PlatformAdUnitId(android: 'i-a'),
+              cap: FrequencyCap(),
+            ),
           ),
-        ),
-      );
-      await Future<void>.delayed(Duration.zero);
+        );
+        await Future<void>.delayed(Duration.zero);
 
-      expect(sdk.loadLog, ['interstitial:i-a']);
-      expect(
-        () => ads.rewarded,
-        throwsA(
-          isA<AdFlowError>().having(
-            (e) => e.kind,
-            'kind',
-            AdFlowErrorKind.invalidConfig,
+        expect(sdk.loadLog, ['interstitial:i-a']);
+        expect(
+          () => ads.rewarded,
+          throwsA(
+            isA<AdFlowError>().having(
+              (e) => e.kind,
+              'kind',
+              AdFlowErrorKind.invalidConfig,
+            ),
           ),
-        ),
-      );
-      expect(() => ads.appOpen, throwsA(isA<AdFlowError>()));
-      ads.dispose();
-    });
+        );
+        expect(() => ads.appOpen, throwsA(isA<AdFlowError>()));
+        ads.dispose();
+      },
+    );
 
     test('rewardedInterstitial without a presenter fails fast', () async {
       sdk.canRequestAdsResult = true;
@@ -138,12 +140,60 @@ void main() {
       );
     });
 
-    test('instance points at the latest initialize and clears on dispose',
-        () async {
+    test(
+      'instance points at the latest initialize and clears on dispose',
+      () async {
+        final ads = await boot();
+        expect(AdFlow.instance, same(ads));
+        ads.dispose();
+        expect(() => AdFlow.instance, throwsStateError);
+      },
+    );
+
+    test('dispose is idempotent — calling it twice does not throw', () async {
       final ads = await boot();
-      expect(AdFlow.instance, same(ads));
       ads.dispose();
-      expect(() => AdFlow.instance, throwsStateError);
+      expect(ads.dispose, returnsNormally);
+    });
+
+    test('dispose() releases a self-created ConsentGateway but leaves an '
+        'injected one usable', () async {
+      // Self-created (no `consent:` injected): AdFlow owns it, so dispose()
+      // must release its internal ValueNotifier. ensureCanRequestAds()
+      // writes to it internally, so calling it post-dispose surfaces the
+      // "used after dispose" failure (a plain .value read would not — a
+      // ValueNotifier only throws on write after dispose, not on read).
+      final owned = await boot();
+      final ownedConsent = owned.consent;
+      owned.dispose();
+      // ValueNotifier's setter no-ops when the new value equals the
+      // current one (no notifyListeners() call, so no disposed-check
+      // fires) — flip the underlying flag so the refresh actually writes
+      // a changed value and exercises the real "used after dispose" path.
+      sdk.privacyOptionsRequirement = PrivacyOptionsRequirement.required;
+      await expectLater(ownedConsent.ensureCanRequestAds(), throwsFlutterError);
+
+      // Injected: the caller supplied it and may keep using it after this
+      // particular AdFlow is gone (e.g. sharing one gateway across a
+      // re-initialize) — AdFlow must not dispose it out from under them.
+      final injectedSdk = FakeAdSdk()..canRequestAdsResult = true;
+      final injectedConsent = UmpConsentGateway(injectedSdk);
+      addTearDown(() {
+        injectedConsent.dispose();
+        injectedSdk.dispose();
+      });
+      final injected = await AdFlow.initialize(
+        const AdFlowConfig(),
+        sdk: injectedSdk,
+        consent: injectedConsent,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+      );
+      injected.dispose();
+      await expectLater(
+        injectedConsent.ensureCanRequestAds(),
+        completion(isTrue),
+      );
     });
   });
 
@@ -223,8 +273,7 @@ void main() {
     });
   });
 
-  test('global frequency cap spans formats through the facade graph',
-      () async {
+  test('global frequency cap spans formats through the facade graph', () async {
     final ads = await AdFlow.initialize(
       const AdFlowConfig(
         interstitial: InterstitialConfig(

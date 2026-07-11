@@ -94,8 +94,9 @@ void main() {
 
   group('FakeFullScreenAdHandle', () {
     test('show emits AdShowedEvent and records the reward callback', () async {
-      final handle = await sdk.loadRewarded('r', const AdRequestOptions())
-          as FakeFullScreenAdHandle;
+      final handle =
+          await sdk.loadRewarded('r', const AdRequestOptions())
+              as FakeFullScreenAdHandle;
       final events = <FullScreenAdEvent>[];
       handle.contentEvents.listen(events.add);
 
@@ -106,15 +107,13 @@ void main() {
 
       expect(handle.showCalls, 1);
       expect(earned, const RewardEarned(amount: 5, type: 'coins'));
-      expect(events, [
-        isA<AdShowedEvent>(),
-        isA<AdDismissedEvent>(),
-      ]);
+      expect(events, [isA<AdShowedEvent>(), isA<AdDismissedEvent>()]);
     });
 
     test('showError surfaces as AdFailedToShowEvent, not a throw', () async {
-      final handle = await sdk.loadInterstitial('i', const AdRequestOptions())
-          as FakeFullScreenAdHandle;
+      final handle =
+          await sdk.loadInterstitial('i', const AdRequestOptions())
+              as FakeFullScreenAdHandle;
       const error = AdFlowError(AdFlowErrorKind.showFailed, 'not ready');
       handle.showError = error;
 
@@ -127,8 +126,9 @@ void main() {
     });
 
     test('paid events are delivered', () async {
-      final handle = await sdk.loadInterstitial('i', const AdRequestOptions())
-          as FakeFullScreenAdHandle;
+      final handle =
+          await sdk.loadInterstitial('i', const AdRequestOptions())
+              as FakeFullScreenAdHandle;
       const paid = AdPaidEvent(
         adUnitId: 'i',
         valueMicros: 12345,
@@ -142,8 +142,9 @@ void main() {
     });
 
     test('dispose marks the handle and closes its streams', () async {
-      final handle = await sdk.loadAppOpen('ao', const AdRequestOptions())
-          as FakeFullScreenAdHandle;
+      final handle =
+          await sdk.loadAppOpen('ao', const AdRequestOptions())
+              as FakeFullScreenAdHandle;
       await handle.dispose();
       expect(handle.disposed, isTrue);
       await expectLater(handle.contentEvents, emitsDone);
@@ -178,10 +179,7 @@ void main() {
     });
 
     test('NativeLoadSpec requires exactly one of template or factory', () {
-      expect(
-        () => NativeLoadSpec(adUnitId: 'n'),
-        throwsAssertionError,
-      );
+      expect(() => NativeLoadSpec(adUnitId: 'n'), throwsAssertionError);
       expect(
         () => NativeLoadSpec(
           adUnitId: 'n',

@@ -1,6 +1,7 @@
 import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/controllers/banner_ad_controller.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
+import 'package:ad_flow/src/core/ad_load_state.dart';
 import 'package:ad_flow/src/policy/ad_gate.dart';
 import 'package:ad_flow/src/policy/frequency_cap_policy.dart';
 import 'package:ad_flow/src/policy/full_screen_ad_coordinator.dart';
@@ -111,7 +112,11 @@ void main() {
 
     await tester.pumpWidget(
       host(
-        AdFlowBanner(controller: c, ownsController: true, placeholderHeight: 90),
+        AdFlowBanner(
+          controller: c,
+          ownsController: true,
+          placeholderHeight: 90,
+        ),
       ),
     );
     expect(tester.getSize(find.byType(AdFlowBanner)).height, 90);
@@ -149,5 +154,29 @@ void main() {
 
     c.dispose();
     expect(handle.disposed, isTrue);
+  });
+
+  testWidgets('unbounded width (e.g. inside a horizontally-scrolling row) '
+      'never loads and stays a placeholder — no crash, no bad ad size', (
+    tester,
+  ) async {
+    final c = controller();
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: AdFlowBanner(controller: c, ownsController: true),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(seconds: 1));
+
+    // An adaptive banner cannot be sized without a real width — correct
+    // behavior is to never call load(), not to guess or crash.
+    expect(sdk.banners, isEmpty);
+    expect(c.state.value, isA<AdIdle>());
+
+    await tester.pumpWidget(host(const SizedBox()));
   });
 }

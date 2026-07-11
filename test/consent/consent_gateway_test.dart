@@ -14,7 +14,10 @@ void main() {
     sdk = FakeAdSdk();
     gateway = UmpConsentGateway(sdk);
   });
-  tearDown(() => sdk.dispose());
+  tearDown(() {
+    gateway.dispose();
+    sdk.dispose();
+  });
 
   group('ensureCanRequestAds', () {
     test('non-EEA: update runs, form no-ops, gate opens', () async {
@@ -52,19 +55,21 @@ void main() {
       expect(await gateway.ensureCanRequestAds(), isFalse);
     });
 
-    test('update error degrades to canRequestAds (previously obtained)',
-        () async {
-      const error = AdFlowError(AdFlowErrorKind.consent, 'network down');
-      sdk.consentUpdateError = error;
-      sdk.canRequestAdsResult = true; // consent obtained on a prior launch
+    test(
+      'update error degrades to canRequestAds (previously obtained)',
+      () async {
+        const error = AdFlowError(AdFlowErrorKind.consent, 'network down');
+        sdk.consentUpdateError = error;
+        sdk.canRequestAdsResult = true; // consent obtained on a prior launch
 
-      final canRequest = await gateway.ensureCanRequestAds();
+        final canRequest = await gateway.ensureCanRequestAds();
 
-      expect(canRequest, isTrue);
-      expect(gateway.lastError, same(error));
-      // Form step must be skipped after a failed update.
-      expect(sdk.loadAndShowConsentFormCalls, 0);
-    });
+        expect(canRequest, isTrue);
+        expect(gateway.lastError, same(error));
+        // Form step must be skipped after a failed update.
+        expect(sdk.loadAndShowConsentFormCalls, 0);
+      },
+    );
 
     test('update error with no prior consent yields false', () async {
       sdk.consentUpdateError = const AdFlowError(
@@ -77,15 +82,17 @@ void main() {
       expect(gateway.lastError, isNotNull);
     });
 
-    test('form error degrades to canRequestAds and surfaces lastError',
-        () async {
-      const error = AdFlowError(AdFlowErrorKind.consent, 'form failed');
-      sdk.consentFormError = error;
-      sdk.canRequestAdsResult = false;
+    test(
+      'form error degrades to canRequestAds and surfaces lastError',
+      () async {
+        const error = AdFlowError(AdFlowErrorKind.consent, 'form failed');
+        sdk.consentFormError = error;
+        sdk.canRequestAdsResult = false;
 
-      expect(await gateway.ensureCanRequestAds(), isFalse);
-      expect(gateway.lastError, same(error));
-    });
+        expect(await gateway.ensureCanRequestAds(), isFalse);
+        expect(gateway.lastError, same(error));
+      },
+    );
 
     test('lastError clears on a subsequent successful run', () async {
       sdk.consentUpdateError = const AdFlowError(
@@ -116,20 +123,22 @@ void main() {
       expect(sdk.loadAndShowConsentFormCalls, 0);
     });
 
-    test('concurrent calls join the in-flight run (double-load guard)',
-        () async {
-      sdk.consentUpdateHold = Completer<void>();
-      sdk.canRequestAdsResult = true;
+    test(
+      'concurrent calls join the in-flight run (double-load guard)',
+      () async {
+        sdk.consentUpdateHold = Completer<void>();
+        sdk.canRequestAdsResult = true;
 
-      final first = gateway.ensureCanRequestAds();
-      final second = gateway.ensureCanRequestAds();
-      sdk.consentUpdateHold!.complete();
+        final first = gateway.ensureCanRequestAds();
+        final second = gateway.ensureCanRequestAds();
+        sdk.consentUpdateHold!.complete();
 
-      expect(await first, isTrue);
-      expect(await second, isTrue);
-      expect(sdk.consentUpdateCalls, hasLength(1));
-      expect(sdk.loadAndShowConsentFormCalls, 1);
-    });
+        expect(await first, isTrue);
+        expect(await second, isTrue);
+        expect(sdk.consentUpdateCalls, hasLength(1));
+        expect(sdk.loadAndShowConsentFormCalls, 1);
+      },
+    );
 
     test('a later call after completion runs the flow again', () async {
       sdk.canRequestAdsResult = true;

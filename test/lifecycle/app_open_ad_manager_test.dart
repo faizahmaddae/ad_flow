@@ -14,11 +14,13 @@ void main() {
   late FullScreenAdCoordinator coordinator;
   late StoredFrequencyCapPolicy caps;
   late DateTime now;
+  late bool consented;
 
   setUp(() {
     sdk = FakeAdSdk();
     sdk.enforceConsentGate = true;
     sdk.canRequestAdsResult = true;
+    consented = true;
     coordinator = FullScreenAdCoordinator();
     now = DateTime(2026, 7, 11, 12);
     caps = StoredFrequencyCapPolicy(
@@ -37,7 +39,7 @@ void main() {
       AppOpenAdController(
         sdk: sdk,
         gate: AdGate(
-          canRequestAds: sdk.canRequestAds,
+          canRequestAds: () async => consented && sdk.canRequestAdsResult,
           isEnabled: () => true,
           caps: caps,
           coordinator: coordinator,
@@ -54,21 +56,28 @@ void main() {
         now: () => now,
       );
 
-  AppOpenAdManager manager(
-    AppOpenAdController c, {
-    AppOpenConfig? config,
-  }) => AppOpenAdManager(
-    controller: c,
-    sdk: sdk,
-    config:
-        config ??
-        const AppOpenConfig(
-          adUnitId: PlatformAdUnitId(android: 'unit-ao'),
-          cap: FrequencyCap(),
-        ),
-  );
+  AppOpenAdManager manager(AppOpenAdController c, {AppOpenConfig? config}) =>
+      AppOpenAdManager(
+        controller: c,
+        sdk: sdk,
+        config:
+            config ??
+            const AppOpenConfig(
+              adUnitId: PlatformAdUnitId(android: 'unit-ao'),
+              cap: FrequencyCap(),
+            ),
+      );
 
   Future<void> settle() => Future<void>.delayed(Duration.zero);
+
+  test('no load while consent is closed (invariant 1)', () async {
+    consented = false;
+    sdk.canRequestAdsResult = false;
+    final c = controller();
+    await c.load();
+    expect(sdk.loadLog, isEmpty); // enforceConsentGate would throw if hit
+    c.dispose();
+  });
 
   group('controller expiry (4h rule)', () {
     test('a fresh ad shows; a stale ad is discarded and reloaded', () async {
@@ -101,45 +110,49 @@ void main() {
   });
 
   group('manager lifecycle', () {
-    test('start warms a preload and never shows on the cold-start event',
-        () async {
-      final c = controller();
-      final m = manager(c);
-      m.start();
-      await settle();
-      expect(sdk.appOpens, hasLength(1)); // preload only
+    test(
+      'start warms a preload and never shows on the cold-start event',
+      () async {
+        final c = controller();
+        final m = manager(c);
+        m.start();
+        await settle();
+        expect(sdk.appOpens, hasLength(1)); // preload only
 
-      sdk.emitAppForeground(); // cold start: platform emits on app start too
-      await settle();
-      expect(sdk.appOpens.single.showCalls, 0);
+        sdk.emitAppForeground(); // cold start: platform emits on app start too
+        await settle();
+        expect(sdk.appOpens.single.showCalls, 0);
 
-      sdk.emitAppForeground(); // warm return
-      await settle();
-      expect(sdk.appOpens.single.showCalls, 1);
+        sdk.emitAppForeground(); // warm return
+        await settle();
+        expect(sdk.appOpens.single.showCalls, 1);
 
-      m.dispose();
-      c.dispose();
-    });
+        m.dispose();
+        c.dispose();
+      },
+    );
 
-    test('showOnColdStart lets the first event show (splash-gate mode)',
-        () async {
-      const config = AppOpenConfig(
-        adUnitId: PlatformAdUnitId(android: 'unit-ao'),
-        cap: FrequencyCap(),
-        showOnColdStart: true,
-      );
-      final c = controller(config: config);
-      final m = manager(c, config: config);
-      m.start();
-      await settle();
+    test(
+      'showOnColdStart lets the first event show (splash-gate mode)',
+      () async {
+        const config = AppOpenConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-ao'),
+          cap: FrequencyCap(),
+          showOnColdStart: true,
+        );
+        final c = controller(config: config);
+        final m = manager(c, config: config);
+        m.start();
+        await settle();
 
-      sdk.emitAppForeground();
-      await settle();
-      expect(sdk.appOpens.single.showCalls, 1);
+        sdk.emitAppForeground();
+        await settle();
+        expect(sdk.appOpens.single.showCalls, 1);
 
-      m.dispose();
-      c.dispose();
-    });
+        m.dispose();
+        c.dispose();
+      },
+    );
 
     test('suppressed while another full-screen ad is visible', () async {
       final c = controller();

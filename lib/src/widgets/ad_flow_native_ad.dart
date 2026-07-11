@@ -49,8 +49,7 @@ class _AdFlowNativeAdState extends State<AdFlowNativeAd> {
 
   @override
   Widget build(BuildContext context) {
-    final height =
-        widget.placeholderHeight ?? widget.controller.reservedHeight;
+    final height = widget.placeholderHeight ?? widget.controller.reservedHeight;
     return ValueListenableBuilder(
       valueListenable: widget.controller.state,
       builder: (context, state, _) {

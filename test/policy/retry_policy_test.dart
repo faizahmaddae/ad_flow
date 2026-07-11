@@ -78,18 +78,14 @@ void main() {
     });
 
     test('successive real-random delays vary (lockstep guard)', () {
-      final policy = RetryPolicy(
-        const RetryConfig(jitterFactor: 0.25),
-      );
+      final policy = RetryPolicy(const RetryConfig(jitterFactor: 0.25));
       final delays = {for (var i = 0; i < 8; i++) policy.nextDelay(1)};
       expect(delays.length, greaterThan(1));
     });
   });
 
   test('cooldown passes through from config', () {
-    final policy = noJitter(
-      const RetryConfig(cooldown: Duration(minutes: 7)),
-    );
+    final policy = noJitter(const RetryConfig(cooldown: Duration(minutes: 7)));
     expect(policy.cooldown, const Duration(minutes: 7));
   });
 }

@@ -21,9 +21,7 @@ class PlatformAdUnitId {
 
   @override
   bool operator ==(Object other) =>
-      other is PlatformAdUnitId &&
-      other.android == android &&
-      other.ios == ios;
+      other is PlatformAdUnitId && other.android == android && other.ios == ios;
 
   @override
   int get hashCode => Object.hash(android, ios);

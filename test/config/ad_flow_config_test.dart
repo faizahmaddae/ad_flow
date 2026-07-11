@@ -86,10 +86,7 @@ void main() {
         config.bannerAdUnitId(AdPlatform.android),
         TestAdUnitIds.banner.android,
       );
-      expect(
-        config.bannerAdUnitId(AdPlatform.ios),
-        TestAdUnitIds.banner.ios,
-      );
+      expect(config.bannerAdUnitId(AdPlatform.ios), TestAdUnitIds.banner.ios);
     });
 
     test('testMode does NOT enable unconfigured slots (v1 regression)', () {

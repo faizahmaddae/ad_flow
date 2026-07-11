@@ -21,23 +21,24 @@ class ExampleApp extends StatefulWidget {
 class _ExampleAppState extends State<ExampleApp> {
   // Initialize WITHOUT blocking the first frame: runApp draws immediately,
   // the consent flow (and any UMP form) runs behind this Future.
-  late final Future<AdFlow> _ads = AdFlow.initialize(
-    // Google sample ads everywhere. Replace with your production config:
-    //   AdFlowConfig(banner: BannerConfig(adUnitId: PlatformAdUnitId(...)))
-    AdFlowConfig.test(),
-    rewardedIntroPresenter: (content) async {
-      final context = navigatorKey.currentContext;
-      if (context == null || !context.mounted) return false;
-      return RewardedIntroScreen.show(context, content);
-    },
-  ).then((ads) {
-    ads.onPaidEvent = (event) => debugPrint(
-      '[ad_flow] paid: ${event.adUnitId} '
-      '${event.valueMicros / 1e6} ${event.currencyCode} '
-      '(${event.precision.name})',
-    );
-    return ads;
-  });
+  late final Future<AdFlow> _ads =
+      AdFlow.initialize(
+        // Google sample ads everywhere. Replace with your production config:
+        //   AdFlowConfig(banner: BannerConfig(adUnitId: PlatformAdUnitId(...)))
+        AdFlowConfig.test(),
+        rewardedIntroPresenter: (content) async {
+          final context = navigatorKey.currentContext;
+          if (context == null || !context.mounted) return false;
+          return RewardedIntroScreen.show(context, content);
+        },
+      ).then((ads) {
+        ads.onPaidEvent = (event) => debugPrint(
+          '[ad_flow] paid: ${event.adUnitId} '
+          '${event.valueMicros / 1e6} ${event.currencyCode} '
+          '(${event.precision.name})',
+        );
+        return ads;
+      });
 
   @override
   Widget build(BuildContext context) {
