@@ -226,7 +226,7 @@ A convenience singleton accessor (e.g. `AdFlow.instance` set after `initialize`)
 
 ## Key sequences
 
-**Init:** `AdFlow.initialize(config)` → build graph → `consent.ensureCanRequestAds()` **and** (in parallel) `sdk.initialize()` → when gate true, `updateRequestConfiguration` → start `AppOpenAdManager` → preload configured formats. No `load()` before the gate is true.
+**Init:** `AdFlow.initialize(config)` → build graph → `consent.ensureCanRequestAds()`, `sdk.initialize()` **and** `sdk.updateRequestConfiguration(...)` all run in parallel (`updateRequestConfiguration` sends no ad request, so it must NOT be gated on consent — see DECISIONS ADR-026/review finding #5) → start `AppOpenAdManager` → preload configured formats. No `load()` before the gate is true.
 
 **Full-screen load/show:** `controller.load()` (gate.canLoad → sdk.load → state=Loaded, keep warm) … later `controller.show()` (gate.canShow → sdk handle.show → state=Showing → coordinator.enter) → on dismiss (coordinator.exit, caps.recordImpression, dispose, reload next).
 

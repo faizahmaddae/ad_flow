@@ -95,6 +95,21 @@ void main() {
     });
 
     test(
+      'request configuration is applied even when consent is closed at '
+      'init (review finding #5) — it sends no ad request, so gating it '
+      'on consent only means test-device/child-directed/content-rating '
+      'settings never reach the SDK if consent resolves later',
+      () async {
+        final ads = await boot(consentOpens: false);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(sdk.requestConfigs, hasLength(1));
+        expect(sdk.requestConfigs.single.testDeviceIds, ['dev-1']);
+        ads.dispose();
+      },
+    );
+
+    test(
       'unconfigured slots build no controllers and throw on access',
       () async {
         final ads = await boot(

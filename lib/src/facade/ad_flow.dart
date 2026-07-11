@@ -215,15 +215,20 @@ class AdFlow {
   void _dispatchPaid(AdPaidEvent event) => onPaidEvent?.call(event);
 
   Future<void> _start(ConsentDebugOptions? debug) async {
-    late final bool canRequest;
     await Future.wait([
       // Init failures must not brick the app; loads will retry anyway.
       _sdk.initialize().catchError((Object _) {}),
-      _consent.ensureCanRequestAds(debug: debug).then((v) => canRequest = v),
+      _consent.ensureCanRequestAds(debug: debug),
+      // Sends no ad request (pure config), so it must NOT be gated on
+      // consent: if the gate is still closed here and only resolves
+      // later — a delayed privacy-options grant, a first-launch form
+      // that failed — controllers loading ads from that point on would
+      // otherwise never get testDeviceIds/tagForChildDirectedTreatment/
+      // maxAdContentRating/tagForUnderAgeOfConsent applied (review
+      // finding #5: a registered test device would get live ads; a
+      // child-directed app would serve untagged/wrongly-rated ads).
+      _sdk.updateRequestConfiguration(_config.toRequestConfig()),
     ]);
-    if (canRequest) {
-      await _sdk.updateRequestConfiguration(_config.toRequestConfig());
-    }
     // The manager and controllers gate every load themselves, so starting
     // them with a closed gate is safe — they simply stay idle.
     _appOpen?.start();
