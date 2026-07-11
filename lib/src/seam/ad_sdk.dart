@@ -106,17 +106,20 @@ abstract interface class AdSdk {
     AdRequestOptions options,
   );
 
-  /// Loads a rewarded ad.
+  /// Loads a rewarded ad. [ssv] configures server-side reward verification.
   Future<RewardedHandle> loadRewarded(
     String adUnitId,
-    AdRequestOptions options,
-  );
+    AdRequestOptions options, {
+    ServerSideVerification? ssv,
+  });
 
-  /// Loads a rewarded interstitial ad.
+  /// Loads a rewarded interstitial ad. [ssv] configures server-side reward
+  /// verification.
   Future<RewardedInterstitialHandle> loadRewardedInterstitial(
     String adUnitId,
-    AdRequestOptions options,
-  );
+    AdRequestOptions options, {
+    ServerSideVerification? ssv,
+  });
 
   /// Loads an app open ad.
   Future<AppOpenHandle> loadAppOpen(String adUnitId, AdRequestOptions options);

@@ -120,6 +120,19 @@ class AdPaidEvent {
       Object.hash(adUnitId, valueMicros, currencyCode, precision);
 }
 
+/// Server-side verification options for (rewarded) ads with high-value
+/// rewards — echoed back in AdMob's server-to-server reward callback.
+class ServerSideVerification {
+  /// Creates SSV options.
+  const ServerSideVerification({this.userId, this.customData});
+
+  /// The user to credit in the SSV callback.
+  final String? userId;
+
+  /// Opaque data echoed back in the SSV callback.
+  final String? customData;
+}
+
 /// A reward earned from a rewarded or rewarded interstitial ad.
 class RewardEarned {
   /// Creates a reward of [amount] units of [type].

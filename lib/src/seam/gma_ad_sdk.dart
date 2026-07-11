@@ -51,15 +51,23 @@ class GmaAdSdk implements AdSdk {
   @override
   Future<RewardedHandle> loadRewarded(
     String adUnitId,
-    AdRequestOptions options,
-  ) async {
+    AdRequestOptions options, {
+    ServerSideVerification? ssv,
+  }) async {
     final completer = Completer<RewardedHandle>();
     await gma.RewardedAd.load(
       adUnitId: adUnitId,
       request: toGmaAdRequest(options),
       rewardedAdLoadCallback: gma.RewardedAdLoadCallback(
-        onAdLoaded: (ad) =>
-            completer.complete(_GmaRewardedHandle(adUnitId, ad)),
+        onAdLoaded: (ad) => unawaited(() async {
+          // SSV must be attached before show; failures must not lose the ad.
+          if (ssv != null) {
+            try {
+              await ad.setServerSideOptions(toGmaSsvOptions(ssv));
+            } catch (_) {}
+          }
+          completer.complete(_GmaRewardedHandle(adUnitId, ad));
+        }()),
         onAdFailedToLoad: (e) => completer.completeError(loadErrorFrom(e)),
       ),
     );
@@ -69,16 +77,25 @@ class GmaAdSdk implements AdSdk {
   @override
   Future<RewardedInterstitialHandle> loadRewardedInterstitial(
     String adUnitId,
-    AdRequestOptions options,
-  ) async {
+    AdRequestOptions options, {
+    ServerSideVerification? ssv,
+  }) async {
     final completer = Completer<RewardedInterstitialHandle>();
     await gma.RewardedInterstitialAd.load(
       adUnitId: adUnitId,
       request: toGmaAdRequest(options),
       rewardedInterstitialAdLoadCallback:
           gma.RewardedInterstitialAdLoadCallback(
-            onAdLoaded: (ad) =>
-                completer.complete(_GmaRewardedInterstitialHandle(adUnitId, ad)),
+            onAdLoaded: (ad) => unawaited(() async {
+              if (ssv != null) {
+                try {
+                  await ad.setServerSideOptions(toGmaSsvOptions(ssv));
+                } catch (_) {}
+              }
+              completer.complete(
+                _GmaRewardedInterstitialHandle(adUnitId, ad),
+              );
+            }()),
             onAdFailedToLoad: (e) => completer.completeError(loadErrorFrom(e)),
           ),
     );
@@ -430,6 +447,13 @@ Orientation toGmaOrientation(AdOrientation orientation) =>
       AdOrientation.portrait => Orientation.portrait,
       AdOrientation.landscape => Orientation.landscape,
     };
+
+/// Maps seam SSV options to the plugin's.
+gma.ServerSideVerificationOptions toGmaSsvOptions(ServerSideVerification ssv) =>
+    gma.ServerSideVerificationOptions(
+      userId: ssv.userId,
+      customData: ssv.customData,
+    );
 
 /// Maps a template kind to the plugin's.
 gma.TemplateType toGmaTemplateType(NativeTemplateKind kind) => switch (kind) {

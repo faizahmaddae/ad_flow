@@ -110,19 +110,6 @@ class RetryConfig {
       Object.hash(maxAttempts, baseDelay, maxDelay, cooldown, jitterFactor);
 }
 
-/// Server-side verification options for (rewarded) ads with high-value
-/// rewards.
-class ServerSideVerification {
-  /// Creates SSV options.
-  const ServerSideVerification({this.userId, this.customData});
-
-  /// The user to credit in the SSV callback.
-  final String? userId;
-
-  /// Opaque data echoed back in the SSV callback.
-  final String? customData;
-}
-
 /// Copy for the mandatory rewarded-interstitial intro screen
 /// (reward disclosure + skip option — an AdMob policy requirement).
 class RewardIntroContent {

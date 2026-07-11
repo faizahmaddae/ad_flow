@@ -72,6 +72,12 @@ class FakeAdSdk implements AdSdk {
   /// Every [NativeLoadSpec] passed to [loadNative], in order.
   final List<NativeLoadSpec> nativeSpecs = [];
 
+  /// The `ssv` argument of every [loadRewarded] call, in order.
+  final List<ServerSideVerification?> rewardedSsvs = [];
+
+  /// The `ssv` argument of every [loadRewardedInterstitial] call, in order.
+  final List<ServerSideVerification?> rewardedInterstitialSsvs = [];
+
   // ── Behavior knobs ──────────────────────────────────────────────────────
 
   /// If set, the next `load*` call throws this and the knob clears.
@@ -188,18 +194,28 @@ class FakeAdSdk implements AdSdk {
   @override
   Future<RewardedHandle> loadRewarded(
     String adUnitId,
-    AdRequestOptions options,
-  ) async => _loadFullScreen('rewarded', adUnitId, rewardeds);
+    AdRequestOptions options, {
+    ServerSideVerification? ssv,
+  }) async {
+    final handle = await _loadFullScreen('rewarded', adUnitId, rewardeds);
+    rewardedSsvs.add(ssv);
+    return handle;
+  }
 
   @override
   Future<RewardedInterstitialHandle> loadRewardedInterstitial(
     String adUnitId,
-    AdRequestOptions options,
-  ) async => _loadFullScreen(
-    'rewarded_interstitial',
-    adUnitId,
-    rewardedInterstitials,
-  );
+    AdRequestOptions options, {
+    ServerSideVerification? ssv,
+  }) async {
+    final handle = await _loadFullScreen(
+      'rewarded_interstitial',
+      adUnitId,
+      rewardedInterstitials,
+    );
+    rewardedInterstitialSsvs.add(ssv);
+    return handle;
+  }
 
   @override
   Future<AppOpenHandle> loadAppOpen(

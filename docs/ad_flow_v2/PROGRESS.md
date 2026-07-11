@@ -1,7 +1,7 @@
 # PROGRESS — ad_flow v2
 
 ## Current phase
-**Phase 8 — Rewarded + rewarded interstitial** (Phases 2–7 complete).
+**Phase 9 — Native** (Phases 2–8 complete).
 
 ## Done
 - Phase 1 — Planning artifacts (committed `4e4132e`).
@@ -32,19 +32,25 @@
 - Phase 7 — Interstitial ✅ (this commit)
   - `controllers/full_screen_ad_controller_base.dart`: shared engine for ALL full-screen formats — gate-checked load, retry→cooldown→re-arm, show() with double-show guard, coordinator enter on Showed / exit on Dismissed+Failed (tracked via `_enteredCoordinator` so it can't decrement someone else's depth), `recordImpression` on Showed, dispose-handle-and-reload-immediately on dismiss/fail
   - `controllers/interstitial_ad_controller.dart`: thin subclass adding opt-in user-action pacing (ADR-021: dormant until first `recordUserAction()`)
-  - `FakeFullScreenAdHandle.dispose` now defers stream close one microtask (controllers dispose handles from their own dismiss event — sync-close threw "Cannot fire new event")
+  - `FakeFullScreenAdHandle.dispose` now defers stream close one microtask (controllers dispose handles from their own dismiss event — sync-close threw "Cannot fire new event") (`026b790`)
+- Phase 8 — Rewarded + rewarded interstitial ✅ (this commit)
+  - Seam: `ServerSideVerification` moved to seam types; `loadRewarded`/`loadRewardedInterstitial` take `{ssv}`; `GmaAdSdk` attaches it via `ad.setServerSideOptions(...)` (verified pub-cache: lines 1323/1418) BEFORE completing the load; `FakeAdSdk` records `rewardedSsvs`/`rewardedInterstitialSsvs`
+  - Base engine: reward callback wrapped exactly-once (SDK misfire defense)
+  - `controllers/rewarded_ad_controller.dart`: thin subclass, SSV from config
+  - `controllers/rewarded_interstitial_ad_controller.dart`: injected `RewardedIntroPresenter`; intro precedes ad by construction; skip → no ad, stays warm; no intro when no warm ad; re-entrant intro rejected
+  - `widgets/rewarded_intro_screen.dart`: material intro screen + static `show(context, content)` presenter (route-dismiss counts as skip)
 
 ## In progress
-- Nothing mid-slice. **The very next concrete step:** Phase 8 — `controllers/rewarded_ad_controller.dart` (base subclass; SSV note below) + `controllers/rewarded_interstitial_ad_controller.dart` + `widgets/rewarded_intro_screen.dart` (disclosure + skip; the controller shows the ad ONLY if not skipped). Tests: reward callback fires exactly once; intro/skip enforced.
+- Nothing mid-slice. **The very next concrete step:** Phase 9 — `controllers/native_ad_controller.dart` (template + factory paths from `NativeConfig`, retry/re-arm like banner, no refresh loop) + `widgets/ad_flow_native_ad.dart` (placeholder → `handle.buildWidget()`, dispose on unmount). Tests: template render via fake, spec passthrough (templateKind/factoryId/factoryExtras), dispose verified, paid events.
 
 ## Next (ordered)
-1. Phase 8 — Rewarded + rewarded interstitial. **SSV gap:** the seam doesn't carry `ServerSideVerificationOptions` yet — extend `AdSdk.loadRewarded`/`loadRewardedInterstitial` (and `GmaAdSdk`, grep pub-cache for the setter: on the loaded ad object there's `setServerSideOptions`/`serverSideVerificationOptions` — verify!) as part of this phase.
-2. Phase 9 — Native controller + widget.
-3. Phase 10 — App-open + lifecycle; then 11 facade → 12 example → 13 docs → 14 final.
+1. Phase 9 — Native controller + widget.
+2. Phase 10 — App-open controller + `AppOpenAdManager` (4h expiry via injectable clock; cold-start rule; coordinator suppression; `sdk.appForegroundEvents`).
+3. Phase 11 — Facade; then 12 example → 13 docs → 14 final.
 
 ## How to verify the current state
 `flutter analyze && flutter test`
-Expected: analyze clean, **140 tests passing** (…, interstitial controller 12).
+Expected: analyze clean, **154 tests passing** (…, interstitial 12, rewarded 4, rewarded-interstitial 6, intro screen 4).
 
 ## Open questions / assumptions
 - ADR-P2 (shared_preferences behind KeyValueStore) — dependency already kept in pubspec; confirm at Phase 5. ADR-P3 (public re-export list; whether `FakeAdSdk` ships for consumers' tests) — Phase 11.

@@ -133,7 +133,17 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     if (!canShowExtra()) return false;
 
     _state.value = const AdShowing(); // re-entry guard before any await
-    await handle.show(onUserEarnedReward: onReward);
+    OnUserEarnedReward? onRewardOnce;
+    if (onReward != null) {
+      // A reward is granted at most once per ad, even if the SDK misfires.
+      var granted = false;
+      onRewardOnce = (reward) {
+        if (granted) return;
+        granted = true;
+        onReward(reward);
+      };
+    }
+    await handle.show(onUserEarnedReward: onRewardOnce);
     onShown();
     return true;
   }
