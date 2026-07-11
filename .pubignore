@@ -17,3 +17,11 @@ build/
 
 # Test output
 test_output.log
+
+# v1 porting reference — not part of the published package
+legacy/
+
+# Internal planning docs and agent skills
+docs/
+.claude/
+START_HERE_ad_flow_v2.md
