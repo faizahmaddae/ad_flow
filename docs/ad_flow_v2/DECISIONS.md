@@ -1,0 +1,84 @@
+# DECISIONS — ad_flow v2 (ADR log)
+
+Architecture Decision Records. Each entry: **context → decision → rationale → consequences.** Settled decisions are not to be relitigated; if you must change one, add a new superseding ADR that references it. Append a new ADR whenever you make a non-obvious choice.
+
+Status legend: `accepted` (agreed with the maintainer / by design), `proposed` (needs confirmation as you build).
+
+---
+
+## ADR-001 — Ground-up rewrite to v2  ·  accepted
+**Context.** v1.3.18 is feature-rich and heavily tested but architecturally constrained: all-singleton, static global config, hand-rolled observer, a lifecycle bug, and pinned to `google_mobile_ads ^7.0.0` (two majors behind).
+**Decision.** Rewrite from scratch as **v2**, reusing the *battle-tested logic* of v1 (retry timing, the consent-sample flow, test-mode) but not its structure.
+**Rationale.** The problems are structural, not cosmetic; a clean architecture is cheaper than incrementally untangling global state.
+**Consequences.** A new `lib/` tree; v1 code stays available in git history for reference; published as a new major.
+
+## ADR-002 — Clean v2 public API + MIGRATION.md  ·  accepted
+**Context.** The package is used across the maintainer's own apps.
+**Decision.** Design the best API without preserving source-compat with v1; document every breaking change in `MIGRATION.md`.
+**Rationale.** A clean break with a good guide beats contorting the design for backward-compat.
+**Consequences.** Consumer apps update call sites once, guided by `MIGRATION.md`.
+
+## ADR-003 — Target `google_mobile_ads: ^9.0.0`  ·  accepted
+**Context.** v9.0.0 is current (2026-06-09); core ad flow is stable 7→9; only the adaptive-banner methods were renamed.
+**Decision.** Depend on `^9.0.0`; use `getLargeAnchoredAdaptiveBannerAdSize` / `…WithOrientation`. Raise package env to Flutter ≥ 3.38.1 / Dart ≥ 3.10.0.
+**Consequences.** Consumer projects must meet v9's min versions (iOS 13, Android minSdk 24 / compileSdk 36, AGP 8.13.1) and adopt the iOS `UISceneDelegate` lifecycle. Documented in `MIGRATION.md`.
+
+## ADR-004 — Dependency injection over global singletons  ·  accepted
+**Decision.** No static/singleton config; `AdFlowConfig` and collaborators are constructed and injected. A convenience accessor may exist but must be backed by an injectable instance.
+**Rationale.** v1's static global forced elaborate `reset()` test plumbing and made DI impossible. Injection makes every unit independently testable.
+**Consequences.** Tests construct their own graph with fakes; no shared static state to reset between tests.
+
+## ADR-005 — One reactive primitive: ChangeNotifier / ValueListenable  ·  accepted
+**Decision.** Ad state is exposed as `ValueListenable<AdLoadState>`; drop v1's hand-rolled `List<VoidCallback>` observer and its duplicate broadcast stream.
+**Rationale.** Idiomatic, less code, fewer bugs, integrates with `ValueListenableBuilder`.
+**Consequences.** Widgets subscribe via `ValueListenableBuilder`; one notification channel per controller.
+
+## ADR-006 — The SDK seam is the only door to google_mobile_ads  ·  accepted
+**Decision.** All plugin calls go through an `AdSdk` interface (`GmaAdSdk` real, `FakeAdSdk` for tests). Nothing else imports `google_mobile_ads` except the seam and the widgets that must host an `AdWidget`.
+**Rationale.** Makes everything testable without a device, and keeps the legacy↔Next-Gen native swap invisible to our code.
+**Consequences.** A little boilerplate in the seam; huge testability and future-proofing payoff.
+
+## ADR-007 — Foreground detection via AppStateEventNotifier  ·  accepted
+**Context.** v1 treated iOS `inactive` AND `paused` as backgrounding, so app-open ads fired after Control Center / permission dialogs / the app-switcher.
+**Decision.** Use `AppStateEventNotifier.appStateStream` (the official signal) for foreground-return; never hand-roll off `didChangeAppLifecycleState`.
+**Consequences.** Correct warm-start behavior; no false app-open triggers.
+
+## ADR-008 — Exponential backoff + jitter for retries  ·  accepted
+**Decision.** `RetryPolicy` = exponential backoff with jitter, a max attempt count, a cooldown, then **auto re-arm**. Keep v1's cancellable-`Timer` approach (not `Future.delayed`).
+**Rationale.** v1's linear no-jitter backoff made managers retry in lockstep and never re-armed banner/native after cooldown.
+**Consequences.** Fewer thundering-herd retries; loads recover automatically after a cooldown.
+
+## ADR-009 — FrequencyCapPolicy: per-format + global caps  ·  accepted
+**Decision.** Per-format time + count caps AND a global cross-format cap, persisted through an injected key-value store.
+**Rationale.** v1 had only a per-interstitial time cooldown; nothing stopped an interstitial then an app-open back-to-back.
+**Consequences.** Configurable caps in `AdFlowConfig`; a user is never hit by stacked full-screen ads.
+
+## ADR-010 — Next-Gen SDK: opt-in, Android-only, default OFF  ·  accepted
+**Context.** Next-Gen is GA on native Android but experimental in Flutter (a build-time `USE_NEXT_GEN_SDK` flag); the Dart API is unchanged. iOS has no Next-Gen.
+**Decision.** Build the *capability* and document it as an experimental opt-in (`--dart-define=USE_NEXT_GEN_SDK=true`); keep legacy `play-services-ads` the default; add an example build variant that turns it on. Never enable by default; don't depend on legacy-only native internals.
+**Rationale.** The revenue upside (Android) is real, the effort is low (no Dart changes), and keeping it opt-in contains the risk while it's pre-GA.
+**Consequences.** README documents the flag + its Android-only, experimental status; nothing in our Dart code assumes which native SDK is active.
+
+## ADR-011 — Manual preloading (no Flutter preload API)  ·  accepted
+**Context.** The Flutter plugin has no preload API even in 9.0.0.
+**Decision.** "Preload" = load ahead, cache the instance, show later; every full-screen controller reloads the next in `onAdDismissedFullScreenContent` / `onAdFailedToLoad` and keeps one warm.
+**Consequences.** Higher show-rate/fill without a native preload API; respect the 4h app-open expiry.
+
+## ADR-012 — Test ads only in code; production IDs via config  ·  accepted
+**Decision.** The library never hardcodes a production ad-unit ID; consumers supply per-platform IDs via `AdFlowConfig`. A `testMode` uses Google's official sample IDs. Test-mode is derived from an explicit flag/config, NOT from resolved IDs.
+**Rationale.** Prevents accidental invalid-traffic strikes and fixes v1's `isUsingTestAds` false positives.
+
+## ADR-013 — Add rewarded interstitial with mandatory intro/skip  ·  accepted
+**Decision.** Implement the missing rewarded-interstitial format, including a built-in intro/announcement screen helper with a skip option.
+**Rationale.** v1 had a dead test-ID constant but no implementation; the format is policy-gated on the intro screen.
+
+## ADR-014 — Publish as 2.0.0  ·  accepted
+**Decision.** Version the rewrite `2.0.0`; maintain a clear `CHANGELOG.md`; keep the same package name, repo, and pub.dev identity.
+**Consequences.** Same publishing pipeline; consumers opt in via a major bump.
+
+---
+
+## Proposed / to confirm while building
+- **ADR-P1 — Immutability codegen (`freezed`).** v1 had heavy hand-written `copyWith` sentinel boilerplate. *Proposed:* use `freezed`/`json_serializable` for config and state to cut boilerplate. Confirm the added build-runner dependency is acceptable for a library; if not, hand-write immutables. Record the final call here.
+- **ADR-P2 — Persistence dependency for frequency caps.** *Proposed:* keep v1's `shared_preferences` behind an injected `KeyValueStore` interface (so tests use an in-memory fake and consumers could swap it). Confirm on build.
+- **ADR-P3 — Minimum public surface.** *Proposed:* re-export only the `google_mobile_ads` types consumers genuinely need (`AdSize`, `RewardItem`, `LoadAdError`, `AdRequest`, template style types) rather than v1's broad re-export. Finalize the list during Phase 11.
