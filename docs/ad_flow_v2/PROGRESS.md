@@ -85,24 +85,34 @@
   - `dart pub publish --dry-run`: clean except the expected "CHANGELOG doesn't mention 2.0.0-dev.1" note (intentional — resolves when actually bumping to `2.0.0` at publish time).
   - `pana`: started at 140/160 (pubspec description over 180 chars losing 10/10 on "valid pubspec.yaml"; `dart format` flagging 8 files losing 10/50 on static analysis). Trimmed the description to fit, ran `dart format .` (27 files reformatted, whitespace/wrapping only — no logic changes), fixed 2 dartdoc unresolved-reference warnings (`[sdk]`/`[config]` referred to private constructor param names `_sdk`/`_config`, not the doc'd names — reworded to avoid the mismatch). **Final score: 160/160.**
   - No further code changes; this was polish only, not a correctness pass — the correctness work is entirely in the invariant self-review above (ADR-025).
+- Independent code review (Opus, `docs/ad_flow_v2/REVIEW_FINDINGS.md`, commit `3ede24d`) — 1 blocker + 3 majors + 4 minors + 2 test-hardening items + nits, all fixed ✅ (ADR-026)
+  - **#1 BLOCKER**: rejected `handle.show()` had no try/catch → wedged the shared coordinator (and every full-screen format) for the rest of the session. Fixed with try/catch + rollback through the existing `AdFailed`+reload path (`9aa14c4`).
+  - **#2 MAJOR**: `GmaAdSdk._finishBannerLoad` completed its `Completer` on every AdMob auto-refresh, not just the first load → `Bad state: Future already completed` every ~60s. Fixed with an `isCompleted` guard. Started `test/seam/gma_ad_sdk_test.dart` — the first real platform-channel test for `GmaAdSdk` (`ff90681`).
+  - **#3 MAJOR**: stale retry timers stomped a since-recovered `AdLoaded`/`AdShowing` state, leaking a handle + subscription. Fixed in `FullScreenAdControllerBase`/`NativeAdController`/`BannerAdController` (`74d59e7`).
+  - **#4 MAJOR**: `NativeAdController.reload()` reopened the ADR-024 double-load race by resetting to `AdIdle` even mid-flight. Fixed as a no-op while `AdLoading`; same guard added to `discardCurrentAd()` (`c50c0f2`).
+  - **#9/#10**: expanded `gma_ad_sdk_test.dart` to interstitial load/dismiss/load-error/rejected-show + `appForegroundEvents`→`startListening`; hardened `FakeAdSdk` (2nd `show()` → `AdFailedToShowEvent`, impossible orderings throw) (`dddc471`).
+  - **#5**: `updateRequestConfiguration` was gated on consent at init — sends no ad request, so a late-resolving gate meant test-device/COPPA/rating settings never reached the SDK. Now runs unconditionally (`0ceccf3`).
+  - **#6**: `AdGate.canShow` re-embodied the ADR-024 race with no caller. Kept (public API) but doc now warns explicitly + a test proves the race (`2e582c7`).
+  - **#7**: app-open could fire immediately behind another format's dismiss (only an app-configurable, possibly-zero `minGap` prevented it). `FullScreenAdCoordinator` gained `lastExitAt`; `AppOpenAdManager` gained an optional `coordinator` + 1s `postDismissSuppression` (`d0547f1`).
+  - **#8**: adaptive banners reserved a flat 50dp placeholder; Google's real bounds are 50–90dp (verified via web search, appended to RESEARCH.md). `AdFlowBanner` now reserves `(deviceHeight * 0.15).clamp(50, 90)` (`7f8c5a4`).
+  - **#11**: `no_global_state_test`'s regex exempted `static final <UpperType>`, missing the realistic violation shape (`static final ValueNotifier... = ValueNotifier(...)`). Tightened to exempt only `static const` (`6041677`).
+  - **#12**: added `test/architecture/no_hardcoded_ad_ids_test.dart`, mirroring `seam_boundary_test.dart` for invariant 6 (`68565f1`).
+  - **Nits**: banner/native seam handles now close their `StreamController`s on load failure too; `DebugGeography` spellings verified correct; `AdFlowConfig.copyWith` intentionally still absent per ADR-017 (`0d302a4`).
+  - 228 tests green (up from 205 at the end of ADR-025), analyze clean, example still builds. Full mechanism writeup: DECISIONS.md ADR-026.
 
 ## In progress
-- Nothing. **ad_flow v2 is feature-complete and verified.** If resuming, there is no "next slice" — start from a fresh initiative (a v2.1 feature, a bug report, or the maintainer's next ask) rather than continuing this plan.
+- Nothing. **ad_flow v2 is feature-complete and verified through two independent review passes.** If resuming, there is no "next slice" — start from a fresh initiative (a v2.1 feature, a bug report, or the maintainer's next ask).
 
 ## Next (ordered)
-- None outstanding from PLAN.md. Optional future work (not blocking, not started): a real-device/CI smoke test of `GmaAdSdk`'s platform-channel paths (documented as an accepted gap since Phase 2 — pure mappers are tested, the channel calls are not); an `AdFlowBanner` DX improvement for the unbounded-width case (currently correct but silent — Phase-14 self-review confirmed no crash, just a permanent placeholder with no error surfaced).
+- None outstanding from PLAN.md or either review. Optional future work (not blocking, not started): extend `test/seam/gma_ad_sdk_test.dart` to rewarded/rewarded-interstitial/app-open/native (currently interstitial + banner only — the pattern is established, just needs repeating per format); a real-device/CI smoke test as a final belt-and-suspenders layer above the platform-channel mock tests.
 
 ## How to verify the current state
-`flutter analyze && flutter test` (root: 205 tests) · `cd example && flutter analyze && flutter build apk --debug` · `dart pub publish --dry-run` · `pana` (160/160)
+`flutter analyze && flutter test` (root: 228 tests) · `cd example && flutter analyze && flutter build apk --debug` · `dart pub publish --dry-run` · `pana` (160/160 as of the last check — re-run after the ADR-026 changes if publishing)
 
 ## Open questions / assumptions
-- ADR-P2 (shared_preferences behind KeyValueStore) — dependency already kept in pubspec; confirm at Phase 5. ADR-P3 (public re-export list; whether `FakeAdSdk` ships for consumers' tests) — Phase 11.
-- `RewardIntroContent` / `ServerSideVerification` are config-level placeholders; Phase 8 wires SSV through the seam (the seam does not carry SSV yet — extend `AdSdk.loadRewarded`/`loadRewardedInterstitial` or the handles when implementing).
-- `BannerConfig.minRefresh` has NO constructor assert (Duration comparisons are illegal in const asserts — see traps); the Phase 6 controller must clamp values below 30s.
-- `app_tracking_transparency` was **dropped** from pubspec: RESEARCH §5 says UMP can present the ATT explainer + system prompt itself. Phase 4 must confirm ConsentGateway needs no direct ATT dependency; if it does, re-add and route through the seam.
-- Seam contract refinements vs the ARCHITECTURE sketch are recorded in ADR-016 (UMP primitives in `AdSdk`; `buildWidget()` on view handles). ARCHITECTURE.md's sketch was NOT rewritten — treat ADR-016 as the authoritative delta.
-- `FakeAdSdk.enforceConsentGate` (default off) is a tripwire for invariant 1 — controller tests from Phase 6 on should turn it on.
-- `GmaAdSdk`'s adaptive-size resolution and load paths hit platform channels — not unit-testable without channel mocks; pure mappers ARE tested. Consider channel-mock tests in Phase 6 if worth it.
+- `test/seam/gma_ad_sdk_test.dart` covers interstitial + banner only; the same mock-channel pattern applies directly to rewarded/rewarded-interstitial/app-open/native if a future session wants full-format seam coverage — not required, `FakeAdSdk`-level tests already cover their controller logic.
+- `FullScreenAdCoordinator`'s `postDismissSuppression` default (1s, in `AppOpenAdManager`) is a judgment call (DECISIONS ADR-026 item #9) — no RESEARCH.md-documented value exists for this; revisit if real-world app-open fill data suggests otherwise.
+- `AdFlowBanner`'s adaptive-height estimate (`deviceHeight * 0.15`, clamped 50-90) is grounded in Google's documented bounds (now in RESEARCH.md) but is still an estimate — `placeholderHeight` is the exact override when the real height is known.
 
 ## Traps hit this session
 - **Const asserts cannot compare `Duration`s** (`const_eval_type_num`: only `num` operands allowed in const-expression comparisons). A `Duration`-comparing assert compiles until someone `const`-invokes the constructor, then every const call site errors. Validate Durations at use-time instead → SKILL.md §6.
@@ -110,9 +120,15 @@
 - `BannerAd.isCollapsible` is `Future<bool>`; inline adaptive height needs post-load `getPlatformAdSize()` → SKILL.md §6.
 - `RequestConfiguration` tags are int-encoded (1/0/-1), rating is a String constant → SKILL.md §6.
 - `NativeAd.customOptions` is `Map<String, Object>` (non-nullable values) — seam type matches.
+- A synchronous check-then-await-then-write is a race (ADR-024); a shared resource needs its own synchronous claim, not a check reached through someone else's async gate; `ValueNotifier`'s setter no-ops (skipping the disposed check) when the new value equals the current one — see SKILL.md §6 for all three, already appended in a prior session.
+- **Testing the real `GmaAdSdk` seam requires the plugin's own private test infrastructure pattern**: a fresh `AdInstanceManager` per test (resets ad ids to 0), `setMockMethodCallHandler` on `instanceManager.channel` for outgoing calls, and a hand-reproduced `sendAdEvent` helper (`handlePlatformMessage` + the channel's own `AdMessageCodec`) for simulating incoming `onAdEvent` calls — mirrors the plugin's own `test/ad_containers_test.dart`/`test/banner_ad_test.dart` (reachable in the pub cache, not importable across packages). See `test/seam/gma_ad_sdk_test.dart`.
+- **`sdk.loadBanner(spec)` suspends at its own internal awaits before the ad is registered with `instanceManager`** — dispatching a simulated `onAdEvent` immediately after calling `loadBanner` (without an intervening `await pumpEventQueue()`) hits "Ad with id `0` is not available," not because the seam is wrong, but because the TEST raced ahead of Dart's own microtask ordering.
+- **Dart's Future error propagation requires the listener attached BEFORE the error, not after**: `await triggerTheError(); await expectLater(future, throwsA(...));` reports an unhandled async error even though the assertion is "correct," because nothing was listening on `future` at the moment it completed. Always do `final expectation = expectLater(future, throwsA(...));` first, trigger the error second, `await expectation` last.
+- **Google's anchored adaptive banner height has no pure-width formula** — verified via web search (developers.google.com): 50-90dp, capped at 15% of device height, depends on device/aspect ratio on the native side. Don't try to compute it exactly client-side; a documented-bounds-based estimate is the best achievable without a platform round trip.
+- **Adding a default (non-zero) time-based behavior to a shared collaborator (`FullScreenAdCoordinator`) breaks any existing test that does `exit()` then immediately re-`enter()`/`show()` at the same (real or injected) clock instant** — when fixing review finding #7, one pre-existing app-open test asserted the OLD immediate-re-show behavior as correct; had to update it to advance the injected clock past the new suppression window rather than treat the test failure as a regression.
 
 ---
 ### How to resume (read this if you are a new/smaller model)
 1. Read, in order: this file → `PLAN.md` → `ARCHITECTURE.md` → `DECISIONS.md` → `RESEARCH.md`. Also load the `ad-flow-builder` skill.
-2. Run `flutter analyze && flutter test` — expect clean + 194 passing.
+2. Run `flutter analyze && flutter test` — expect clean + 228 passing.
 3. Continue from "In progress" → "Next". One small slice at a time; keep the tree green; update this file at the end of every session.
