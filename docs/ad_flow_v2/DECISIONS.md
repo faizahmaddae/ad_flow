@@ -88,9 +88,21 @@ Status legend: `accepted` (agreed with the maintainer / by design), `proposed` (
 **Rationale.** (a) keeps invariant 8 literal (one gma import) and makes ConsentGateway fully testable with `FakeAdSdk`; UMP callbacks are wrapped into Futures exactly once, per the v1 trap. (b) removes the last reason for widgets to import the plugin and lets widget tests pump real trees with fakes.
 **Consequences.** `GmaAdSdk` is the single gma import in `lib/` (widgets no longer need one). Fake handles are drivable test doubles shipped in `lib/src/seam/fake_ad_sdk.dart` (whether to export them for consumers' tests is part of ADR-P3).
 
+## ADR-017 — Hand-written immutables; no freezed/build_runner (resolves ADR-P1)  ·  accepted
+**Context.** ADR-P1 proposed `freezed` to cut v1's copyWith-sentinel boilerplate.
+**Decision.** Hand-write the config/state immutables; add **no** build_runner dependency. Also: **no `copyWith` until a real caller needs one** — v1's boilerplate existed to serve copyWith sentinels; the v2 configs are small consts built once at startup.
+**Rationale.** A library forcing build_runner on consumers is a real cost; the config surface is ~10 small classes with no unions. Prefer deleting to adding.
+**Consequences.** If copyWith becomes necessary (e.g. runtime config swaps), add it narrowly to the classes that need it, or supersede this ADR.
+
+## ADR-018 — No `appId` field in AdFlowConfig  ·  accepted
+**Context.** ARCHITECTURE's sketch had `required this.appId` "(or null → set in manifest/plist)".
+**Decision.** Drop the field. The AdMob application ID cannot be set at runtime by the Flutter plugin — it is read from `AndroidManifest.xml` (`com.google.android.gms.ads.APPLICATION_ID`) and `Info.plist` (`GADApplicationIdentifier`) only.
+**Rationale.** A config field the SDK never reads is a lie that would burn integration time.
+**Consequences.** README/MIGRATION document the manifest/plist requirement prominently. `AdFlowConfig` carries ad *unit* IDs only.
+
 ---
 
 ## Proposed / to confirm while building
-- **ADR-P1 — Immutability codegen (`freezed`).** v1 had heavy hand-written `copyWith` sentinel boilerplate. *Proposed:* use `freezed`/`json_serializable` for config and state to cut boilerplate. Confirm the added build-runner dependency is acceptable for a library; if not, hand-write immutables. Record the final call here.
+- ~~**ADR-P1 — Immutability codegen (`freezed`).**~~ Resolved by ADR-017 (hand-written, no codegen).
 - **ADR-P2 — Persistence dependency for frequency caps.** *Proposed:* keep v1's `shared_preferences` behind an injected `KeyValueStore` interface (so tests use an in-memory fake and consumers could swap it). Confirm on build.
 - **ADR-P3 — Minimum public surface.** *Proposed:* re-export only the `google_mobile_ads` types consumers genuinely need (`AdSize`, `RewardItem`, `LoadAdError`, `AdRequest`, template style types) rather than v1's broad re-export. Finalize the list during Phase 11.

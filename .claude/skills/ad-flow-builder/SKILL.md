@@ -146,6 +146,7 @@ A clean stop with a clear question beats a large, broken, speculative change eve
 - **`AppStateEventNotifier.appStateStream` is dead until `startListening()`.** The plugin only starts emitting foreground/background events after `AppStateEventNotifier.startListening()` runs. `GmaAdSdk.appForegroundEvents` calls it lazily on first access — if you ever bypass the seam, remember it, or app-open-on-foreground silently never fires.
 - **`BannerAd.isCollapsible` and inline-adaptive real height are async post-load calls.** `isCollapsible` is `Future<bool>`, and an inline adaptive banner's real height comes from `getPlatformAdSize()` after load. `GmaAdSdk` resolves both inside the load flow so `BannerHandle.size`/`isCollapsible` are plain sync getters above the seam.
 - **`RequestConfiguration` tags are ints, not bools** (`TagFor*.yes/no/unspecified` = 1/0/-1; `maxAdContentRating` is a String constant). The seam maps `bool?`/enum → plugin encoding in `toGmaRequestConfiguration`; never pass raw bools through.
+- **Const asserts cannot compare `Duration`s.** `assert(minRefresh >= const Duration(seconds: 30))` in a const constructor fails with `const_eval_type_num` at every const call site (only `num` operands may be compared in const expressions). Validate/clamp Durations at use-time (controller) instead of in const constructors.
 
 ---
 
