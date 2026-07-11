@@ -15,11 +15,26 @@ class FullScreenAdCoordinator {
   /// Reactive view of [isFullScreenAdVisible].
   ValueListenable<bool> get visible => _visible;
 
-  /// Marks a full-screen ad as visible. Call from the `AdShowedEvent`
-  /// handler; must be balanced by [exit].
+  /// Marks a full-screen ad as visible. Must be balanced by [exit].
   void enter() {
     _depth++;
     _visible.value = true;
+  }
+
+  /// Atomically checks [isFullScreenAdVisible] and claims the coordinator
+  /// in one synchronous step — no `await` between the check and the entry.
+  ///
+  /// This is the ONLY safe way for two independently-gated controllers
+  /// (e.g. interstitial + app open) to race for the coordinator: an
+  /// `await`-separated check-then-enter lets both controllers observe
+  /// "nothing is showing" before either has entered, so both proceed to
+  /// show. A plain synchronous method has no such window — Dart's
+  /// single-threaded event loop guarantees nothing else runs between this
+  /// method's check and its own [enter] call.
+  bool tryEnter() {
+    if (isFullScreenAdVisible) return false;
+    enter();
+    return true;
   }
 
   /// Marks the full-screen ad as gone. Call from dismiss AND fail-to-show

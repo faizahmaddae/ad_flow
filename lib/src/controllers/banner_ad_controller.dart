@@ -88,8 +88,19 @@ class BannerAdController implements AdController {
     if (_disposed) return;
     if (width != null) _width = width;
     if (_state.value is AdLoading || _state.value is AdLoaded) return;
-    if (!await _gate.canLoad(slot)) return;
+    // Set Loading synchronously, before any await, so a concurrent load()
+    // call sees it immediately and bails instead of racing to a second
+    // in-flight SDK load (each would overwrite _handle, leaking the
+    // loser's banner).
+    _state.value = const AdLoading();
+
+    final allowed = await _gate.canLoad(slot);
     if (_disposed) return;
+    if (!allowed) {
+      _state.value = const AdIdle();
+      _scheduleGateRecheck();
+      return;
+    }
 
     final BannerSizeSpec size;
     switch (_config.kind) {
@@ -114,7 +125,6 @@ class BannerAdController implements AdController {
         size = FixedSizeSpec(_config.fixedSize);
     }
 
-    _state.value = const AdLoading();
     try {
       final handle = await _sdk.loadBanner(
         BannerLoadSpec(
@@ -170,6 +180,18 @@ class BannerAdController implements AdController {
         unawaited(load());
       });
     }
+  }
+
+  /// Re-checks the gate after a cooldown when a load was blocked (consent
+  /// closed / ads disabled) rather than failed — otherwise a banner whose
+  /// refresh or initial load happened to land while the gate was shut
+  /// stays blank forever with nothing left to prompt a reload.
+  void _scheduleGateRecheck() {
+    _timer?.cancel();
+    _timer = Timer(_retry.cooldown, () {
+      if (_disposed) return;
+      unawaited(load());
+    });
   }
 
   void _dropHandle() {

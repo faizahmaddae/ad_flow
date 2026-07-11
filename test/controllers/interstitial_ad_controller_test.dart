@@ -254,4 +254,32 @@ void main() {
       expect(sdk.interstitials, hasLength(1));
     });
   });
+
+  group('concurrency safety', () {
+    test('two concurrent load() calls produce exactly one handle', () async {
+      final c = controller();
+      final l1 = c.load();
+      final l2 = c.load();
+      await Future.wait([l1, l2]);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(sdk.interstitials, hasLength(1));
+      expect(sdk.interstitials.single.disposed, isFalse);
+      c.dispose();
+    });
+
+    test('two concurrent show() calls invoke the SDK show() exactly once',
+        () async {
+      final c = controller();
+      await c.load();
+
+      final f1 = c.show();
+      final f2 = c.show();
+      final results = await Future.wait([f1, f2]);
+
+      expect(results.where((r) => r).length, 1); // exactly one succeeded
+      expect(sdk.interstitials.single.showCalls, 1);
+      c.dispose();
+    });
+  });
 }

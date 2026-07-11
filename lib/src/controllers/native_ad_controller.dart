@@ -68,10 +68,20 @@ class NativeAdController implements AdController {
   Future<void> load() async {
     if (_disposed) return;
     if (_state.value is AdLoading || _state.value is AdLoaded) return;
-    if (!await _gate.canLoad(slot)) return;
-    if (_disposed) return;
-
+    // Set Loading synchronously, before any await, so a concurrent load()
+    // call sees it immediately and bails instead of racing to a second
+    // in-flight SDK load (each would overwrite _handle, leaking the
+    // loser's ad).
     _state.value = const AdLoading();
+
+    final allowed = await _gate.canLoad(slot);
+    if (_disposed) return;
+    if (!allowed) {
+      _state.value = const AdIdle();
+      _scheduleGateRecheck();
+      return;
+    }
+
     try {
       final handle = await _sdk.loadNative(
         NativeLoadSpec(
@@ -123,6 +133,18 @@ class NativeAdController implements AdController {
         unawaited(load());
       });
     }
+  }
+
+  /// Re-checks the gate after a cooldown when a load was blocked (consent
+  /// closed / ads disabled) rather than failed — otherwise a slot whose
+  /// one load attempt happened to land while the gate was shut stays idle
+  /// forever with nothing left to prompt a reload.
+  void _scheduleGateRecheck() {
+    _timer?.cancel();
+    _timer = Timer(_retry.cooldown, () {
+      if (_disposed) return;
+      unawaited(load());
+    });
   }
 
   void _dropHandle() {

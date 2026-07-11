@@ -63,15 +63,22 @@
   - `README.md` rewritten for v2: app-ads.txt front and center, platform setup, per-format usage, consent/ATT per ADR-019, Remove-Ads/revenue/inspector, FakeAdSdk testing, Next-Gen flag, mediation pointer, policy checklist
   - `MIGRATION.md` finalized: config field table + removed/renamed symbol table (from `legacy/v1` barrel)
   - `CHANGELOG.md`: 2.0.0 entry prepended (NEW/IMPROVED/FIXED/BREAKING)
+  - `legacy/v1/` removed — porting complete (`a70b313`)
+- Phase 14 (in progress) — Final verification: concurrency-safety pass ✅ (this commit)
+  - A background multi-agent review (5 finder dimensions, adversarial verify) mostly hit a spend-limit mid-run — 3/5 finders completed, nearly all verifier agents errored, so its "confirmed: []" result is **not trustworthy** (absence of confirmation ≠ absence of bugs; most verify votes never ran). Do not cite that run's output directly.
+  - However the finder agents had ALSO written 3 hand-crafted repro tests directly into the working tree before erroring out. Ran them manually and **independently confirmed 3 real concurrency bugs** (see ADR-024 for full detail): double-load (two concurrent `load()` calls both hit the SDK, leaking a handle), double-show (two concurrent `show()` calls both invoked `handle.show()` on one single-use ad), and a cross-controller coordinator race (an interstitial and an app-open controller could both pass `canShow` and both display, since `coordinator.enter()` fired only after `handle.show()` resolved — too late to block a same-turn sibling). A 4th repro exposed a design gap: a banner blocked once by a closed gate never retried, even after the gate reopened.
+  - **Fixed all four**, root-caused as "synchronous check, asynchronous write" races — see ADR-024 for the exact mechanism and why the coordinator fix specifically required a new synchronous `FullScreenAdCoordinator.tryEnter()` (moving `coordinator.enter()` earlier inside `show()` was tried first and did NOT close the race — the window is between two *different* controller instances, not within one).
+  - Probe/repro files deleted; permanent regression tests added: `full_screen_ad_coordinator_test.dart` (`tryEnter` group), `interstitial_ad_controller_test.dart` (`concurrency safety` group), new `cross_controller_coordinator_test.dart`, `banner_ad_controller_test.dart` (`gate-blocked recovery` group).
+  - 194 tests green, analyze clean, example still builds (Android debug + Next-Gen flag).
 
 ## In progress
-- Nothing mid-slice. **The very next concrete step:** Phase 14 — final verification: root analyze+test, example analyze+builds, `dart pub publish --dry-run` (note: pubspec still says `2.0.0-dev.1`; bump to `2.0.0` only when actually publishing), pana if available, self-review every ARCHITECTURE invariant + RESEARCH §6 policy item against the code/tests, and decide whether `legacy/` porting is complete (retry timing ✓ ported into RetryConfig defaults, consent-sample flow ✓ ConsentGateway, test-mode ✓ ADR-012 — recommend deleting `legacy/` or keeping one release cycle).
+- Mid-Phase-14. **The very next concrete step:** finish final verification — `dart pub publish --dry-run` (note: pubspec still says `2.0.0-dev.1`; bump to `2.0.0` only when actually publishing), pana if available, and a full self-review of every ARCHITECTURE invariant + RESEARCH §6 policy item against the code/tests (the concurrency pass above covered invariants 3/4/7 specifically; invariants 1/2/5/6/8/9 have NOT had a fresh adversarial pass — the failed review's `invariants` dimension never completed). Given the background review already found 3 real bugs the original test suite missed, a proper (foreground, not spend-limited) adversarial pass over the remaining invariants before calling this phase done is strongly recommended.
 
 ## Next (ordered)
-1. Phase 14 — Final verification + publish-readiness.
+1. Finish Phase 14 — re-run (or manually redo) the invariants/concurrency-lifecycle/policy-revenue/seam-api/test-gaps review dimensions that the spend-limited run didn't complete or couldn't verify; fix anything confirmed; then publish-dry-run + pana + final sign-off.
 
 ## How to verify the current state
-`flutter analyze && flutter test` (root: 186 tests) · `cd example && flutter analyze && flutter build apk --debug`
+`flutter analyze && flutter test` (root: 194 tests) · `cd example && flutter analyze && flutter build apk --debug`
 
 ## Open questions / assumptions
 - ADR-P2 (shared_preferences behind KeyValueStore) — dependency already kept in pubspec; confirm at Phase 5. ADR-P3 (public re-export list; whether `FakeAdSdk` ships for consumers' tests) — Phase 11.
@@ -92,5 +99,5 @@
 ---
 ### How to resume (read this if you are a new/smaller model)
 1. Read, in order: this file → `PLAN.md` → `ARCHITECTURE.md` → `DECISIONS.md` → `RESEARCH.md`. Also load the `ad-flow-builder` skill.
-2. Run `flutter analyze && flutter test` — expect clean + 42 passing.
+2. Run `flutter analyze && flutter test` — expect clean + 194 passing.
 3. Continue from "In progress" → "Next". One small slice at a time; keep the tree green; update this file at the end of every session.

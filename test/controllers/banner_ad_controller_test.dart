@@ -280,6 +280,50 @@ void main() {
     });
   });
 
+  group('gate-blocked recovery', () {
+    test('a load blocked by a closed gate re-checks and recovers once the '
+        'gate reopens (does not die forever)', () {
+      fakeAsync((async) {
+        final c = controller(
+          config: const BannerConfig(
+            adUnitId: PlatformAdUnitId(android: 'unit-b'),
+            minRefresh: Duration(seconds: 60),
+          ),
+          retryConfig: const RetryConfig(cooldown: Duration(minutes: 5)),
+        );
+        c.load(width: 320);
+        async.flushMicrotasks();
+        expect(c.state.value, const AdLoaded());
+
+        // User buys Remove-Ads right as the refresh timer fires.
+        enabled = false;
+        async.elapse(const Duration(seconds: 60));
+        expect(sdk.banners.single.disposed, isTrue);
+        expect(c.state.value, const AdIdle());
+
+        // Ads re-enabled before the next gate recheck fires.
+        enabled = true;
+        async.elapse(const Duration(minutes: 5));
+
+        expect(sdk.banners, hasLength(2)); // recovered, not dead forever
+        expect(c.state.value, const AdLoaded());
+        c.dispose();
+      });
+    });
+
+    test('concurrent load() calls produce exactly one handle', () async {
+      final c = controller();
+      final l1 = c.load(width: 320);
+      final l2 = c.load(width: 320);
+      await Future.wait([l1, l2]);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(sdk.banners, hasLength(1));
+      expect(sdk.banners.single.disposed, isFalse);
+      c.dispose();
+    });
+  });
+
   group('dispose', () {
     test('cancels timers, disposes the handle and stops all work', () {
       fakeAsync((async) {

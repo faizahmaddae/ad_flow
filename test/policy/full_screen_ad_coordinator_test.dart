@@ -42,4 +42,29 @@ void main() {
     coordinator.exit();
     expect(coordinator.isFullScreenAdVisible, isFalse);
   });
+
+  group('tryEnter (atomic check-and-claim)', () {
+    test('claims and returns true when nothing is showing', () {
+      expect(coordinator.tryEnter(), isTrue);
+      expect(coordinator.isFullScreenAdVisible, isTrue);
+    });
+
+    test('refuses and does not enter when already visible', () {
+      coordinator.enter();
+      expect(coordinator.tryEnter(), isFalse);
+      coordinator.exit();
+      // A refused tryEnter must not have incremented depth — one exit is
+      // enough to clear the original enter().
+      expect(coordinator.isFullScreenAdVisible, isFalse);
+    });
+
+    test('two synchronous tryEnter calls: only the first wins', () {
+      // Simulates two independently-gated controllers racing for the
+      // coordinator in the same synchronous turn.
+      final first = coordinator.tryEnter();
+      final second = coordinator.tryEnter();
+      expect(first, isTrue);
+      expect(second, isFalse);
+    });
+  });
 }

@@ -111,10 +111,20 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         _state.value is AdShowing) {
       return;
     }
-    if (!await _gate.canLoad(slot)) return;
-    if (_disposed) return;
-
+    // Set Loading synchronously, before any await, so a concurrent load()
+    // call sees it immediately and bails instead of racing to a second
+    // in-flight loadHandle() call (each would overwrite _handle, leaking
+    // the loser's ad).
     _state.value = const AdLoading();
+
+    final allowed = await _gate.canLoad(slot);
+    if (_disposed) return;
+    if (!allowed) {
+      _state.value = const AdIdle();
+      _scheduleGateRecheck();
+      return;
+    }
+
     try {
       final handle = await loadHandle();
       if (_disposed) {
@@ -143,11 +153,34 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       unawaited(load()); // warm one up for the next natural break
       return false;
     }
-    if (!await _gate.canShow(slot)) return false;
-    if (_disposed) return false;
-    if (!canShowExtra()) return false;
 
-    _state.value = const AdShowing(); // re-entry guard before any await
+    // Atomically check-and-claim the coordinator BEFORE any await — see
+    // FullScreenAdCoordinator.tryEnter doc. An await-separated check (via
+    // AdGate.canShow, which reads the coordinator too) lets two
+    // independently-gated controllers — e.g. interstitial + app open —
+    // both observe "nothing is showing" in the same turn and both
+    // proceed, so this bypasses gate.canShow's coordinator check and does
+    // its own atomic one instead. gate.canLoad + caps.canShow cover the
+    // remaining (consent/enabled/frequency-cap) checks.
+    if (!_coordinator.tryEnter()) return false;
+    _enteredCoordinator = true;
+    // Set Showing synchronously, in the same turn as the coordinator
+    // claim above, so a concurrent show() call on THIS controller also
+    // sees it immediately and bails.
+    _state.value = const AdShowing();
+
+    Future<bool> rejectAndRollBack() async {
+      _exitCoordinator();
+      if (!_disposed) _state.value = const AdLoaded();
+      return false;
+    }
+
+    if (!await _gate.canLoad(slot)) return rejectAndRollBack();
+    if (_disposed) return false; // dispose() already rolled everything back
+    if (!await _caps.canShow(slot)) return rejectAndRollBack();
+    if (_disposed) return false;
+    if (!canShowExtra()) return rejectAndRollBack();
+
     OnUserEarnedReward? onRewardOnce;
     if (onReward != null) {
       // A reward is granted at most once per ad, even if the SDK misfires.
@@ -167,8 +200,8 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     if (_disposed) return;
     switch (event) {
       case AdShowedEvent():
-        _coordinator.enter();
-        _enteredCoordinator = true;
+        // Coordinator entry already happened synchronously in show(); this
+        // only records the confirmed impression.
         unawaited(_caps.recordImpression(slot));
       case AdDismissedEvent():
         // Single-use spent: dispose and immediately preload the next
@@ -211,6 +244,18 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         unawaited(load());
       });
     }
+  }
+
+  /// Re-checks the gate after a cooldown when a load was blocked (consent
+  /// closed / ads disabled) rather than failed — otherwise a slot whose
+  /// one preload attempt happened to land while the gate was shut stays
+  /// idle forever with nothing left to prompt a retry.
+  void _scheduleGateRecheck() {
+    _timer?.cancel();
+    _timer = Timer(_retry.cooldown, () {
+      if (_disposed) return;
+      unawaited(load());
+    });
   }
 
   void _dropHandle() {
