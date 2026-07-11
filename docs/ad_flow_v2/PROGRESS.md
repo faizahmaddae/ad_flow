@@ -1,7 +1,7 @@
 # PROGRESS — ad_flow v2
 
 ## Current phase
-**Phase 12 — Example app** (Phases 2–11 complete; core library DONE).
+**Phase 13 — Docs** (Phases 2–12 complete).
 
 ## Done
 - Phase 1 — Planning artifacts (committed `4e4132e`).
@@ -54,17 +54,20 @@
   - ADR-022 resolves ADR-P3 (zero gma re-exports); ADR-023 (intro presenter injected at initialize, fail-fast)
   - End-to-end FakeAdSdk test: init → EEA consent → preloads → show → paid callback; plus closed-gate, remove-ads, global-cap-across-formats, factories, instance lifecycle
 
+- Phase 12 — Example app ✅ (this commit)
+  - Fresh `example/` (android+ios): all six formats over `AdFlowConfig.test()`, non-blocking init (runApp first, `AdFlow.initialize` behind a FutureBuilder), navigatorKey + `RewardedIntroScreen.show` presenter, action-pacing demo, Remove-Ads toggle, `PrivacyOptionsButton`, paid-event logging, Ad Inspector button, bottom banner
+  - Android manifest sample `APPLICATION_ID`; iOS `GADApplicationIdentifier` + `NSUserTrackingUsageDescription` (template already scene-based — `UIApplicationSceneManifest` with SceneDelegate, satisfying gma v8+'s UISceneDelegate requirement)
+  - **Verified builds:** `flutter build apk --debug` ✓ · `flutter build apk --debug --dart-define=USE_NEXT_GEN_SDK=true` ✓ · `flutter build ios --simulator --debug` ✓
+
 ## In progress
-- Nothing mid-slice. **The very next concrete step:** Phase 12 — rebuild `example/`: new Flutter app (android+ios) demoing all six formats with `AdFlowConfig.test()`, navigatorKey + `RewardedIntroScreen.show` presenter, `PrivacyOptionsButton` in settings, paid-event logging; Android manifest `com.google.android.gms.ads.APPLICATION_ID` (sample app id `ca-app-pub-3940256099942544~3347511713`), iOS `GADApplicationIdentifier` (`~1458002511`) + `NSUserTrackingUsageDescription` + scene lifecycle; document `flutter build apk --dart-define=USE_NEXT_GEN_SDK=true` variant. v1's example is under `legacy/v1/example` for reference.
+- Nothing mid-slice. **The very next concrete step:** Phase 13 — rewrite root `README.md` for v2 (setup incl. **app-ads.txt prominently**, per-format usage from the example, ATT/UMP notes per ADR-019, native factory path, mediation pointers, Next-Gen flag per ADR-010, policy-compliance checklist), finalize `MIGRATION.md` (fill the config field table + removed/renamed symbol list from `legacy/v1`), write `CHANGELOG.md` for 2.0.0.
 
 ## Next (ordered)
-1. Phase 12 — Example app (acceptance: builds on Android and iOS; Next-Gen variant builds on Android — requires local SDKs; if unavailable, get as far as `flutter build apk --debug` and record the gap here).
-2. Phase 13 — Docs: README (app-ads.txt prominent!), per-format docs, policy checklist, finalize MIGRATION (fill the config field table + removed/renamed list), CHANGELOG 2.0.0.
-3. Phase 14 — Final verification (`dart pub publish --dry-run`, pana, invariant self-review).
+1. Phase 13 — Docs (README, MIGRATION finalization, CHANGELOG).
+2. Phase 14 — Final verification: `flutter analyze` + `flutter test` + example builds + `dart pub publish --dry-run` + self-review against RESEARCH §6 and every ARCHITECTURE invariant; decide whether `legacy/` is fully ported and can be deleted.
 
 ## How to verify the current state
-`flutter analyze && flutter test`
-Expected: analyze clean, **186 tests passing** (…, facade 11, privacy button 2).
+`flutter analyze && flutter test` (root: 186 tests) · `cd example && flutter analyze && flutter build apk --debug`
 
 ## Open questions / assumptions
 - ADR-P2 (shared_preferences behind KeyValueStore) — dependency already kept in pubspec; confirm at Phase 5. ADR-P3 (public re-export list; whether `FakeAdSdk` ships for consumers' tests) — Phase 11.

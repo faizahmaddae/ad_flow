@@ -1,0 +1,21 @@
+name: ad_flow_example
+description: "Demonstrates every ad_flow v2 format with Google's test ads."
+publish_to: 'none'
+version: 2.0.0
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  ad_flow:
+    path: ../
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
