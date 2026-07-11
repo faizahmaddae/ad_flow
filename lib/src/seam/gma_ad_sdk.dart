@@ -190,7 +190,13 @@ class GmaAdSdk implements AdSdk {
     }
     handle._size = size;
     handle._isCollapsible = collapsible;
-    completer.complete(handle);
+    // BannerAdListener.onAdLoaded fires on every AdMob-driven auto-refresh
+    // of this BannerAd, not just the first load — still refresh the
+    // handle's size/collapsible fields above, but only complete the
+    // one-shot load Future once (review finding #2: a second completion
+    // threw "Bad state: Future already completed" as an unhandled async
+    // error on every refresh cycle).
+    if (!completer.isCompleted) completer.complete(handle);
   }
 
   Future<gma.AdSize> _resolveBannerAdSize(BannerSizeSpec spec) async {
