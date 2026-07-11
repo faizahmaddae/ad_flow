@@ -1,7 +1,7 @@
 # PROGRESS — ad_flow v2
 
 ## Current phase
-**Phase 7 — Interstitial** (Phases 2–6 complete).
+**Phase 8 — Rewarded + rewarded interstitial** (Phases 2–7 complete).
 
 ## Done
 - Phase 1 — Planning artifacts (committed `4e4132e`).
@@ -28,19 +28,23 @@
   - `core/ad_controller.dart`: `AdController` + `FullScreenAdController` contracts
   - `controllers/banner_ad_controller.dart`: gate-checked `load({width})` (width remembered for refresh/re-arm), retry-with-backoff → cooldown → auto re-arm, minRefresh refresh loop (clamped ≥30s) that disposes the old handle, paid-event forwarding, dispose-safe mid-flight loads
   - `widgets/ad_flow_banner.dart`: reserves height first frame (no layout shift), kicks the first load with real layout width, hosts `handle.buildWidget()`, `ownsController` disposal
-  - `FakeAdSdk` gained `loadHold` (in-flight load simulation)
+  - `FakeAdSdk` gained `loadHold` (in-flight load simulation) (`9c7f2d7`)
+- Phase 7 — Interstitial ✅ (this commit)
+  - `controllers/full_screen_ad_controller_base.dart`: shared engine for ALL full-screen formats — gate-checked load, retry→cooldown→re-arm, show() with double-show guard, coordinator enter on Showed / exit on Dismissed+Failed (tracked via `_enteredCoordinator` so it can't decrement someone else's depth), `recordImpression` on Showed, dispose-handle-and-reload-immediately on dismiss/fail
+  - `controllers/interstitial_ad_controller.dart`: thin subclass adding opt-in user-action pacing (ADR-021: dormant until first `recordUserAction()`)
+  - `FakeFullScreenAdHandle.dispose` now defers stream close one microtask (controllers dispose handles from their own dismiss event — sync-close threw "Cannot fire new event")
 
 ## In progress
-- Nothing mid-slice. **The very next concrete step:** Phase 7 — `controllers/interstitial_ad_controller.dart` implementing `FullScreenAdController`: gate-checked preload, `show()` = gate.canShow('interstitial') + minActionsBetween counter → handle.show() → coordinator.enter/exit on events → recordImpression → dispose handle → immediate reload. Tests: no show before gate, cap enforced, reload-after-dismiss, never double-show, minActionsBetween.
+- Nothing mid-slice. **The very next concrete step:** Phase 8 — `controllers/rewarded_ad_controller.dart` (base subclass; SSV note below) + `controllers/rewarded_interstitial_ad_controller.dart` + `widgets/rewarded_intro_screen.dart` (disclosure + skip; the controller shows the ad ONLY if not skipped). Tests: reward callback fires exactly once; intro/skip enforced.
 
 ## Next (ordered)
-1. Phase 7 — Interstitial controller. Much of its show/reload/coordinator plumbing will be shared by rewarded/rewarded-interstitial/app-open — consider a shared base (e.g. `BaseFullScreenAdController`) so Phases 8/10 are thin.
-2. Phase 8 — Rewarded + rewarded interstitial (intro/skip screen).
-3. Continue PLAN.md (9 native → 10 app-open → 11 facade → …).
+1. Phase 8 — Rewarded + rewarded interstitial. **SSV gap:** the seam doesn't carry `ServerSideVerificationOptions` yet — extend `AdSdk.loadRewarded`/`loadRewardedInterstitial` (and `GmaAdSdk`, grep pub-cache for the setter: on the loaded ad object there's `setServerSideOptions`/`serverSideVerificationOptions` — verify!) as part of this phase.
+2. Phase 9 — Native controller + widget.
+3. Phase 10 — App-open + lifecycle; then 11 facade → 12 example → 13 docs → 14 final.
 
 ## How to verify the current state
 `flutter analyze && flutter test`
-Expected: analyze clean, **128 tests passing** (core 6, fake seam 28, gma mappers 8, config 16, consent 15, policy 35, banner controller 15, banner widget 5).
+Expected: analyze clean, **140 tests passing** (…, interstitial controller 12).
 
 ## Open questions / assumptions
 - ADR-P2 (shared_preferences behind KeyValueStore) — dependency already kept in pubspec; confirm at Phase 5. ADR-P3 (public re-export list; whether `FakeAdSdk` ships for consumers' tests) — Phase 11.

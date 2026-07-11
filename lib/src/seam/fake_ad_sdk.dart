@@ -379,6 +379,9 @@ class FakeFullScreenAdHandle
   @override
   Future<void> dispose() async {
     disposed = true;
+    // Escape any in-flight synchronous event dispatch before closing —
+    // controllers legitimately dispose a handle from its own dismiss event.
+    await Future<void>.delayed(Duration.zero);
     await _content.close();
     await _paid.close();
   }

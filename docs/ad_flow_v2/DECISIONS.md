@@ -111,6 +111,12 @@ Status legend: `accepted` (agreed with the maintainer / by design), `proposed` (
 **Decision.** `ensureCanRequestAds()` never throws: update/form failures and timeouts are captured as a typed `AdFlowError` on `ConsentGateway.lastError`, and the method returns the SDK's own `canRequestAds()` answer. Concurrent calls join the in-flight run (double-load guard).
 **Consequences.** Callers branch on the bool; diagnostics read `lastError`. `showPrivacyOptions()` DOES rethrow — a user-initiated surface should show its failure.
 
+## ADR-021 — Interstitial user-action pacing activates on first `recordUserAction()`  ·  accepted
+**Context.** AdMob guidance: ≤ 1 interstitial per 2 user actions. But enforcing `minActionsBetween` (default 2) unconditionally would silently block every interstitial in apps that never call `recordUserAction()` — a trap for integrators.
+**Decision.** Action pacing is dormant until the app's first `recordUserAction()` call. Untracked apps are paced by frequency caps alone; once the app reports actions, `show()` requires `minActionsBetween` actions since the last show (counter resets on show).
+**Rationale.** Opt-in enforcement can't brick monetization by omission, yet gives policy-conscious apps the exact guardrail.
+**Consequences.** README must tell integrators to call `recordUserAction()` at natural breaks to get action pacing.
+
 ---
 
 ## Proposed / to confirm while building

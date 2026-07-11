@@ -12,6 +12,8 @@ export 'src/config/ad_flow_config.dart';
 export 'src/config/ad_platform.dart';
 export 'src/consent/consent_gateway.dart';
 export 'src/controllers/banner_ad_controller.dart';
+export 'src/controllers/full_screen_ad_controller_base.dart';
+export 'src/controllers/interstitial_ad_controller.dart';
 export 'src/core/ad_controller.dart';
 export 'src/core/ad_flow_error.dart';
 export 'src/core/ad_load_state.dart';
