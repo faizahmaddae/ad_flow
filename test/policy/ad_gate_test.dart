@@ -82,5 +82,24 @@ void main() {
       enabled = false;
       expect(await gate.canShow('interstitial'), isFalse);
     });
+
+    test(
+      'is racy by construction when two callers check-then-act — this is '
+      'exactly why no controller uses it to gate an actual show() '
+      '(review finding #6; see the method\'s own doc + ADR-024/DECISIONS)',
+      () async {
+        // Two independent "controllers" both consult canShow() before
+        // either has entered the coordinator — an await-separated check
+        // lets both observe "nothing is showing" in the same turn.
+        final firstSaysOk = await gate.canShow('interstitial');
+        final secondSaysOk = await gate.canShow('interstitial');
+
+        expect(firstSaysOk, isTrue);
+        expect(secondSaysOk, isTrue); // <- the race: both got a green light
+        // Contrast with FullScreenAdCoordinator.tryEnter(), which closes
+        // exactly this window (see full_screen_ad_coordinator_test.dart's
+        // "two synchronous tryEnter calls: only the first wins").
+      },
+    );
   });
 }

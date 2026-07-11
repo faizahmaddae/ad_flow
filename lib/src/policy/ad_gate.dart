@@ -1,12 +1,13 @@
 import 'frequency_cap_policy.dart';
 import 'full_screen_ad_coordinator.dart';
 
-/// The composed check every controller runs before loading AND showing.
+/// The composed check every controller runs before loading.
 ///
 /// - [canLoad]: consent gate open AND ads enabled (Remove-Ads off).
 ///   Guards invariant 1 — no `load()` before consent.
 /// - [canShow]: [canLoad] AND the slot's frequency caps allow it AND no
-///   other full-screen ad is currently visible.
+///   other full-screen ad is currently visible. **Not used on the actual
+///   show path** — see its own doc for why.
 class AdGate {
   /// Creates a gate.
   ///
@@ -34,7 +35,20 @@ class AdGate {
     return _canRequestAds();
   }
 
-  /// Whether [slot] may show a full-screen ad now.
+  /// Whether [slot] could show a full-screen ad right now — a best-effort,
+  /// **non-atomic** snapshot for informational/UI use only (e.g. graying
+  /// out a "Watch Ad" button).
+  ///
+  /// ⚠️ Do NOT use this to decide whether to actually call `show()`. The
+  /// coordinator check below is `await`-separated from any coordinator
+  /// *claim*, so two callers can each observe "nothing is showing" in the
+  /// same turn and both proceed — the exact double-show-across-formats
+  /// race ADR-024 fixed. `FullScreenAdControllerBase.show()` does NOT
+  /// call this method; it claims `FullScreenAdCoordinator.tryEnter()`
+  /// synchronously as its first action instead, which is the only safe
+  /// way to gate a real show. This method exists for read-only queries
+  /// where a stale/racy answer is an acceptable UX nit, never a policy
+  /// violation (review finding #6).
   Future<bool> canShow(String slot) async {
     if (_coordinator.isFullScreenAdVisible) return false;
     if (!await canLoad(slot)) return false;
