@@ -231,6 +231,52 @@ void main() {
         c.dispose();
       });
     });
+
+    test(
+      'a successful load always re-arms the shared timer as a refresh, so '
+      'a stale retry timer can never survive past recovery (review finding '
+      '#3 — this controller is structurally safe already: unlike the '
+      'full-screen base and NativeAdController, every successful load '
+      'calls _scheduleRefresh(), which cancels+replaces the one shared '
+      '_timer field outright)',
+      () {
+        fakeAsync((async) {
+          sdk.alwaysLoadError = const AdFlowError(
+            AdFlowErrorKind.loadFailed,
+            'no fill',
+          );
+          final c = controller(
+            retryConfig: const RetryConfig(
+              maxAttempts: 1,
+              cooldown: Duration(minutes: 5),
+            ),
+          );
+
+          // Load #1 fails; a cooldown-timer retry is armed for 5 min.
+          c.load(width: 320);
+          async.flushMicrotasks();
+          expect(c.state.value, isA<AdFailed>());
+
+          // A direct load() call succeeds independently of that timer —
+          // and, on success, schedules its own refresh timer, replacing
+          // the pending retry timer outright.
+          sdk.alwaysLoadError = null;
+          c.load(width: 320);
+          async.flushMicrotasks();
+          expect(c.state.value, const AdLoaded());
+          expect(sdk.banners, hasLength(1));
+
+          // The would-be retry-timer deadline passes; only the (already
+          // correctly-guarded) refresh timer is live, so refreshes happen
+          // on their normal ~60s cadence, not a stray reload at 5min.
+          async.elapse(const Duration(minutes: 5));
+          expect(c.state.value, const AdLoaded());
+          expect(sdk.banners, hasLength(6)); // 5 normal 60s refreshes
+
+          c.dispose();
+        });
+      },
+    );
   });
 
   group('refresh', () {

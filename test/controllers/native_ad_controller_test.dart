@@ -147,6 +147,52 @@ void main() {
     });
   });
 
+  test(
+    'a stale retry timer does not stomp a since-recovered AdLoaded state '
+    '(review finding #3)',
+    () {
+      fakeAsync((async) {
+        sdk.alwaysLoadError = const AdFlowError(
+          AdFlowErrorKind.loadFailed,
+          'no fill',
+        );
+        final c = controller(
+          retryConfig: const RetryConfig(
+            maxAttempts: 1,
+            cooldown: Duration(minutes: 5),
+          ),
+        );
+
+        // Load #1 fails; a cooldown-timer retry is armed for 5 min.
+        c.load();
+        async.flushMicrotasks();
+        expect(c.state.value, isA<AdFailed>());
+
+        // A direct load() call (e.g. a UI "retry" action) succeeds
+        // independently of that timer. Deliberately NOT reload(), which
+        // cancels _timer itself as a side effect and would defuse the
+        // very race this test is proving is otherwise unguarded.
+        sdk.alwaysLoadError = null;
+        c.load();
+        async.flushMicrotasks();
+        expect(c.state.value, const AdLoaded());
+        final loaded = sdk.natives.single;
+
+        // The stale timer fires now, while the recovered ad is loaded.
+        // Before the fix this stomped state to AdIdle and triggered a
+        // second, unrelated load — leaking the first ad's handle.
+        async.elapse(const Duration(minutes: 5));
+
+        expect(c.state.value, const AdLoaded());
+        expect(sdk.natives, hasLength(1)); // no second, stray load
+        expect(loaded.disposed, isFalse);
+        expect(c.handle, same(loaded));
+
+        c.dispose();
+      });
+    },
+  );
+
   test('forwards paid events', () async {
     final paid = <AdPaidEvent>[];
     final c = NativeAdController(

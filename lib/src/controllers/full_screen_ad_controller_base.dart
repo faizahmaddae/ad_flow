@@ -251,13 +251,21 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     _timer?.cancel();
     if (_retry.shouldRetry(_attempts)) {
       _timer = Timer(_retry.nextDelay(_attempts), () {
-        if (_disposed) return;
+        // Only act while still in the failed state this timer was armed
+        // for — a manual show()-triggered load() (or another retry timer,
+        // impossible by construction since _timer is single-slot, but a
+        // gate-recheck could not race here either) may have already
+        // recovered the controller to AdLoaded/AdShowing by the time this
+        // fires. Stomping that back to AdIdle would leak the current
+        // handle/subscription and force an unrelated second load (review
+        // finding #3).
+        if (_disposed || _state.value is! AdFailed) return;
         _state.value = const AdIdle();
         unawaited(load());
       });
     } else {
       _timer = Timer(_retry.cooldown, () {
-        if (_disposed) return;
+        if (_disposed || _state.value is! AdFailed) return;
         _attempts = 0;
         _state.value = const AdIdle();
         unawaited(load());

@@ -121,13 +121,18 @@ class NativeAdController implements AdController {
     _timer?.cancel();
     if (_retry.shouldRetry(_attempts)) {
       _timer = Timer(_retry.nextDelay(_attempts), () {
-        if (_disposed) return;
+        // Only act while still failed — a direct load() call (e.g. a UI
+        // retry action) may have already recovered to AdLoaded by the
+        // time this fires. Stomping that back to AdIdle would leak the
+        // current handle and force an unrelated second load (review
+        // finding #3).
+        if (_disposed || _state.value is! AdFailed) return;
         _state.value = const AdIdle();
         unawaited(load());
       });
     } else {
       _timer = Timer(_retry.cooldown, () {
-        if (_disposed) return;
+        if (_disposed || _state.value is! AdFailed) return;
         _attempts = 0;
         _state.value = const AdIdle();
         unawaited(load());

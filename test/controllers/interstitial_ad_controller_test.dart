@@ -243,6 +243,66 @@ void main() {
         c.dispose();
       });
     });
+
+    test(
+      'a stale retry timer does not stomp a since-recovered AdLoaded/'
+      'AdShowing state (review finding #3)',
+      () {
+        fakeAsync((async) {
+          sdk.alwaysLoadError = const AdFlowError(
+            AdFlowErrorKind.loadFailed,
+            'no fill',
+          );
+          final c = controller(
+            retryConfig: const RetryConfig(
+              maxAttempts: 1,
+              cooldown: Duration(minutes: 5),
+            ),
+          );
+
+          // Load #1 fails; a cooldown-timer retry is now armed for 5 min.
+          c.load();
+          async.flushMicrotasks();
+          expect(c.state.value, isA<AdFailed>());
+
+          // Independently of that timer, a natural-break show() attempt
+          // triggers its own load(), which now succeeds.
+          sdk.alwaysLoadError = null;
+          c.show();
+          async.flushMicrotasks();
+          expect(c.state.value, const AdLoaded());
+          expect(sdk.interstitials, hasLength(1));
+
+          // The ad is actually shown.
+          c.show();
+          async.flushMicrotasks();
+          expect(c.state.value, const AdShowing());
+          expect(coordinator.isFullScreenAdVisible, isTrue);
+          final shownHandle = sdk.interstitials.single;
+
+          // The STALE timer from the original failure fires now, while
+          // that ad is on screen. Before the fix this stomped state to
+          // AdIdle and triggered a second, unrelated load — leaking the
+          // shown ad's handle/subscription and orphaning the coordinator
+          // claim it held.
+          async.elapse(const Duration(minutes: 5));
+
+          expect(c.state.value, const AdShowing());
+          expect(coordinator.isFullScreenAdVisible, isTrue);
+          expect(sdk.interstitials, hasLength(1)); // no second, stray load
+          expect(shownHandle.disposed, isFalse); // the shown ad is intact
+
+          // The shown ad dismissing still behaves normally afterward.
+          shownHandle.simulateDismissed();
+          async.flushMicrotasks();
+          expect(coordinator.isFullScreenAdVisible, isFalse);
+          expect(shownHandle.disposed, isTrue);
+          expect(sdk.interstitials, hasLength(2)); // the real reload
+
+          c.dispose();
+        });
+      },
+    );
   });
 
   test('dispose cancels everything and discards in-flight loads', () {
