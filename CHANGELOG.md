@@ -1,3 +1,40 @@
+## 2.0.0
+
+Ground-up rewrite targeting `google_mobile_ads ^9.0.0`. **Breaking** — see
+[MIGRATION](docs/ad_flow_v2/MIGRATION.md) for the field-by-field and
+symbol-by-symbol mapping.
+
+* **NEW**: Rewarded interstitial format with the policy-mandated intro/skip
+  screen enforced by construction (`RewardedIntroScreen` + injected presenter).
+* **NEW**: Frequency capping — per-format time/count caps AND a global
+  cross-format cap, persisted across restarts.
+* **NEW**: Interstitial user-action pacing (`recordUserAction` +
+  `minActionsBetween`), opt-in by first use.
+* **NEW**: Server-side verification options for rewarded formats.
+* **NEW**: `onPaidEvent` impression-level revenue callback for every format.
+* **NEW**: `package:ad_flow/ad_flow_testing.dart` ships `FakeAdSdk` so apps
+  can unit-test their ad integration.
+* **NEW**: Experimental Next-Gen GMA SDK opt-in on Android via
+  `--dart-define=USE_NEXT_GEN_SDK=true` (no Dart changes).
+* **IMPROVED**: Architecture — dependency injection everywhere, no static
+  global config; one `AdSdk` seam is the only door to the plugin; state is
+  `ValueListenable<AdLoadState>`.
+* **IMPROVED**: Consent — UMP wrapped once into `ConsentGateway` Futures;
+  ATT handled by UMP (dependency on `app_tracking_transparency` removed);
+  consent failures degrade gracefully with a typed `lastError`.
+* **IMPROVED**: Retries — exponential backoff with jitter, cooldown, then
+  automatic re-arm (v1 never re-armed banner/native loads).
+* **FIXED**: App-open ads no longer fire after Control Center / permission
+  dialogs / app switcher (v1 treated iOS `inactive` as backgrounding);
+  foreground detection now uses `AppStateEventNotifier`; 4-hour expiry
+  enforced with discard-and-reload.
+* **FIXED**: `isUsingTestAds` false positives — test mode is an explicit
+  config flag, never derived from resolved IDs.
+* **BREAKING**: Requires Flutter ≥ 3.38.1, Dart ≥ 3.10, iOS 13+,
+  Android minSdk 24 / compileSdk 36 (from google_mobile_ads 9.x).
+* **BREAKING**: All v1 managers, mixins, Easy* widgets and the broad
+  `google_mobile_ads` re-export are gone — see MIGRATION §7.
+
 ## 1.3.18
 
 * **NEW**: `EasyBannerAd` now supports optional `SafeArea` wrapping ([#6](https://github.com/faizahmaddae/ad_flow/pull/6))

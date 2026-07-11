@@ -1,7 +1,7 @@
 # PROGRESS — ad_flow v2
 
 ## Current phase
-**Phase 13 — Docs** (Phases 2–12 complete).
+**Phase 14 — Final verification** (Phases 2–13 complete).
 
 ## Done
 - Phase 1 — Planning artifacts (committed `4e4132e`).
@@ -59,12 +59,16 @@
   - Android manifest sample `APPLICATION_ID`; iOS `GADApplicationIdentifier` + `NSUserTrackingUsageDescription` (template already scene-based — `UIApplicationSceneManifest` with SceneDelegate, satisfying gma v8+'s UISceneDelegate requirement)
   - **Verified builds:** `flutter build apk --debug` ✓ · `flutter build apk --debug --dart-define=USE_NEXT_GEN_SDK=true` ✓ · `flutter build ios --simulator --debug` ✓
 
+- Phase 13 — Docs ✅ (this commit)
+  - `README.md` rewritten for v2: app-ads.txt front and center, platform setup, per-format usage, consent/ATT per ADR-019, Remove-Ads/revenue/inspector, FakeAdSdk testing, Next-Gen flag, mediation pointer, policy checklist
+  - `MIGRATION.md` finalized: config field table + removed/renamed symbol table (from `legacy/v1` barrel)
+  - `CHANGELOG.md`: 2.0.0 entry prepended (NEW/IMPROVED/FIXED/BREAKING)
+
 ## In progress
-- Nothing mid-slice. **The very next concrete step:** Phase 13 — rewrite root `README.md` for v2 (setup incl. **app-ads.txt prominently**, per-format usage from the example, ATT/UMP notes per ADR-019, native factory path, mediation pointers, Next-Gen flag per ADR-010, policy-compliance checklist), finalize `MIGRATION.md` (fill the config field table + removed/renamed symbol list from `legacy/v1`), write `CHANGELOG.md` for 2.0.0.
+- Nothing mid-slice. **The very next concrete step:** Phase 14 — final verification: root analyze+test, example analyze+builds, `dart pub publish --dry-run` (note: pubspec still says `2.0.0-dev.1`; bump to `2.0.0` only when actually publishing), pana if available, self-review every ARCHITECTURE invariant + RESEARCH §6 policy item against the code/tests, and decide whether `legacy/` porting is complete (retry timing ✓ ported into RetryConfig defaults, consent-sample flow ✓ ConsentGateway, test-mode ✓ ADR-012 — recommend deleting `legacy/` or keeping one release cycle).
 
 ## Next (ordered)
-1. Phase 13 — Docs (README, MIGRATION finalization, CHANGELOG).
-2. Phase 14 — Final verification: `flutter analyze` + `flutter test` + example builds + `dart pub publish --dry-run` + self-review against RESEARCH §6 and every ARCHITECTURE invariant; decide whether `legacy/` is fully ported and can be deleted.
+1. Phase 14 — Final verification + publish-readiness.
 
 ## How to verify the current state
 `flutter analyze && flutter test` (root: 186 tests) · `cd example && flutter analyze && flutter build apk --debug`
