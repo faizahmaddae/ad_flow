@@ -1,7 +1,7 @@
 ## 2.0.0
 
 Ground-up rewrite targeting `google_mobile_ads ^9.0.0`. **Breaking** — see
-[MIGRATION](docs/ad_flow_v2/MIGRATION.md) for the field-by-field and
+[MIGRATION](MIGRATION.md) for the field-by-field and
 symbol-by-symbol mapping.
 
 * **NEW**: Rewarded interstitial format with the policy-mandated intro/skip

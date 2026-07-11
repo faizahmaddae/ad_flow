@@ -9,7 +9,7 @@ frequency capping, retry with backoff, and revenue callbacks built in.
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 v2 is a ground-up rewrite on `google_mobile_ads ^9.0.0`. Coming from 1.x?
-Read [MIGRATION](docs/ad_flow_v2/MIGRATION.md).
+Read [MIGRATION](MIGRATION.md).
 
 **What you get for free:**
 
