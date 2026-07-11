@@ -1,7 +1,7 @@
 # PROGRESS — ad_flow v2
 
 ## Current phase
-**Phase 4 — Consent (ConsentGateway)** (Phases 2–3 complete).
+**Phase 5 — Policies** (Phases 2–4 complete).
 
 ## Done
 - Phase 1 — Planning artifacts (committed `4e4132e`).
@@ -13,19 +13,23 @@
 - Phase 3 — Config ✅ (this commit)
   - `config/ad_platform.dart`: injectable `AdPlatform` + `adPlatformOf` (throws `invalidConfig` off-mobile)
   - `config/ad_flow_config.dart`: `AdFlowConfig` + per-format configs, `PlatformAdUnitId`, `FrequencyCap`, `RetryConfig` (ports v1 timing: 3 attempts / 5s base / 5min cooldown), `ServerSideVerification`, `RewardIntroContent`, `TestAdUnitIds` (v1's verified Google sample IDs), `AdFlowConfig.test()`, explicit `testMode`, per-format effective-ID resolution, `toRequestConfig()`
-  - ADR-017 (hand-written immutables, no freezed/copyWith), ADR-018 (no runtime appId field)
+  - ADR-017 (hand-written immutables, no freezed/copyWith), ADR-018 (no runtime appId field) (`69b2ca9`)
+- Phase 4 — Consent ✅ (this commit)
+  - `consent/consent_gateway.dart`: `ConsentGateway` interface + `UmpConsentGateway` — info update (30s timeout) → unconditional `loadAndShowConsentFormIfRequired` (plugin no-ops when not required) → `canRequestAds()`; degrades on failure with typed `lastError` (ADR-020); in-flight join as the double-load guard; `isPrivacyOptionsRequired` refreshed after update AND after form dismissal
+  - ADR-019: ATT is UMP's job — no `app_tracking_transparency` dependency (resolves the Phase 4 open question)
+  - `FakeAdSdk` gained `consentUpdateHold` (hang simulation) for the timeout test
 
 ## In progress
-- Nothing mid-slice. **The very next concrete step:** Phase 4 — `lib/src/consent/consent_gateway.dart`: `ConsentGateway` interface + `UmpConsentGateway(AdSdk)` implementing `ensureCanRequestAds({debug})` (info update → form if required → gate check, double-load guard, internal timeout), `isPrivacyOptionsRequired`, `showPrivacyOptions()`, `reset()`. Tests via `FakeAdSdk` consent knobs: non-EEA (gate true, no form), EEA (form then gate), update/form error fallback, privacy-options-required.
+- Nothing mid-slice. **The very next concrete step:** Phase 5 — `lib/src/policy/`: `RetryPolicy` (exp backoff + jitter from `RetryConfig`, injectable RNG for determinism), `KeyValueStore` (interface + shared_preferences impl + in-memory fake), `FrequencyCapPolicy` (per-slot + global caps over an injectable clock), `FullScreenAdCoordinator` (ValueListenable<bool>), `AdGate` (consent+enabled+caps composition). Heavy unit tests — this is where correctness lives.
 
 ## Next (ordered)
-1. Phase 4 — ConsentGateway (see ADR-016: pure orchestration over the seam's UMP primitives). Decide the ATT question (see Open questions).
-2. Phase 5 — Policies (RetryPolicy, KeyValueStore, FrequencyCapPolicy, AdGate, FullScreenAdCoordinator).
-3. Continue PLAN.md phase by phase (6 banner → 7 interstitial → …).
+1. Phase 5 — Policies. Confirm ADR-P2 (shared_preferences behind `KeyValueStore`) while building it. Inject a clock (`DateTime Function() now`) everywhere time matters.
+2. Phase 6 — Banner controller + widget.
+3. Continue PLAN.md phase by phase (7 interstitial → 8 rewarded → …).
 
 ## How to verify the current state
 `flutter analyze && flutter test`
-Expected: analyze clean, **58 tests passing** (core 6, fake seam 28, gma mappers 8, config 16).
+Expected: analyze clean, **73 tests passing** (core 6, fake seam 28, gma mappers 8, config 16, consent 15).
 
 ## Open questions / assumptions
 - ADR-P2 (shared_preferences behind KeyValueStore) — dependency already kept in pubspec; confirm at Phase 5. ADR-P3 (public re-export list; whether `FakeAdSdk` ships for consumers' tests) — Phase 11.

@@ -83,6 +83,10 @@ class FakeAdSdk implements AdSdk {
   /// If set, [requestConsentInfoUpdate] throws this.
   AdFlowError? consentUpdateError;
 
+  /// If set, [requestConsentInfoUpdate] awaits this before completing —
+  /// leave it incomplete to simulate a hanging network call.
+  Completer<void>? consentUpdateHold;
+
   /// If set, [loadAndShowConsentFormIfRequired] throws this.
   AdFlowError? consentFormError;
 
@@ -241,6 +245,8 @@ class FakeAdSdk implements AdSdk {
         debug: debug,
       ),
     );
+    final hold = consentUpdateHold;
+    if (hold != null) await hold.future;
     final error = consentUpdateError;
     if (error != null) throw error;
   }

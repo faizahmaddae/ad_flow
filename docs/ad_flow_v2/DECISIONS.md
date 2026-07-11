@@ -100,6 +100,17 @@ Status legend: `accepted` (agreed with the maintainer / by design), `proposed` (
 **Rationale.** A config field the SDK never reads is a lie that would burn integration time.
 **Consequences.** README/MIGRATION document the manifest/plist requirement prominently. `AdFlowConfig` carries ad *unit* IDs only.
 
+## ADR-019 — ATT handled by UMP; no `app_tracking_transparency` dependency  ·  accepted
+**Context.** v1 depended on `app_tracking_transparency` and sequenced the ATT prompt itself. RESEARCH §5: UMP can present the ATT explainer and the system prompt (IDFA message configured in the AdMob console), and double-prompting must be avoided.
+**Decision.** v2 has no direct ATT dependency. `UmpConsentGateway` lets UMP drive ATT; the README documents: configure the IDFA message in AdMob's Privacy & messaging, add `NSUserTrackingUsageDescription` to `Info.plist`, and do NOT also call `app_tracking_transparency` yourself.
+**Rationale.** One consent surface, one prompt sequence, one less dependency; matches Google's current guidance.
+**Consequences.** Apps wanting a custom pre-ATT explainer outside UMP must implement it themselves before `AdFlow.initialize`. Timeout design: only the info-update step has a timeout (30s default) — the form step never times out because the user may legitimately keep it open.
+
+## ADR-020 — Consent flow degrades to `canRequestAds()` on failure, surfacing `lastError`  ·  accepted
+**Context.** v1 swallowed consent errors with `catchError((_){})` (weakness #12); Google's sample continues after "consent gathering failed" because a previously-consented (or not-required) user should still get ads offline.
+**Decision.** `ensureCanRequestAds()` never throws: update/form failures and timeouts are captured as a typed `AdFlowError` on `ConsentGateway.lastError`, and the method returns the SDK's own `canRequestAds()` answer. Concurrent calls join the in-flight run (double-load guard).
+**Consequences.** Callers branch on the bool; diagnostics read `lastError`. `showPrivacyOptions()` DOES rethrow — a user-initiated surface should show its failure.
+
 ---
 
 ## Proposed / to confirm while building
