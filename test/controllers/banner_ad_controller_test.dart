@@ -1,0 +1,325 @@
+import 'dart:async';
+
+import 'package:ad_flow/src/config/ad_flow_config.dart';
+import 'package:ad_flow/src/controllers/banner_ad_controller.dart';
+import 'package:ad_flow/src/core/ad_flow_error.dart';
+import 'package:ad_flow/src/core/ad_load_state.dart';
+import 'package:ad_flow/src/policy/ad_gate.dart';
+import 'package:ad_flow/src/policy/frequency_cap_policy.dart';
+import 'package:ad_flow/src/policy/full_screen_ad_coordinator.dart';
+import 'package:ad_flow/src/policy/key_value_store.dart';
+import 'package:ad_flow/src/policy/retry_policy.dart';
+import 'package:ad_flow/src/seam/ad_sdk_types.dart';
+import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
+import 'package:fake_async/fake_async.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  late FakeAdSdk sdk;
+  late FullScreenAdCoordinator coordinator;
+  late bool consented;
+  late bool enabled;
+
+  setUp(() {
+    sdk = FakeAdSdk();
+    sdk.enforceConsentGate = true;
+    sdk.canRequestAdsResult = true;
+    consented = true;
+    enabled = true;
+    coordinator = FullScreenAdCoordinator();
+  });
+  tearDown(() {
+    coordinator.dispose();
+    sdk.dispose();
+  });
+
+  AdGate gate() => AdGate(
+    canRequestAds: () async => consented && sdk.canRequestAdsResult,
+    isEnabled: () => enabled,
+    caps: StoredFrequencyCapPolicy(
+      store: InMemoryKeyValueStore(),
+      slotCaps: const {},
+      globalCap: const FrequencyCap(),
+    ),
+    coordinator: coordinator,
+  );
+
+  BannerAdController controller({
+    BannerConfig? config,
+    RetryConfig retryConfig = const RetryConfig(),
+    void Function(AdPaidEvent)? onPaid,
+  }) => BannerAdController(
+    sdk: sdk,
+    gate: gate(),
+    config:
+        config ??
+        const BannerConfig(adUnitId: PlatformAdUnitId(android: 'unit-b')),
+    adUnitId: 'unit-b',
+    retry: RetryPolicy(retryConfig, random: () => 0.5),
+    onPaid: onPaid,
+  );
+
+  group('gating (invariant 1)', () {
+    test('never loads while consent is closed', () async {
+      consented = false;
+      sdk.canRequestAdsResult = false;
+      final c = controller();
+      await c.load(width: 320);
+      expect(c.state.value, const AdIdle());
+      expect(sdk.loadLog, isEmpty); // enforceConsentGate would throw if hit
+      c.dispose();
+    });
+
+    test('never loads while ads are disabled', () async {
+      enabled = false;
+      final c = controller();
+      await c.load(width: 320);
+      expect(sdk.loadLog, isEmpty);
+      c.dispose();
+    });
+  });
+
+  group('loading', () {
+    test('walks idle → loading → loaded and exposes the handle', () async {
+      final c = controller();
+      final states = <AdLoadState>[];
+      c.state.addListener(() => states.add(c.state.value));
+
+      await c.load(width: 360);
+
+      expect(states, [const AdLoading(), const AdLoaded()]);
+      expect(c.handle, same(sdk.banners.single));
+      expect(
+        sdk.bannerSpecs.single.size,
+        isA<AnchoredAdaptiveSizeSpec>().having((s) => s.width, 'width', 360),
+      );
+      c.dispose();
+    });
+
+    test('double load is a no-op while loading or loaded', () async {
+      final c = controller();
+      await c.load(width: 320);
+      await c.load(width: 320);
+      expect(sdk.banners, hasLength(1));
+      c.dispose();
+    });
+
+    test('adaptive kind without a width fails with invalidConfig', () async {
+      final c = controller();
+      await c.load();
+      expect(
+        c.state.value,
+        isA<AdFailed>().having(
+          (s) => s.error.kind,
+          'kind',
+          AdFlowErrorKind.invalidConfig,
+        ),
+      );
+      expect(sdk.loadLog, isEmpty);
+      c.dispose();
+    });
+
+    test('fixed kind loads without a width and passes the right spec',
+        () async {
+      final c = controller(
+        config: const BannerConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-b'),
+          kind: BannerKind.fixed,
+          fixedSize: FixedBannerSize.mediumRectangle,
+        ),
+      );
+      await c.load();
+      expect(c.state.value, const AdLoaded());
+      expect(
+        sdk.bannerSpecs.single.size,
+        isA<FixedSizeSpec>().having(
+          (s) => s.size,
+          'size',
+          FixedBannerSize.mediumRectangle,
+        ),
+      );
+      c.dispose();
+    });
+
+    test('collapsible placement flows into the load spec', () async {
+      final c = controller(
+        config: const BannerConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-b'),
+          collapsible: CollapsiblePlacement.bottom,
+        ),
+      );
+      await c.load(width: 320);
+      expect(sdk.bannerSpecs.single.collapsible, CollapsiblePlacement.bottom);
+      c.dispose();
+    });
+
+    test('forwards paid events', () async {
+      final paid = <AdPaidEvent>[];
+      final c = controller(onPaid: paid.add);
+      await c.load(width: 320);
+
+      const event = AdPaidEvent(
+        adUnitId: 'unit-b',
+        valueMicros: 1000,
+        currencyCode: 'USD',
+        precision: AdRevenuePrecision.precise,
+      );
+      sdk.banners.single.simulatePaid(event);
+      expect(paid, [event]);
+      c.dispose();
+    });
+  });
+
+  group('retry and auto re-arm (ADR-008)', () {
+    test('retries with exponential backoff until success', () {
+      fakeAsync((async) {
+        sdk.alwaysLoadError = const AdFlowError(
+          AdFlowErrorKind.loadFailed,
+          'no fill',
+        );
+        final c = controller(
+          retryConfig: const RetryConfig(
+            maxAttempts: 3,
+            baseDelay: Duration(seconds: 5),
+          ),
+        );
+        c.load(width: 320);
+        async.flushMicrotasks();
+        expect(c.state.value, isA<AdFailed>());
+        expect(sdk.consentUpdateCalls, isEmpty);
+
+        // First retry after 5s fails again.
+        async.elapse(const Duration(seconds: 5));
+        expect(c.state.value, isA<AdFailed>());
+
+        // Second retry after 10s succeeds.
+        sdk.alwaysLoadError = null;
+        async.elapse(const Duration(seconds: 10));
+        expect(c.state.value, const AdLoaded());
+        expect(sdk.banners, hasLength(1));
+
+        c.dispose();
+      });
+    });
+
+    test('after the budget, a cooldown auto re-arms the load (v1 fix #8)',
+        () {
+      fakeAsync((async) {
+        sdk.alwaysLoadError = const AdFlowError(
+          AdFlowErrorKind.loadFailed,
+          'no fill',
+        );
+        final c = controller(
+          retryConfig: const RetryConfig(
+            maxAttempts: 1,
+            cooldown: Duration(minutes: 5),
+          ),
+        );
+        c.load(width: 320);
+        async.flushMicrotasks();
+        expect(c.state.value, isA<AdFailed>());
+
+        // No retry timer — straight to cooldown.
+        async.elapse(const Duration(minutes: 4, seconds: 59));
+        expect(c.state.value, isA<AdFailed>());
+
+        sdk.alwaysLoadError = null;
+        async.elapse(const Duration(seconds: 1));
+        expect(c.state.value, const AdLoaded());
+
+        c.dispose();
+      });
+    });
+  });
+
+  group('refresh', () {
+    test('disposes the old handle and reloads after minRefresh, reusing '
+        'the width', () {
+      fakeAsync((async) {
+        final c = controller(
+          config: const BannerConfig(
+            adUnitId: PlatformAdUnitId(android: 'unit-b'),
+            minRefresh: Duration(seconds: 60),
+          ),
+        );
+        c.load(width: 360);
+        async.flushMicrotasks();
+        final first = sdk.banners.single;
+
+        async.elapse(const Duration(seconds: 60));
+        expect(first.disposed, isTrue);
+        expect(sdk.banners, hasLength(2));
+        expect(c.state.value, const AdLoaded());
+        expect(
+          sdk.bannerSpecs.last.size,
+          isA<AnchoredAdaptiveSizeSpec>().having((s) => s.width, 'width', 360),
+        );
+
+        c.dispose();
+      });
+    });
+
+    test('minRefresh below the 30s floor is clamped', () {
+      fakeAsync((async) {
+        final c = controller(
+          config: const BannerConfig(
+            adUnitId: PlatformAdUnitId(android: 'unit-b'),
+            minRefresh: Duration(seconds: 1),
+          ),
+        );
+        c.load(width: 320);
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 29));
+        expect(sdk.banners, hasLength(1));
+        async.elapse(const Duration(seconds: 1));
+        expect(sdk.banners, hasLength(2));
+
+        c.dispose();
+      });
+    });
+  });
+
+  group('dispose', () {
+    test('cancels timers, disposes the handle and stops all work', () {
+      fakeAsync((async) {
+        final c = controller();
+        c.load(width: 320);
+        async.flushMicrotasks();
+        final handle = sdk.banners.single;
+
+        c.dispose();
+        expect(handle.disposed, isTrue);
+
+        async.elapse(const Duration(hours: 1));
+        expect(sdk.banners, hasLength(1)); // no refresh, no re-arm
+      });
+    });
+
+    test('disposing before the gate check resolves never hits the SDK', () {
+      fakeAsync((async) {
+        final c = controller();
+        c.load(width: 320);
+        c.dispose(); // dispose before the async gate check resolves
+        async.flushMicrotasks();
+
+        expect(sdk.banners, isEmpty);
+      });
+    });
+
+    test('a load completing after dispose discards the handle', () {
+      fakeAsync((async) {
+        sdk.loadHold = Completer<void>();
+        final c = controller();
+        c.load(width: 320);
+        async.flushMicrotasks(); // past the gate, load in flight
+        c.dispose();
+        sdk.loadHold!.complete();
+        async.flushMicrotasks();
+
+        expect(sdk.banners.single.disposed, isTrue);
+        expect(c.handle, isNull);
+      });
+    });
+  });
+}

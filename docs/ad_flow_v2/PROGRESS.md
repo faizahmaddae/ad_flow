@@ -1,7 +1,7 @@
 # PROGRESS — ad_flow v2
 
 ## Current phase
-**Phase 6 — Banner** (Phases 2–5 complete).
+**Phase 7 — Interstitial** (Phases 2–6 complete).
 
 ## Done
 - Phase 1 — Planning artifacts (committed `4e4132e`).
@@ -23,19 +23,24 @@
   - `policy/retry_policy.dart`: exp backoff ×2 from `baseDelay`, ±jitter, `maxDelay` cap, injectable RNG; `shouldRetry` budget matches v1 semantics (3 = 3 total attempts)
   - `policy/full_screen_ad_coordinator.dart`: depth-counted `enter/exit` with clamped exit (can't wedge), `ValueListenable<bool>`
   - `policy/frequency_cap_policy.dart`: `StoredFrequencyCapPolicy` — session counts in-memory, hourly window via pruned persisted history, `minGap` via a separately persisted last-impression timestamp (works for gaps > 1h), global `_global` slot recorded on every impression
-  - `policy/ad_gate.dart`: `canLoad` = enabled && canRequestAds (cheap current check, NOT the consent flow); `canShow` = coordinator && canLoad && caps
+  - `policy/ad_gate.dart`: `canLoad` = enabled && canRequestAds (cheap current check, NOT the consent flow); `canShow` = coordinator && canLoad && caps (`2ee9464`)
+- Phase 6 — Banner ✅ (this commit)
+  - `core/ad_controller.dart`: `AdController` + `FullScreenAdController` contracts
+  - `controllers/banner_ad_controller.dart`: gate-checked `load({width})` (width remembered for refresh/re-arm), retry-with-backoff → cooldown → auto re-arm, minRefresh refresh loop (clamped ≥30s) that disposes the old handle, paid-event forwarding, dispose-safe mid-flight loads
+  - `widgets/ad_flow_banner.dart`: reserves height first frame (no layout shift), kicks the first load with real layout width, hosts `handle.buildWidget()`, `ownsController` disposal
+  - `FakeAdSdk` gained `loadHold` (in-flight load simulation)
 
 ## In progress
-- Nothing mid-slice. **The very next concrete step:** Phase 6 — `lib/src/core/ad_controller.dart` (AdController + FullScreenAdController contracts) then `controllers/banner_ad_controller.dart` (gate-checked load, RetryPolicy timer with auto re-arm after cooldown, refresh ≥ minRefresh clamped to ≥30s, dispose) + `widgets/ad_flow_banner.dart` (reserved height placeholder → handle.buildWidget(), dispose on unmount). Widget tests use `FakeAdSdk` with `enforceConsentGate = true`.
+- Nothing mid-slice. **The very next concrete step:** Phase 7 — `controllers/interstitial_ad_controller.dart` implementing `FullScreenAdController`: gate-checked preload, `show()` = gate.canShow('interstitial') + minActionsBetween counter → handle.show() → coordinator.enter/exit on events → recordImpression → dispose handle → immediate reload. Tests: no show before gate, cap enforced, reload-after-dismiss, never double-show, minActionsBetween.
 
 ## Next (ordered)
-1. Phase 6 — Banner controller + widget.
-2. Phase 7 — Interstitial controller.
-3. Continue PLAN.md phase by phase (8 rewarded → 9 native → 10 app-open → …).
+1. Phase 7 — Interstitial controller. Much of its show/reload/coordinator plumbing will be shared by rewarded/rewarded-interstitial/app-open — consider a shared base (e.g. `BaseFullScreenAdController`) so Phases 8/10 are thin.
+2. Phase 8 — Rewarded + rewarded interstitial (intro/skip screen).
+3. Continue PLAN.md (9 native → 10 app-open → 11 facade → …).
 
 ## How to verify the current state
 `flutter analyze && flutter test`
-Expected: analyze clean, **108 tests passing** (core 6, fake seam 28, gma mappers 8, config 16, consent 15, policy 35).
+Expected: analyze clean, **128 tests passing** (core 6, fake seam 28, gma mappers 8, config 16, consent 15, policy 35, banner controller 15, banner widget 5).
 
 ## Open questions / assumptions
 - ADR-P2 (shared_preferences behind KeyValueStore) — dependency already kept in pubspec; confirm at Phase 5. ADR-P3 (public re-export list; whether `FakeAdSdk` ships for consumers' tests) — Phase 11.

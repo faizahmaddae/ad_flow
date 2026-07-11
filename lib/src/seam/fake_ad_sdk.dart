@@ -80,6 +80,10 @@ class FakeAdSdk implements AdSdk {
   /// While set, every `load*` call throws this.
   AdFlowError? alwaysLoadError;
 
+  /// If set, every `load*` call awaits this before proceeding — leave it
+  /// incomplete to keep a load in flight (e.g. to dispose mid-load).
+  Completer<void>? loadHold;
+
   /// If set, [requestConsentInfoUpdate] throws this.
   AdFlowError? consentUpdateError;
 
@@ -137,13 +141,15 @@ class FakeAdSdk implements AdSdk {
     await _appForeground.close();
   }
 
-  void _checkLoadAllowed(String format, String adUnitId) {
+  Future<void> _checkLoadAllowed(String format, String adUnitId) async {
     if (enforceConsentGate && !canRequestAdsResult) {
       throw StateError(
         'Invariant violation: load $format:$adUnitId requested while '
         'canRequestAds() is false.',
       );
     }
+    final hold = loadHold;
+    if (hold != null) await hold.future;
     final error = nextLoadError ?? alwaysLoadError;
     if (error != null) {
       nextLoadError = null;
@@ -151,12 +157,12 @@ class FakeAdSdk implements AdSdk {
     }
   }
 
-  FakeFullScreenAdHandle _loadFullScreen(
+  Future<FakeFullScreenAdHandle> _loadFullScreen(
     String format,
     String adUnitId,
     List<FakeFullScreenAdHandle> into,
-  ) {
-    _checkLoadAllowed(format, adUnitId);
+  ) async {
+    await _checkLoadAllowed(format, adUnitId);
     loadLog.add('$format:$adUnitId');
     final handle = FakeFullScreenAdHandle(adUnitId);
     into.add(handle);
@@ -203,7 +209,7 @@ class FakeAdSdk implements AdSdk {
 
   @override
   Future<BannerHandle> loadBanner(BannerLoadSpec spec) async {
-    _checkLoadAllowed('banner', spec.adUnitId);
+    await _checkLoadAllowed('banner', spec.adUnitId);
     loadLog.add('banner:${spec.adUnitId}');
     bannerSpecs.add(spec);
     final handle = FakeBannerHandle(
@@ -217,7 +223,7 @@ class FakeAdSdk implements AdSdk {
 
   @override
   Future<NativeHandle> loadNative(NativeLoadSpec spec) async {
-    _checkLoadAllowed('native', spec.adUnitId);
+    await _checkLoadAllowed('native', spec.adUnitId);
     loadLog.add('native:${spec.adUnitId}');
     nativeSpecs.add(spec);
     final handle = FakeNativeHandle(spec.adUnitId);
