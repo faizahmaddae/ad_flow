@@ -1,7 +1,7 @@
 # PROGRESS — ad_flow v2
 
 ## Current phase
-**Phase 9 — Native** (Phases 2–8 complete).
+**Phase 10 — App-open + lifecycle** (Phases 2–9 complete).
 
 ## Done
 - Phase 1 — Planning artifacts (committed `4e4132e`).
@@ -38,19 +38,22 @@
   - Base engine: reward callback wrapped exactly-once (SDK misfire defense)
   - `controllers/rewarded_ad_controller.dart`: thin subclass, SSV from config
   - `controllers/rewarded_interstitial_ad_controller.dart`: injected `RewardedIntroPresenter`; intro precedes ad by construction; skip → no ad, stays warm; no intro when no warm ad; re-entrant intro rejected
-  - `widgets/rewarded_intro_screen.dart`: material intro screen + static `show(context, content)` presenter (route-dismiss counts as skip)
+  - `widgets/rewarded_intro_screen.dart`: material intro screen + static `show(context, content)` presenter (route-dismiss counts as skip) (`1d86014`)
+- Phase 9 — Native ✅ (this commit)
+  - `controllers/native_ad_controller.dart`: template + factory paths from `NativeConfig`, banner-style retry/cooldown/re-arm, NO refresh loop, manual `reload()`, `reservedHeight` per rendering path (small 90 / medium 320 / factory 100)
+  - `widgets/ad_flow_native_ad.dart`: fixed reserved height, load on init, hosts `handle.buildWidget()`, `ownsController` disposal
 
 ## In progress
-- Nothing mid-slice. **The very next concrete step:** Phase 9 — `controllers/native_ad_controller.dart` (template + factory paths from `NativeConfig`, retry/re-arm like banner, no refresh loop) + `widgets/ad_flow_native_ad.dart` (placeholder → `handle.buildWidget()`, dispose on unmount). Tests: template render via fake, spec passthrough (templateKind/factoryId/factoryExtras), dispose verified, paid events.
+- Nothing mid-slice. **The very next concrete step:** Phase 10 — `controllers/app_open_ad_controller.dart` (base subclass + load-timestamp via injectable clock + `isExpired` on the 4h `AppOpenConfig.expiry`; show() must discard-and-reload an expired ad instead of showing) + `lifecycle/app_open_ad_manager.dart` (subscribes `sdk.appForegroundEvents`, cold-start rule = first foreground event NOT preceded by cold-start show config, coordinator suppression comes free via gate.canShow, `start()`/`stop()`). Tests: no cold-start show; warm foreground shows; suppressed while full-screen visible; expired discarded + reloaded.
 
 ## Next (ordered)
-1. Phase 9 — Native controller + widget.
-2. Phase 10 — App-open controller + `AppOpenAdManager` (4h expiry via injectable clock; cold-start rule; coordinator suppression; `sdk.appForegroundEvents`).
-3. Phase 11 — Facade; then 12 example → 13 docs → 14 final.
+1. Phase 10 — App-open + lifecycle (single owner: exactly one manager, owned by the facade later).
+2. Phase 11 — Facade (`AdFlow.initialize` composition root, enable/disableAds, onPaidEvent, openAdInspector, `PrivacyOptionsButton`, ADR-P3 re-export decision) + end-to-end FakeAdSdk test.
+3. Phase 12 example → 13 docs → 14 final verification.
 
 ## How to verify the current state
 `flutter analyze && flutter test`
-Expected: analyze clean, **154 tests passing** (…, interstitial 12, rewarded 4, rewarded-interstitial 6, intro screen 4).
+Expected: analyze clean, **165 tests passing** (…, native controller 8, native widget 3).
 
 ## Open questions / assumptions
 - ADR-P2 (shared_preferences behind KeyValueStore) — dependency already kept in pubspec; confirm at Phase 5. ADR-P3 (public re-export list; whether `FakeAdSdk` ships for consumers' tests) — Phase 11.
