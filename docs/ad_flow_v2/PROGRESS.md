@@ -1,7 +1,7 @@
 # PROGRESS — ad_flow v2
 
 ## Current phase
-**Phase 11 — Facade + widgets** (Phases 2–10 complete).
+**Phase 12 — Example app** (Phases 2–11 complete; core library DONE).
 
 ## Done
 - Phase 1 — Planning artifacts (committed `4e4132e`).
@@ -46,19 +46,25 @@
   - Base gained `onLoaded()` hook + protected `discardCurrentAd()`
   - `controllers/app_open_ad_controller.dart`: load timestamp via injectable clock; `isExpired` on the 4h `AppOpenConfig.expiry`; `show()` discards-and-reloads stale ads instead of showing
   - `lifecycle/app_open_ad_manager.dart`: single owner of foreground behavior; subscribes seam foreground events; FIRST event after start() never shows (platform emits a foreground event on cold start too) unless `showOnColdStart`; all other policy (gate/caps/coordinator/expiry) delegated to the controller; idempotent start, stop, dispose
-  - Tests verify: no cold-start show, warm-return shows, coordinator suppression, expiry discard+reload, cap pacing, stop unsubscribes — the v1 `inactive` bug cannot recur (foreground comes only from the seam's `AppStateEventNotifier` mapping)
+  - Tests verify: no cold-start show, warm-return shows, coordinator suppression, expiry discard+reload, cap pacing, stop unsubscribes — the v1 `inactive` bug cannot recur (foreground comes only from the seam's `AppStateEventNotifier` mapping) (`0da0f49`)
+- Phase 11 — Facade + widgets ✅ (this commit)
+  - `facade/ad_flow.dart`: `AdFlow.initialize` composition root — SDK init ∥ consent (init failure tolerated), `updateRequestConfiguration` once the gate opens, app-open manager started, configured full-screen formats preloaded; `enableAds/disableAds` (reactive `adsEnabled`), `onPaidEvent` dispatcher wired to every controller, `banner()`/`native()` per-placement factories (testMode-aware), throwing getters for unconfigured slots, `openAdInspector`, `dispose`, thin `AdFlow.instance` pointer (cleared on dispose)
+  - `widgets/privacy_options_button.dart`: renders nothing unless required; tap → `showPrivacyOptions()` (invariant 2)
+  - `lib/ad_flow_testing.dart`: public testing barrel shipping `FakeAdSdk` (ADR-022)
+  - ADR-022 resolves ADR-P3 (zero gma re-exports); ADR-023 (intro presenter injected at initialize, fail-fast)
+  - End-to-end FakeAdSdk test: init → EEA consent → preloads → show → paid callback; plus closed-gate, remove-ads, global-cap-across-formats, factories, instance lifecycle
 
 ## In progress
-- Nothing mid-slice. **The very next concrete step:** Phase 11 — `facade/ad_flow.dart` (`AdFlow.initialize` composition root: build graph, run `sdk.initialize()` in parallel with `consent.ensureCanRequestAds()`, push `updateRequestConfiguration` when gate opens, start `AppOpenAdManager`, preload configured formats) + `enableAds/disableAds` + `onPaidEvent` + `openAdInspector` + `widgets/privacy_options_button.dart` + finalize ADR-P3 re-export list. End-to-end FakeAdSdk test: init → consent → load → show → revenue callback.
+- Nothing mid-slice. **The very next concrete step:** Phase 12 — rebuild `example/`: new Flutter app (android+ios) demoing all six formats with `AdFlowConfig.test()`, navigatorKey + `RewardedIntroScreen.show` presenter, `PrivacyOptionsButton` in settings, paid-event logging; Android manifest `com.google.android.gms.ads.APPLICATION_ID` (sample app id `ca-app-pub-3940256099942544~3347511713`), iOS `GADApplicationIdentifier` (`~1458002511`) + `NSUserTrackingUsageDescription` + scene lifecycle; document `flutter build apk --dart-define=USE_NEXT_GEN_SDK=true` variant. v1's example is under `legacy/v1/example` for reference.
 
 ## Next (ordered)
-1. Phase 11 — Facade + PrivacyOptionsButton + ADR-P3.
-2. Phase 12 — Example app (all formats; Android/iOS setup; `--dart-define=USE_NEXT_GEN_SDK=true` variant).
-3. Phase 13 docs → Phase 14 final verification.
+1. Phase 12 — Example app (acceptance: builds on Android and iOS; Next-Gen variant builds on Android — requires local SDKs; if unavailable, get as far as `flutter build apk --debug` and record the gap here).
+2. Phase 13 — Docs: README (app-ads.txt prominent!), per-format docs, policy checklist, finalize MIGRATION (fill the config field table + removed/renamed list), CHANGELOG 2.0.0.
+3. Phase 14 — Final verification (`dart pub publish --dry-run`, pana, invariant self-review).
 
 ## How to verify the current state
 `flutter analyze && flutter test`
-Expected: analyze clean, **173 tests passing** (…, app-open controller+manager 8).
+Expected: analyze clean, **186 tests passing** (…, facade 11, privacy button 2).
 
 ## Open questions / assumptions
 - ADR-P2 (shared_preferences behind KeyValueStore) — dependency already kept in pubspec; confirm at Phase 5. ADR-P3 (public re-export list; whether `FakeAdSdk` ships for consumers' tests) — Phase 11.

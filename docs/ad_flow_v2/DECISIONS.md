@@ -117,9 +117,21 @@ Status legend: `accepted` (agreed with the maintainer / by design), `proposed` (
 **Rationale.** Opt-in enforcement can't brick monetization by omission, yet gives policy-conscious apps the exact guardrail.
 **Consequences.** README must tell integrators to call `recordUserAction()` at natural breaks to get action pacing.
 
+## ADR-022 — Public surface: zero google_mobile_ads re-exports; FakeAdSdk ships via `ad_flow_testing.dart` (resolves ADR-P3)  ·  accepted
+**Context.** ADR-P3 proposed a minimal curated re-export of plugin types. As built, the seam's own value types (`FixedBannerSize`, `AdPaidEvent`, `RewardEarned`, `MaxContentRating`, …) cover the entire public API — no plugin type leaks through any signature.
+**Decision.** The main barrel re-exports **nothing** from `google_mobile_ads`. Consumers needing plugin internals (mediation extras, custom `AdRequest`s) import the plugin directly. Test doubles (`FakeAdSdk`, fake handles) ship in a separate `package:ad_flow/ad_flow_testing.dart` barrel so consumers can unit-test their integration; `InMemoryKeyValueStore` is already public via the policy exports.
+**Rationale.** Re-exporting plugin types couples consumers to plugin majors for no gain; a clean seam plus an explicit escape hatch is strictly simpler. Shipping the fakes makes downstream apps testable the same way ad_flow itself is.
+**Consequences.** MIGRATION documents "import google_mobile_ads directly if you need more" (table row already present). Fake knobs become semi-public API — additive changes only.
+
+## ADR-023 — Rewarded interstitial intro presenter is injected at `AdFlow.initialize`  ·  accepted
+**Context.** The intro screen needs a `BuildContext` at show time; the facade has none.
+**Decision.** `AdFlow.initialize` takes a `rewardedIntroPresenter` (e.g. `(content) => RewardedIntroScreen.show(navigatorKey.currentContext!, content)`) and **fails fast with `invalidConfig`** when the rewarded interstitial slot is configured without one.
+**Rationale.** Failing at init is discoverable; failing at first show in production is not. Injection keeps the controller free of navigation concerns and testable.
+**Consequences.** README shows the navigatorKey pattern. Apps with custom intro UIs pass their own presenter (must keep a skip path — policy).
+
 ---
 
 ## Proposed / to confirm while building
 - ~~**ADR-P1 — Immutability codegen (`freezed`).**~~ Resolved by ADR-017 (hand-written, no codegen).
 - ~~**ADR-P2 — Persistence dependency for frequency caps.**~~ **Confirmed at Phase 5:** `shared_preferences` (`SharedPreferencesAsync`, keys namespaced `ad_flow.`) behind the `KeyValueStore` interface; `InMemoryKeyValueStore` for tests. Design note: the last-impression timestamp is persisted separately from the pruned hourly history so `minGap` values longer than the 1h history window still work; session counts are deliberately in-memory only.
-- **ADR-P3 — Minimum public surface.** *Proposed:* re-export only the `google_mobile_ads` types consumers genuinely need (`AdSize`, `RewardItem`, `LoadAdError`, `AdRequest`, template style types) rather than v1's broad re-export. Finalize the list during Phase 11.
+- ~~**ADR-P3 — Minimum public surface.**~~ Resolved by ADR-022 (zero plugin re-exports; testing barrel for fakes).
