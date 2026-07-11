@@ -364,6 +364,10 @@ class FakeFullScreenAdHandle
   /// off to drive the showed event manually.
   bool autoEmitShowed = true;
 
+  /// Whether [simulateDismissed] has fired — the ad's lifecycle has ended,
+  /// matching the real SDK's single-use ad instances.
+  bool _dismissed = false;
+
   @override
   Stream<FullScreenAdEvent> get contentEvents => _content.stream;
 
@@ -376,6 +380,19 @@ class FakeFullScreenAdHandle
     lastOnUserEarnedReward = onUserEarnedReward;
     final rejectsWith = showRejectsWith;
     if (rejectsWith != null) throw rejectsWith;
+    if (showCalls > 1) {
+      // A real single-use ad instance can't be shown a second time — fail
+      // the way the SDK would (via the event stream, matching the
+      // documented AdSdk.show contract) instead of silently succeeding
+      // again. Catches a controller bug that reaches a double-show
+      // through a path review finding #10's own repro didn't cover.
+      _content.add(
+        const AdFailedToShowEvent(
+          AdFlowError(AdFlowErrorKind.showFailed, 'Ad already used'),
+        ),
+      );
+      return;
+    }
     final error = showError;
     if (error != null) {
       _content.add(AdFailedToShowEvent(error));
@@ -387,8 +404,18 @@ class FakeFullScreenAdHandle
   /// Emits [AdShowedEvent] (for tests with [autoEmitShowed] off).
   void simulateShowed() => _content.add(const AdShowedEvent());
 
-  /// Emits [AdDismissedEvent].
-  void simulateDismissed() => _content.add(const AdDismissedEvent());
+  /// Emits [AdDismissedEvent]. Throws [StateError] if [show] was never
+  /// called — the real SDK never dismisses an ad that was never shown.
+  void simulateDismissed() {
+    if (showCalls == 0) {
+      throw StateError(
+        'simulateDismissed called before show() — an ad can only be '
+        'dismissed after it was shown.',
+      );
+    }
+    _dismissed = true;
+    _content.add(const AdDismissedEvent());
+  }
 
   /// Emits [AdImpressionEvent].
   void simulateImpression() => _content.add(const AdImpressionEvent());
@@ -396,9 +423,18 @@ class FakeFullScreenAdHandle
   /// Emits [AdClickedEvent].
   void simulateClicked() => _content.add(const AdClickedEvent());
 
-  /// Invokes the reward callback captured by [show].
-  void simulateReward(RewardEarned reward) =>
-      lastOnUserEarnedReward?.call(reward);
+  /// Invokes the reward callback captured by [show]. Throws [StateError]
+  /// if the ad has already been dismissed — a reward can't arrive after
+  /// the ad's lifecycle has ended.
+  void simulateReward(RewardEarned reward) {
+    if (_dismissed) {
+      throw StateError(
+        'simulateReward called after simulateDismissed — a reward cannot '
+        'arrive once the ad has already been dismissed.',
+      );
+    }
+    lastOnUserEarnedReward?.call(reward);
+  }
 
   /// Emits a paid event.
   void simulatePaid(AdPaidEvent event) => _paid.add(event);

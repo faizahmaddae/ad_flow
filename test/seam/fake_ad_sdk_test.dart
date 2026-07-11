@@ -125,6 +125,68 @@ void main() {
       expect((events.single as AdFailedToShowEvent).error, same(error));
     });
 
+    test(
+      'a rejected showRejectsWith throws instead of completing '
+      '(review finding #1\'s premise)',
+      () async {
+        final handle =
+            await sdk.loadInterstitial('i', const AdRequestOptions())
+                as FakeFullScreenAdHandle;
+        handle.showRejectsWith = Exception('ad already released');
+
+        await expectLater(handle.show(), throwsA(isA<Exception>()));
+        expect(handle.showCalls, 1);
+      },
+    );
+
+    test(
+      'a SECOND show() call fails via AdFailedToShowEvent, not a silent '
+      'repeat (review finding #10: the real SDK is single-use)',
+      () async {
+        final handle =
+            await sdk.loadInterstitial('i', const AdRequestOptions())
+                as FakeFullScreenAdHandle;
+        final events = <FullScreenAdEvent>[];
+        handle.contentEvents.listen(events.add);
+
+        await handle.show();
+        await handle.show();
+
+        expect(handle.showCalls, 2);
+        expect(events, [isA<AdShowedEvent>(), isA<AdFailedToShowEvent>()]);
+      },
+    );
+
+    test(
+      'simulateDismissed before show() throws (review finding #10: '
+      'impossible event ordering)',
+      () async {
+        final handle =
+            await sdk.loadInterstitial('i', const AdRequestOptions())
+                as FakeFullScreenAdHandle;
+        expect(handle.simulateDismissed, throwsStateError);
+      },
+    );
+
+    test(
+      'simulateReward after simulateDismissed throws (review finding #10: '
+      'impossible event ordering)',
+      () async {
+        final handle =
+            await sdk.loadRewarded('r', const AdRequestOptions())
+                as FakeFullScreenAdHandle;
+        await handle.show(onUserEarnedReward: (_) {});
+        handle.simulateDismissed();
+
+        expect(
+          () => handle.simulateReward(
+            const RewardEarned(amount: 1, type: 'coins'),
+          ),
+          throwsStateError,
+        );
+      },
+    );
+
     test('paid events are delivered', () async {
       final handle =
           await sdk.loadInterstitial('i', const AdRequestOptions())
