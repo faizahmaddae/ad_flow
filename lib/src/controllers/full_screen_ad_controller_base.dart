@@ -83,6 +83,20 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   @protected
   void onShown() {}
 
+  /// Hook invoked right after a load succeeds (e.g. to timestamp the ad).
+  @protected
+  void onLoaded() {}
+
+  /// Drops the current handle (without showing it) and preloads a fresh
+  /// one — used by app-open to discard expired ads.
+  @protected
+  void discardCurrentAd() {
+    if (_disposed) return;
+    _dropHandle();
+    _state.value = const AdIdle();
+    unawaited(load());
+  }
+
   @override
   ValueListenable<AdLoadState> get state => _state;
 
@@ -112,6 +126,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       _paidSub = handle.paidEvents.listen(_onPaid ?? (_) {});
       _attempts = 0;
       _state.value = const AdLoaded();
+      onLoaded();
     } on AdFlowError catch (e) {
       if (_disposed) return;
       _state.value = AdFailed(e);

@@ -1,7 +1,7 @@
 # PROGRESS — ad_flow v2
 
 ## Current phase
-**Phase 10 — App-open + lifecycle** (Phases 2–9 complete).
+**Phase 11 — Facade + widgets** (Phases 2–10 complete).
 
 ## Done
 - Phase 1 — Planning artifacts (committed `4e4132e`).
@@ -41,19 +41,24 @@
   - `widgets/rewarded_intro_screen.dart`: material intro screen + static `show(context, content)` presenter (route-dismiss counts as skip) (`1d86014`)
 - Phase 9 — Native ✅ (this commit)
   - `controllers/native_ad_controller.dart`: template + factory paths from `NativeConfig`, banner-style retry/cooldown/re-arm, NO refresh loop, manual `reload()`, `reservedHeight` per rendering path (small 90 / medium 320 / factory 100)
-  - `widgets/ad_flow_native_ad.dart`: fixed reserved height, load on init, hosts `handle.buildWidget()`, `ownsController` disposal
+  - `widgets/ad_flow_native_ad.dart`: fixed reserved height, load on init, hosts `handle.buildWidget()`, `ownsController` disposal (`44d75c9`)
+- Phase 10 — App-open + lifecycle ✅ (this commit)
+  - Base gained `onLoaded()` hook + protected `discardCurrentAd()`
+  - `controllers/app_open_ad_controller.dart`: load timestamp via injectable clock; `isExpired` on the 4h `AppOpenConfig.expiry`; `show()` discards-and-reloads stale ads instead of showing
+  - `lifecycle/app_open_ad_manager.dart`: single owner of foreground behavior; subscribes seam foreground events; FIRST event after start() never shows (platform emits a foreground event on cold start too) unless `showOnColdStart`; all other policy (gate/caps/coordinator/expiry) delegated to the controller; idempotent start, stop, dispose
+  - Tests verify: no cold-start show, warm-return shows, coordinator suppression, expiry discard+reload, cap pacing, stop unsubscribes — the v1 `inactive` bug cannot recur (foreground comes only from the seam's `AppStateEventNotifier` mapping)
 
 ## In progress
-- Nothing mid-slice. **The very next concrete step:** Phase 10 — `controllers/app_open_ad_controller.dart` (base subclass + load-timestamp via injectable clock + `isExpired` on the 4h `AppOpenConfig.expiry`; show() must discard-and-reload an expired ad instead of showing) + `lifecycle/app_open_ad_manager.dart` (subscribes `sdk.appForegroundEvents`, cold-start rule = first foreground event NOT preceded by cold-start show config, coordinator suppression comes free via gate.canShow, `start()`/`stop()`). Tests: no cold-start show; warm foreground shows; suppressed while full-screen visible; expired discarded + reloaded.
+- Nothing mid-slice. **The very next concrete step:** Phase 11 — `facade/ad_flow.dart` (`AdFlow.initialize` composition root: build graph, run `sdk.initialize()` in parallel with `consent.ensureCanRequestAds()`, push `updateRequestConfiguration` when gate opens, start `AppOpenAdManager`, preload configured formats) + `enableAds/disableAds` + `onPaidEvent` + `openAdInspector` + `widgets/privacy_options_button.dart` + finalize ADR-P3 re-export list. End-to-end FakeAdSdk test: init → consent → load → show → revenue callback.
 
 ## Next (ordered)
-1. Phase 10 — App-open + lifecycle (single owner: exactly one manager, owned by the facade later).
-2. Phase 11 — Facade (`AdFlow.initialize` composition root, enable/disableAds, onPaidEvent, openAdInspector, `PrivacyOptionsButton`, ADR-P3 re-export decision) + end-to-end FakeAdSdk test.
-3. Phase 12 example → 13 docs → 14 final verification.
+1. Phase 11 — Facade + PrivacyOptionsButton + ADR-P3.
+2. Phase 12 — Example app (all formats; Android/iOS setup; `--dart-define=USE_NEXT_GEN_SDK=true` variant).
+3. Phase 13 docs → Phase 14 final verification.
 
 ## How to verify the current state
 `flutter analyze && flutter test`
-Expected: analyze clean, **165 tests passing** (…, native controller 8, native widget 3).
+Expected: analyze clean, **173 tests passing** (…, app-open controller+manager 8).
 
 ## Open questions / assumptions
 - ADR-P2 (shared_preferences behind KeyValueStore) — dependency already kept in pubspec; confirm at Phase 5. ADR-P3 (public re-export list; whether `FakeAdSdk` ships for consumers' tests) — Phase 11.
