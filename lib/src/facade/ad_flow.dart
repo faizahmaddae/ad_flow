@@ -222,7 +222,19 @@ class AdFlow {
   /// Play Services Dynamite-module bootstrap it can fail to call back at
   /// all, well past 30s. Without this, [_start] (and therefore every
   /// caller's `FutureBuilder`-gated UI, as the example app does) would
-  /// hang forever.
+  /// hang forever *in the case where the native call simply never replies
+  /// but the platform side keeps running*.
+  ///
+  /// This timeout is **not** a fix for every hang shape: if the Dynamite
+  /// bootstrap wedges the platform thread badly enough to take the whole
+  /// engine down (observed on 3 separate fresh emulators on one host —
+  /// `flutter run` eventually printed "Service protocol connection closed"
+  /// / "Lost connection to device" itself, ~4 minutes in, with zero Dart
+  /// code — not even an unrelated `Timer.periodic` heartbeat — executing
+  /// in between), no Dart-side timer ever gets a chance to fire, because
+  /// the isolate that would run it is the thing that died. There is no
+  /// Dart-reachable mitigation for that failure mode; see DECISIONS.md
+  /// ADR-027.
   static const _initTimeout = Duration(seconds: 30);
 
   Future<void> _start(ConsentDebugOptions? debug) async {
