@@ -25,11 +25,12 @@ import '../seam/gma_ad_sdk.dart';
 /// The composition root and ergonomic entry point of ad_flow.
 ///
 /// [initialize] builds the whole graph (seam → consent → policies →
-/// controllers → lifecycle), runs SDK init in parallel with consent
-/// gathering, and preloads every configured full-screen format once the
-/// consent gate is open. All collaborators are injectable — tests build
-/// their own `AdFlow` over a `FakeAdSdk` (ADR-004: no static state beyond
-/// the optional [instance] convenience pointer).
+/// controllers → lifecycle), initializes the SDK (concurrently with
+/// consent gathering) then applies request configuration, and preloads
+/// every configured full-screen format once the consent gate is open. All
+/// collaborators are injectable — tests build their own `AdFlow` over a
+/// `FakeAdSdk` (ADR-004: no static state beyond the optional [instance]
+/// convenience pointer).
 class AdFlow {
   AdFlow._({
     required AdFlowConfig config,
@@ -141,7 +142,8 @@ class AdFlow {
   /// Builds the graph and starts ad_flow.
   ///
   /// SDK initialization and consent gathering run in parallel (init sends
-  /// no ad request); nothing loads before the consent gate is open.
+  /// no ad request); request configuration is applied after init completes
+  /// (ADR-028); nothing loads before the consent gate is open.
   /// [sdk], [consent], [store] and [platform] are injectable for tests.
   /// [rewardedIntroPresenter] is required when the rewarded interstitial
   /// slot is configured. [consentDebug] passes UMP debug geography —
@@ -218,41 +220,63 @@ class AdFlow {
   /// Bounds [AdSdk.initialize] the same way [UmpConsentGateway] bounds its
   /// own network-bound step. RESEARCH.md documents the native SDK's own
   /// init call as completing "on init or a 30s timeout," but that is the
-  /// native SDK's promise, not ours — on a device/emulator with a stuck
-  /// Play Services Dynamite-module bootstrap it can fail to call back at
-  /// all, well past 30s. Without this, [_start] (and therefore every
-  /// caller's `FutureBuilder`-gated UI, as the example app does) would
-  /// hang forever *in the case where the native call simply never replies
-  /// but the platform side keeps running*.
+  /// native SDK's promise, not ours — so [_start] wraps it defensively so a
+  /// merely-slow (rather than frozen) init can't hang every caller's
+  /// `FutureBuilder`-gated UI forever.
   ///
-  /// This timeout is **not** a fix for every hang shape: if the Dynamite
-  /// bootstrap wedges the platform thread badly enough to take the whole
-  /// engine down (observed on 3 separate fresh emulators on one host —
-  /// `flutter run` eventually printed "Service protocol connection closed"
-  /// / "Lost connection to device" itself, ~4 minutes in, with zero Dart
-  /// code — not even an unrelated `Timer.periodic` heartbeat — executing
-  /// in between), no Dart-side timer ever gets a chance to fire, because
-  /// the isolate that would run it is the thing that died. There is no
-  /// Dart-reachable mitigation for that failure mode; see DECISIONS.md
-  /// ADR-027.
+  /// Note: the far worse "whole app frozen at
+  /// `ChimeraMobileAdsSettingManagerCreatorImpl`, isolate dead, this
+  /// timeout never even fires" hang originally blamed on the native SDK
+  /// (ADR-027 and its addenda) turned out to be a real ad_flow bug, now
+  /// fixed by the call ORDERING in [_start] — see ADR-028. This timeout
+  /// remains as belt-and-suspenders for a genuinely slow init.
   static const _initTimeout = Duration(seconds: 30);
 
   Future<void> _start(ConsentDebugOptions? debug) async {
-    await Future.wait([
-      // Init failures — including a native init call that never returns —
-      // must not brick the app; loads will retry anyway.
-      _sdk.initialize().timeout(_initTimeout).catchError((Object _) {}),
-      _consent.ensureCanRequestAds(debug: debug),
-      // Sends no ad request (pure config), so it must NOT be gated on
-      // consent: if the gate is still closed here and only resolves
-      // later — a delayed privacy-options grant, a first-launch form
-      // that failed — controllers loading ads from that point on would
-      // otherwise never get testDeviceIds/tagForChildDirectedTreatment/
-      // maxAdContentRating/tagForUnderAgeOfConsent applied (review
-      // finding #5: a registered test device would get live ads; a
-      // child-directed app would serve untagged/wrongly-rated ads).
-      _sdk.updateRequestConfiguration(_config.toRequestConfig()),
-    ]);
+    // Consent (UMP) is independent of the Ads SDK and safe to run in
+    // parallel with everything below.
+    final consent = _consent.ensureCanRequestAds(debug: debug);
+
+    // Initialize the Ads SDK FIRST, and let it finish, BEFORE touching the
+    // request configuration. This ordering is load-bearing, not cosmetic:
+    //
+    // In the google_mobile_ads plugin, `MobileAds#initialize` is dispatched
+    // to a background thread on the native side (FlutterMobileAdsWrapper
+    // runs `MobileAds.initialize()` inside `new Thread(...)`), so it never
+    // blocks the platform thread. `MobileAds#updateRequestConfiguration`,
+    // by contrast, is handled *synchronously on the platform thread* inside
+    // the plugin's `onMethodCall` — and it calls both
+    // `MobileAds.getRequestConfiguration()` and `setRequestConfiguration()`.
+    // If those run before the native Ads (Play Services Dynamite) module has
+    // finished bootstrapping, they force that bootstrap to happen
+    // synchronously on the platform thread — and, worse, race the background
+    // init that is bootstrapping the very same singleton. On a cold device
+    // that race deadlocks the platform thread, which freezes the entire
+    // Flutter engine (and the Dart isolate with it) hard enough that no
+    // Dart-side timeout can recover — the exact "wedged at
+    // ChimeraMobileAdsSettingManagerCreatorImpl" hang triaged in ADR-027.
+    // Awaiting init first means the module is already loaded, so applying
+    // the request configuration is a cheap, safe platform-thread call.
+    //
+    // `catchError` keeps a failed/slow init from bricking the app; loads
+    // retry independently.
+    await _sdk.initialize().timeout(_initTimeout).catchError((Object _) {});
+
+    // Now that the Ads SDK is initialized, apply request configuration.
+    // This still runs UNCONDITIONALLY (not gated on the consent *result*):
+    // it sends no ad request, and controllers loading ads later must have
+    // testDeviceIds/tagForChildDirectedTreatment/maxAdContentRating/
+    // tagForUnderAgeOfConsent applied regardless of how or when consent
+    // resolves (review finding #5: otherwise a registered test device gets
+    // live ads, and a child-directed app serves untagged/wrongly-rated
+    // ads). Guarded so a native failure here can't brick startup either.
+    await _sdk
+        .updateRequestConfiguration(_config.toRequestConfig())
+        .catchError((Object _) {});
+
+    // Gate ad loads on consent (init already awaited above).
+    await consent;
+
     // The manager and controllers gate every load themselves, so starting
     // them with a closed gate is safe — they simply stay idle.
     _appOpen?.start();

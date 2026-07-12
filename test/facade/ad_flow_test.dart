@@ -143,6 +143,64 @@ void main() {
     );
 
     test(
+      'updateRequestConfiguration is NOT called until initialize() has '
+      'completed (regression, ADR-028): the google_mobile_ads plugin '
+      'services MobileAds#updateRequestConfiguration SYNCHRONOUSLY on the '
+      'platform thread (it calls MobileAds.getRequestConfiguration() + '
+      'setRequestConfiguration()), while MobileAds#initialize runs on a '
+      'background thread. Running the two concurrently (as review finding '
+      "#5's original fix did, via Future.wait) races two threads to "
+      'bootstrap the same native Ads settings-manager singleton, which '
+      'deadlocks the platform thread and freezes the entire Flutter engine '
+      'on a cold device. The config call must therefore wait for init.',
+      () {
+        fakeAsync((async) {
+          sdk.initializeHold = Completer<void>();
+          sdk.consentStatus = AdConsentStatus.notRequired;
+          sdk.canRequestAdsResult = true;
+
+          AdFlow? ads;
+          unawaited(
+            AdFlow.initialize(
+              fullConfig,
+              sdk: sdk,
+              store: InMemoryKeyValueStore(),
+              platform: AdPlatform.android,
+              rewardedIntroPresenter: (_) async => true,
+            ).then((flow) => ads = flow),
+          );
+
+          // Drain every microtask/timer that is allowed to run while init
+          // is still held pending.
+          async.elapse(const Duration(seconds: 5));
+
+          // The fix: request configuration must NOT have been pushed while
+          // init is unfinished. (Under the old concurrent Future.wait this
+          // fired immediately, before init — the deadlock trigger.)
+          expect(
+            sdk.requestConfigs,
+            isEmpty,
+            reason:
+                'updateRequestConfiguration ran before initialize() '
+                'completed — this is the platform-thread-deadlock ordering '
+                'bug ADR-028 fixes.',
+          );
+          expect(ads, isNull); // AdFlow.initialize() still awaiting init
+
+          // Once init completes, config is applied (still unconditionally,
+          // preserving review finding #5) and startup finishes.
+          sdk.initializeHold!.complete();
+          async.elapse(const Duration(seconds: 1));
+
+          expect(sdk.requestConfigs, hasLength(1));
+          expect(sdk.requestConfigs.single.testDeviceIds, ['dev-1']);
+          expect(ads, isNotNull);
+          ads!.dispose();
+        });
+      },
+    );
+
+    test(
       'unconfigured slots build no controllers and throw on access',
       () async {
         final ads = await boot(
