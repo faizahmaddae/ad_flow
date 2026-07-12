@@ -124,10 +124,25 @@ it swaps every **configured** slot to Google's sample IDs. Never ship it.
 ### Banner
 
 ```dart
-bottomNavigationBar: SafeArea(
-  child: AdFlowBanner(controller: ads.banner(), ownsController: true),
-),
+class _MyScreenState extends State<MyScreen> {
+  // Create the controller ONCE, as a field — never inside build().
+  late final _banner = ads.banner();
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        bottomNavigationBar: SafeArea(
+          child: AdFlowBanner(controller: _banner, ownsController: true),
+        ),
+        // ...
+      );
+}
 ```
+
+> **Never create ad controllers inside `build()`.** Each `ads.banner()` /
+> `ads.native()` call mints a fresh controller and starts a new ad load, so
+> building one in `build()` restarts the load — and blanks the ad — on every
+> rebuild (e.g. every `setState`). Hoist each to a `late final` `State`
+> field and reference the field, as above.
 
 Anchored adaptive by default (Google's revenue recommendation); the widget
 reserves its height from the first frame so content never shifts under a
@@ -181,7 +196,11 @@ ready-made presenter; customize copy via `RewardedInterstitialConfig.intro`.
 ### Native
 
 ```dart
-AdFlowNativeAd(controller: ads.native(), ownsController: true)
+// Create the controller ONCE, as a State field (never inside build()):
+late final _nativeAd = ads.native();
+
+// ...then in build():
+AdFlowNativeAd(controller: _nativeAd, ownsController: true)
 ```
 
 Template rendering (`NativeConfig(templateKind: NativeTemplateKind.small | .medium)`)
