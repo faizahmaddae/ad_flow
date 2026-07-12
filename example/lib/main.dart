@@ -76,6 +76,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   AdFlow get ads => widget.ads;
 
+  // Create one controller per placement ONCE — never inside build(). Each
+  // ads.banner()/ads.native() call mints a fresh controller and starts a
+  // new ad load, so building them in build() would restart the load (and
+  // blank the ad) on every setState — e.g. every time the coin count
+  // changes. `ownsController: true` lets the hosting widget dispose these
+  // when HomeScreen unmounts.
+  late final _bannerController = ads.banner();
+  late final _nativeController = ads.native();
+
   void _grantReward(RewardEarned reward) {
     setState(() => _coins += reward.amount.toInt());
     ScaffoldMessenger.of(context).showSnackBar(
@@ -142,7 +151,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   const Text('Native (medium template)'),
                   const SizedBox(height: 8),
                   AdFlowNativeAd(
-                    controller: ads.native(),
+                    controller: _nativeController,
                     ownsController: true,
                   ),
                 ],
@@ -167,7 +176,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       // Reserved height from the first frame — no layout shift.
       bottomNavigationBar: SafeArea(
-        child: AdFlowBanner(controller: ads.banner(), ownsController: true),
+        child: AdFlowBanner(controller: _bannerController, ownsController: true),
       ),
     );
   }

@@ -103,4 +103,36 @@ void main() {
     await tester.pumpWidget(host(const SizedBox()));
     expect(handle.disposed, isTrue);
   });
+
+  testWidgets(
+    'adopts a different controller passed on rebuild: disposes the old '
+    '(when owned) and loads + renders the new one — guards against the '
+    'permanent-blank-and-leak that a controller built inside build() '
+    'would otherwise cause on every setState',
+    (tester) async {
+      final c1 = controller();
+      await tester.pumpWidget(
+        host(AdFlowNativeAd(controller: c1, ownsController: true)),
+      );
+      await tester.pumpAndSettle();
+      expect(sdk.natives, hasLength(1));
+      final firstHandle = sdk.natives.single;
+
+      // Rebuild the SAME widget position with a brand-new controller (the
+      // anti-pattern of `ads.native()` inside build()).
+      final c2 = controller();
+      await tester.pumpWidget(
+        host(AdFlowNativeAd(controller: c2, ownsController: true)),
+      );
+      await tester.pumpAndSettle();
+
+      // Old controller disposed (we owned it); new one loaded and rendered.
+      expect(firstHandle.disposed, isTrue);
+      expect(sdk.natives, hasLength(2));
+      expect(sdk.natives.last.disposed, isFalse);
+      expect(sdk.natives.last.buildWidgetCalls, greaterThan(0));
+
+      await tester.pumpWidget(host(const SizedBox()));
+    },
+  );
 }

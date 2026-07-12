@@ -42,6 +42,21 @@ class _AdFlowNativeAdState extends State<AdFlowNativeAd> {
   }
 
   @override
+  void didUpdateWidget(AdFlowNativeAd oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // If a different controller is passed in on rebuild, adopt it: dispose
+    // the old one (if we owned it) and start the new one's load — [initState]
+    // only ran for the very first controller. Without this, a caller that
+    // (mistakenly) builds a fresh controller inside build() would leave this
+    // widget hosting a never-loaded controller — a permanent blank plus a
+    // leaked, still-loading old controller.
+    if (!identical(oldWidget.controller, widget.controller)) {
+      if (oldWidget.ownsController) oldWidget.controller.dispose();
+      widget.controller.load();
+    }
+  }
+
+  @override
   void dispose() {
     if (widget.ownsController) widget.controller.dispose();
     super.dispose();

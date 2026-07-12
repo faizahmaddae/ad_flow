@@ -44,6 +44,20 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
   bool _loadRequested = false;
 
   @override
+  void didUpdateWidget(AdFlowBanner oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // If a different controller is passed in on rebuild, adopt it: dispose
+    // the old one (if we owned it) and re-arm the first-load path so the new
+    // controller loads on the next layout pass. Without this, a caller that
+    // (mistakenly) builds a fresh controller inside build() would leak the
+    // old controller and never re-request against the new one.
+    if (!identical(oldWidget.controller, widget.controller)) {
+      if (oldWidget.ownsController) oldWidget.controller.dispose();
+      _loadRequested = false;
+    }
+  }
+
+  @override
   void dispose() {
     if (widget.ownsController) widget.controller.dispose();
     super.dispose();

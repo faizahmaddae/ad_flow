@@ -212,4 +212,34 @@ void main() {
 
     await tester.pumpWidget(host(const SizedBox()));
   });
+
+  testWidgets(
+    'adopts a different controller passed on rebuild: disposes the old '
+    '(when owned) and re-requests the load for the new one',
+    (tester) async {
+      sdk.bannerSize = const AdDimensions(width: 360, height: 60);
+      final c1 = controller();
+      await tester.pumpWidget(
+        host(AdFlowBanner(controller: c1, ownsController: true)),
+      );
+      await tester.pumpAndSettle();
+      expect(sdk.banners, hasLength(1));
+      final firstHandle = sdk.banners.single;
+
+      // Rebuild the same widget position with a brand-new controller (the
+      // anti-pattern of `ads.banner()` inside build()).
+      final c2 = controller();
+      await tester.pumpWidget(
+        host(AdFlowBanner(controller: c2, ownsController: true)),
+      );
+      await tester.pumpAndSettle();
+
+      // Old controller disposed (we owned it); new one loaded.
+      expect(firstHandle.disposed, isTrue);
+      expect(sdk.banners, hasLength(2));
+      expect(sdk.banners.last.disposed, isFalse);
+
+      await tester.pumpWidget(host(const SizedBox()));
+    },
+  );
 }
