@@ -26,12 +26,12 @@ import '../seam/gma_ad_sdk.dart';
 /// The composition root and ergonomic entry point of ad_flow.
 ///
 /// [initialize] builds the whole graph (seam → consent → policies →
-/// controllers → lifecycle), initializes the SDK (concurrently with
-/// consent gathering) then applies request configuration, and preloads
-/// every configured full-screen format once the consent gate is open. All
-/// collaborators are injectable — tests build their own `AdFlow` over a
-/// `FakeAdSdk` (ADR-004: no static state beyond the optional [instance]
-/// convenience pointer).
+/// controllers → lifecycle) synchronously and returns immediately; SDK init,
+/// consent gathering, request configuration and full-screen preloads all run
+/// in the background (**non-blocking**, ADR-032 — render your first frame at
+/// once, await [whenReady] only if you must). All collaborators are
+/// injectable — tests build their own `AdFlow` over a `FakeAdSdk` (ADR-004:
+/// no static state beyond the optional [instance] convenience pointer).
 class AdFlow {
   AdFlow._({
     required AdFlowConfig config,
@@ -63,6 +63,7 @@ class AdFlow {
       isEnabled: () => _adsEnabled.value,
       caps: _caps,
       coordinator: _coordinator,
+      configReady: _configApplied.future,
     );
 
     final interstitialId = config.interstitialAdUnitId(_platform);
@@ -140,11 +141,18 @@ class AdFlow {
     }
   }
 
-  /// Builds the graph and starts ad_flow.
+  /// Builds the graph and starts ad_flow — **non-blocking** (ADR-032).
   ///
-  /// SDK initialization and consent gathering run in parallel (init sends
-  /// no ad request); request configuration is applied after init completes
-  /// (ADR-028); nothing loads before the consent gate is open.
+  /// The returned `Future` completes on the next microtask, **before**
+  /// consent resolves: graph construction is synchronous, and consent, SDK
+  /// init and request configuration all run in the background. **Render your
+  /// first frame immediately — never gate UI on this Future** (that was v1's
+  /// splash hang). Await [whenReady] only if you genuinely need the consent
+  /// result. Nothing loads before request configuration is applied AND the
+  /// consent gate is open (ADR-028/ADR-033), so rendering at once is safe.
+  ///
+  /// SDK init and consent gathering run in parallel (init sends no ad
+  /// request); request configuration is applied after init completes (ADR-028).
   /// [sdk], [consent], [store] and [platform] are injectable for tests.
   /// [rewardedIntroPresenter] is required when the rewarded interstitial
   /// slot is configured. [consentDebug] passes UMP debug geography —
@@ -248,6 +256,12 @@ class AdFlow {
 
   final ValueNotifier<bool> _adsEnabled = ValueNotifier(true);
 
+  /// Completes once `updateRequestConfiguration` has been applied in [_start]
+  /// (or on [dispose]). `AdGate.canLoad` awaits it so no ad request — preload
+  /// or on-demand first-frame banner/native — can precede request
+  /// configuration now that startup runs in the background (ADR-033).
+  final Completer<void> _configApplied = Completer<void>();
+
   InterstitialAdController? _interstitial;
   RewardedAdController? _rewarded;
   RewardedInterstitialAdController? _rewardedInterstitial;
@@ -337,6 +351,14 @@ class AdFlow {
     await _sdk
         .updateRequestConfiguration(_config.toRequestConfig())
         .catchError((Object _) {});
+
+    // Request configuration is now applied — release the config gate so any
+    // on-demand load waiting in AdGate.canLoad may proceed (it still checks
+    // consent). Completed even if the config call above failed/timed out:
+    // loads must never hang forever, and a failed config setter is no worse
+    // than not having ad_flow. (updateRequestConfiguration swallows its own
+    // errors, and init is bounded by _initTimeout, so this always runs.)
+    if (!_configApplied.isCompleted) _configApplied.complete();
 
     // Gate ad loads on consent (init already awaited above).
     final canRequestAds = await consent;
@@ -467,6 +489,11 @@ class AdFlow {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    // Release any load parked in AdGate.canLoad awaiting config (a background
+    // startup may not have applied it yet) — the controllers are disposed
+    // below, so those loads then bail on their own _disposed guard instead of
+    // waiting out the init timeout.
+    if (!_configApplied.isCompleted) _configApplied.complete();
     _appOpen?.dispose();
     _interstitial?.dispose();
     _rewarded?.dispose();

@@ -112,9 +112,11 @@ final ads = await AdFlow.initialize(
 
 `initialize` builds the whole graph synchronously and **returns immediately** —
 consent gathering, the Ads SDK init and request configuration all run in the
-**background**. Nothing loads before the consent gate opens (invariant 1), so
-it is safe to render at once; the app-open manager starts and every configured
-full-screen format preloads once the gate resolves.
+**background**. No ad request goes out before request configuration is applied
+**and** the consent gate opens (ADR-028/ADR-033) — this holds even for a
+banner/native you mount on the first frame — so it is safe to render at once;
+the app-open manager starts and every configured full-screen format preloads
+once the gate resolves.
 
 **Never block your first frame on `AdFlow.initialize()`.** Render your real UI
 immediately; ads, consent and ATT appear over it:

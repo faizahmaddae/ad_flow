@@ -113,6 +113,11 @@ class FakeAdSdk implements AdSdk {
   /// Value returned by [canRequestAds].
   bool canRequestAdsResult = false;
 
+  /// If set, [canRequestAds] throws this instead of returning — models the
+  /// production gateway's final `canRequestAds()` (which is outside its
+  /// try/catch) failing, so a background `_start` can reject.
+  AdFlowError? canRequestAdsError;
+
   /// Value returned by [getConsentStatus].
   AdConsentStatus consentStatus = AdConsentStatus.unknown;
 
@@ -155,6 +160,11 @@ class FakeAdSdk implements AdSdk {
   final _appForeground = StreamController<AppForegroundEvent>.broadcast(
     sync: true,
   );
+
+  /// Whether anyone is currently subscribed to [appForegroundEvents] — lets a
+  /// test detect an app-open manager that (re)subscribed, e.g. after a
+  /// dispose-during-startup.
+  bool get hasForegroundListener => _appForeground.hasListener;
 
   /// Emits one [AppForegroundEvent] on [appForegroundEvents].
   void emitAppForeground() => _appForeground.add(const AppForegroundEvent());
@@ -293,7 +303,11 @@ class FakeAdSdk implements AdSdk {
   }
 
   @override
-  Future<bool> canRequestAds() async => canRequestAdsResult;
+  Future<bool> canRequestAds() async {
+    final error = canRequestAdsError;
+    if (error != null) throw error;
+    return canRequestAdsResult;
+  }
 
   @override
   Future<AdConsentStatus> getConsentStatus() async => consentStatus;

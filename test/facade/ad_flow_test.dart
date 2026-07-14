@@ -100,6 +100,43 @@ void main() {
       ads.dispose();
     });
 
+    test('CONFIG-BEFORE-LOAD: an on-demand banner load does NOT fire before '
+        'updateRequestConfiguration is applied, even with the consent gate '
+        'already open (review-fix #5 under non-blocking init, ADR-033)',
+        () async {
+      // Hold SDK init so request configuration (applied after init, ADR-028)
+      // is delayed. Consent is non-EEA → the gate opens immediately, so ONLY
+      // a config-readiness gate can stop the load.
+      sdk.initializeHold = Completer<void>();
+      sdk.consentStatus = AdConsentStatus.notRequired;
+      sdk.canRequestAdsResult = true;
+
+      final ads = await AdFlow.initialize(
+        fullConfig,
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+        rewardedIntroPresenter: (_) async => true,
+      );
+      // The app mounts a banner on frame 1 (as the example now does).
+      final banner = ads.banner();
+      final loadFuture = banner.load(width: 320);
+
+      await Future<void>.delayed(Duration.zero); // drain microtasks
+      // init is held → config not applied → the banner MUST NOT have loaded,
+      // or its first request would go out untagged (testDeviceIds/COPPA).
+      expect(sdk.requestConfigs, isEmpty);
+      expect(sdk.bannerSpecs, isEmpty);
+
+      sdk.initializeHold!.complete(); // init done → config applied
+      await ads.whenReady;
+      await loadFuture;
+      expect(sdk.requestConfigs, hasLength(1)); // config applied first
+      expect(sdk.bannerSpecs.single.adUnitId, 'b-a'); // then the banner loaded
+      banner.dispose();
+      ads.dispose();
+    });
+
     test('whenReady completes false and nothing loads when the gate stays '
         'closed', () async {
       sdk.consentStatus = AdConsentStatus.required;
@@ -146,6 +183,57 @@ void main() {
 
       sdk.consentUpdateHold!.complete();
       await tester.pumpAndSettle();
+      ads.dispose();
+    });
+
+    test('dispose() during background startup is safe — the _start _disposed '
+        'guard stops the app-open manager from (re)subscribing to foreground '
+        'events and stops preloads (ADR-032)', () async {
+      sdk.consentStatus = AdConsentStatus.required;
+      sdk.canRequestAdsResult = true;
+      sdk.consentUpdateHold = Completer<void>(); // park _start on consent
+
+      final ads = await AdFlow.initialize(
+        fullConfig, // appOpen configured
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+        rewardedIntroPresenter: (_) async => true,
+      );
+      // Dispose while _start is still awaiting consent (init/config done).
+      ads.dispose();
+      expect(sdk.hasForegroundListener, isFalse); // manager not started yet
+
+      // Release consent. The _disposed guard must skip _appOpen.start() and the
+      // preloads — without it, start() re-subscribes appForegroundEvents on the
+      // disposed manager (a leak this assertion catches).
+      sdk.consentUpdateHold!.complete();
+      expect(await ads.whenReady, isTrue); // resolves without throwing
+      expect(sdk.hasForegroundListener, isFalse); // no (re)subscription
+      expect(sdk.loadLog, isEmpty); // no preloads on the torn-down graph
+    });
+
+    test('whenReady captures a background _start failure: resolves false, '
+        'never throws, no unhandled async error (ADR-032 error net)',
+        () async {
+      // A throwing canRequestAds() models the production gateway's final
+      // (outside-try/catch) canRequestAds() failing → _start rejects.
+      sdk.canRequestAdsError = const AdFlowError(
+        AdFlowErrorKind.consent,
+        'boom',
+      );
+
+      final ads = await AdFlow.initialize(
+        fullConfig,
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+        rewardedIntroPresenter: (_) async => true,
+      );
+
+      // _begin's .catchError converts the rejection to false — whenReady must
+      // NOT throw (flutter_test also fails on any unhandled async error).
+      expect(await ads.whenReady, isFalse);
       ads.dispose();
     });
 
