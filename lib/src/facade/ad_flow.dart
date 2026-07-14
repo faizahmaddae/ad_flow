@@ -207,8 +207,19 @@ class AdFlow {
       store: store ?? SharedPrefsKeyValueStore(),
       rewardedIntroPresenter: rewardedIntroPresenter,
     );
-    await flow._start(consentDebug);
+    // NON-BLOCKING (ADR-032): the whole graph is built synchronously above.
+    // Publish the instance pointer and kick consent + SDK init in the
+    // BACKGROUND, then return immediately — the caller's first frame must
+    // never wait on the network-bound consent flow (that was v1's splash-hang
+    // pain). Nothing loads before the consent gate opens (invariant 1), so a
+    // caller can render its UI at once; ads/consent/ATT arrive over it. Await
+    // [whenReady] only if you genuinely need the consent result.
+    //
+    // The returned Future completes on the next microtask (before consent).
+    // `initialize` stays `async` so a synchronous constructor failure (e.g. a
+    // missing rewardedIntroPresenter) still surfaces as a rejected Future.
     _instance = flow;
+    flow._begin(consentDebug);
     return flow;
   }
 
@@ -243,6 +254,26 @@ class AdFlow {
   AppOpenAdController? _appOpenController;
   AppOpenAdManager? _appOpen;
   bool _disposed = false;
+  late final Future<bool> _ready;
+
+  /// Kicks the background startup ([_start]) exactly once and stores its
+  /// result future for [whenReady]. Errors are captured here — a background
+  /// startup failure must never become an unhandled async error or reach
+  /// [whenReady] as a throw (`_start` already degrades internally; this is a
+  /// last-resort net).
+  void _begin(ConsentDebugOptions? debug) {
+    _ready = _start(debug).catchError((Object _) => false);
+  }
+
+  /// Completes when the background consent flow has resolved — its value is
+  /// whether ads may be requested (`canRequestAds()`).
+  ///
+  /// **Not required for normal use.** [initialize] returns before this
+  /// completes, and the app should render immediately; ads only ever load
+  /// after the gate opens (invariant 1). Await this only if you genuinely
+  /// need to block on the consent result (e.g. a settings screen that must
+  /// reflect the final consent state). It never throws.
+  Future<bool> get whenReady => _ready;
 
   /// Impression-level revenue callback for every format (allowlisted
   /// AdMob accounts only). Assignable at any time.
@@ -265,7 +296,7 @@ class AdFlow {
   /// remains as belt-and-suspenders for a genuinely slow init.
   static const _initTimeout = Duration(seconds: 30);
 
-  Future<void> _start(ConsentDebugOptions? debug) async {
+  Future<bool> _start(ConsentDebugOptions? debug) async {
     // Consent (UMP) is independent of the Ads SDK and safe to run in
     // parallel with everything below.
     final consent = _consent.ensureCanRequestAds(debug: debug);
@@ -308,7 +339,12 @@ class AdFlow {
         .catchError((Object _) {});
 
     // Gate ad loads on consent (init already awaited above).
-    await consent;
+    final canRequestAds = await consent;
+
+    // Since startup runs in the background (ADR-032), the app may have called
+    // dispose() while we were awaiting consent — don't start a manager or kick
+    // preloads on a torn-down graph.
+    if (_disposed) return canRequestAds;
 
     // The manager and controllers gate every load themselves, so starting
     // them with a closed gate is safe — they simply stay idle.
@@ -316,6 +352,7 @@ class AdFlow {
     unawaited(_interstitial?.load());
     unawaited(_rewarded?.load());
     unawaited(_rewardedInterstitial?.load());
+    return canRequestAds;
   }
 
   /// The consent gateway (privacy options, lastError, re-runs).

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:ad_flow/ad_flow.dart';
 import 'package:ad_flow/ad_flow_testing.dart';
 import 'package:fake_async/fake_async.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -38,7 +39,7 @@ void main() {
   Future<AdFlow> boot({
     AdFlowConfig config = fullConfig,
     bool consentOpens = true,
-  }) {
+  }) async {
     if (consentOpens) {
       // EEA-style: the gate opens when the form is dismissed.
       sdk.consentStatus = AdConsentStatus.required;
@@ -47,16 +48,107 @@ void main() {
         sdk.consentStatus = AdConsentStatus.obtained;
       };
     }
-    return AdFlow.initialize(
+    final ads = await AdFlow.initialize(
       config,
       sdk: sdk,
       store: InMemoryKeyValueStore(),
       platform: AdPlatform.android,
       rewardedIntroPresenter: (_) async => true,
     );
+    // initialize() now returns BEFORE consent (non-blocking, ADR-032). Most
+    // tests below assert the *started* state (preloads applied, request config
+    // pushed), so wait for the background startup to finish before returning.
+    await ads.whenReady;
+    return ads;
   }
 
   group('initialize', () {
+    test('NON-BLOCKING: initialize returns before consent resolves; '
+        'whenReady completes after the gate opens; nothing loads before it '
+        '(ADR-032)', () async {
+      // Hold the consent info update. Against a blocking initialize the
+      // returned Future would never complete; against non-blocking init it
+      // returns at once (the 1s timeout would fire on a regression).
+      final consentGate = Completer<void>();
+      sdk.consentStatus = AdConsentStatus.required;
+      sdk.canRequestAdsResult = false;
+      sdk.consentUpdateHold = consentGate;
+      sdk.onConsentFormShown = () {
+        sdk.canRequestAdsResult = true;
+        sdk.consentStatus = AdConsentStatus.obtained;
+      };
+
+      final ads = await AdFlow.initialize(
+        fullConfig,
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+        rewardedIntroPresenter: (_) async => true,
+      ).timeout(const Duration(seconds: 1));
+      expect(identical(AdFlow.instance, ads), isTrue); // _instance set at once
+
+      var ready = false;
+      unawaited(ads.whenReady.then((_) => ready = true));
+      await Future<void>.delayed(Duration.zero);
+      expect(ready, isFalse); // whenReady pending while consent is held
+      expect(sdk.loadLog, isEmpty); // invariant 1: no load before the gate
+
+      consentGate.complete(); // consent resolves → form dismissed → gate opens
+      expect(await ads.whenReady, isTrue);
+      await Future<void>.delayed(Duration.zero);
+      expect(sdk.interstitials, hasLength(1)); // preloads ran after the gate
+      ads.dispose();
+    });
+
+    test('whenReady completes false and nothing loads when the gate stays '
+        'closed', () async {
+      sdk.consentStatus = AdConsentStatus.required;
+      sdk.canRequestAdsResult = false; // the user never resolves the form
+
+      final ads = await AdFlow.initialize(
+        fullConfig,
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+        rewardedIntroPresenter: (_) async => true,
+      );
+
+      expect(await ads.whenReady, isFalse);
+      expect(sdk.loadLog, isEmpty); // gate closed → no loads (invariant 1)
+      ads.dispose();
+    });
+
+    testWidgets('the app tree builds and renders while consent is still '
+        'pending — no FutureBuilder<AdFlow> gate needed', (tester) async {
+      sdk.consentUpdateHold = Completer<void>(); // consent held all through
+      sdk.canRequestAdsResult = false;
+
+      final ads = await AdFlow.initialize(
+        const AdFlowConfig(), // no slots: nothing to load
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+      );
+
+      // Render a tree using the instance immediately, without awaiting consent.
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ValueListenableBuilder<bool>(
+              valueListenable: ads.adsEnabled,
+              builder: (_, enabled, _) => Text('home enabled=$enabled'),
+            ),
+          ),
+        ),
+      );
+      // The home screen is on screen even though consent has not resolved.
+      expect(find.text('home enabled=true'), findsOneWidget);
+
+      sdk.consentUpdateHold!.complete();
+      await tester.pumpAndSettle();
+      ads.dispose();
+    });
+
     test('end to end: init ∥ consent → request config → preloads → show → '
         'revenue callback', () async {
       final ads = await boot();
@@ -114,16 +206,17 @@ void main() {
 
     test(
       'a native SDK that never calls initialize() back does not wedge '
-      'AdFlow.initialize() forever (reproduced on a real device: GMS Ads '
-      'Dynamite-module bootstrap can hang indefinitely, well past the '
-      "native SDK's own documented ~30s timeout)",
+      'whenReady forever — the 30s init timeout (ADR-027) still bounds the '
+      'background startup. Under ADR-032 initialize() no longer awaits '
+      '_start, so the timeout now protects whenReady rather than initialize.',
       () {
         fakeAsync((async) {
-          sdk.initializeHold = Completer<void>();
+          sdk.initializeHold = Completer<void>(); // native init never returns
           sdk.consentStatus = AdConsentStatus.notRequired;
           sdk.canRequestAdsResult = true;
 
           AdFlow? ads;
+          bool? ready;
           unawaited(
             AdFlow.initialize(
               fullConfig,
@@ -131,28 +224,34 @@ void main() {
               store: InMemoryKeyValueStore(),
               platform: AdPlatform.android,
               rewardedIntroPresenter: (_) async => true,
-            ).then((flow) => ads = flow),
+            ).then((flow) {
+              ads = flow;
+              unawaited(flow.whenReady.then((r) => ready = r));
+            }),
           );
 
-          async.elapse(const Duration(seconds: 31));
-
+          async.flushMicrotasks();
+          // initialize() returned at once — it never waits on init.
           expect(ads, isNotNull);
+          // ...but the background startup (whenReady) is still pending.
+          expect(ready, isNull);
+
+          async.elapse(const Duration(seconds: 31));
+          // The 30s init timeout unblocked the background _start.
+          expect(ready, isNotNull);
           ads!.dispose();
         });
       },
     );
 
     test(
-      'updateRequestConfiguration is NOT called until initialize() has '
-      'completed (regression, ADR-028): the google_mobile_ads plugin '
+      'updateRequestConfiguration is NOT called until the background init '
+      'completes (ADR-028 ordering preserved inside _start): the plugin '
       'services MobileAds#updateRequestConfiguration SYNCHRONOUSLY on the '
-      'platform thread (it calls MobileAds.getRequestConfiguration() + '
-      'setRequestConfiguration()), while MobileAds#initialize runs on a '
-      'background thread. Running the two concurrently (as review finding '
-      "#5's original fix did, via Future.wait) races two threads to "
-      'bootstrap the same native Ads settings-manager singleton, which '
-      'deadlocks the platform thread and freezes the entire Flutter engine '
-      'on a cold device. The config call must therefore wait for init.',
+      'platform thread while MobileAds#initialize runs on a background '
+      'thread; running them concurrently deadlocks a cold device, so config '
+      'must wait for init. Under ADR-032 initialize() returns immediately, '
+      'so the ordering guarantee now lives entirely in the background task.',
       () {
         fakeAsync((async) {
           sdk.initializeHold = Completer<void>();
@@ -170,31 +269,30 @@ void main() {
             ).then((flow) => ads = flow),
           );
 
-          // Drain every microtask/timer that is allowed to run while init
-          // is still held pending.
+          // Drain every microtask/timer allowed to run while init is held.
           async.elapse(const Duration(seconds: 5));
 
-          // The fix: request configuration must NOT have been pushed while
-          // init is unfinished. (Under the old concurrent Future.wait this
-          // fired immediately, before init — the deadlock trigger.)
+          // initialize() returned immediately (non-blocking) even though init
+          // is still held.
+          expect(ads, isNotNull);
+          // Request configuration must NOT have been pushed while init is
+          // unfinished (the platform-thread-deadlock ordering bug ADR-028
+          // fixes — still enforced, just inside the background _start now).
           expect(
             sdk.requestConfigs,
             isEmpty,
             reason:
-                'updateRequestConfiguration ran before initialize() '
-                'completed — this is the platform-thread-deadlock ordering '
-                'bug ADR-028 fixes.',
+                'updateRequestConfiguration ran before init completed — the '
+                'platform-thread-deadlock ordering bug ADR-028 fixes.',
           );
-          expect(ads, isNull); // AdFlow.initialize() still awaiting init
 
           // Once init completes, config is applied (still unconditionally,
-          // preserving review finding #5) and startup finishes.
+          // preserving review finding #5) and the background startup finishes.
           sdk.initializeHold!.complete();
           async.elapse(const Duration(seconds: 1));
 
           expect(sdk.requestConfigs, hasLength(1));
           expect(sdk.requestConfigs.single.testDeviceIds, ['dev-1']);
-          expect(ads, isNotNull);
           ads!.dispose();
         });
       },
@@ -328,7 +426,10 @@ void main() {
           attExplainer: (_) async => events.add('att-primer'),
           consentExplainer: (_) async => events.add('consent-primer'),
         );
-        await Future<void>.delayed(Duration.zero); // let preloads land
+        // initialize() returns before the (background) explainer/consent flow;
+        // wait for it, then a microtask for the preloads to land.
+        await ads.whenReady;
+        await Future<void>.delayed(Duration.zero);
 
         expect(events, ['att-primer', 'consent-primer', 'form']);
         expect(sdk.requestTrackingAuthorizationCalls, 1);
@@ -376,6 +477,7 @@ void main() {
           platform: AdPlatform.android,
           attExplainer: (_) async {}, // ignored — gateway was injected
         );
+        await ads.whenReady; // let the background startup finish
 
         expect(injectedSdk.requestTrackingAuthorizationCalls, 0);
         ads.dispose();
@@ -473,6 +575,7 @@ void main() {
       store: InMemoryKeyValueStore(),
       platform: AdPlatform.android,
     );
+    await ads.whenReady; // background startup (preloads) finishes
     await Future<void>.delayed(Duration.zero);
 
     expect(await ads.interstitial.show(), isTrue);
