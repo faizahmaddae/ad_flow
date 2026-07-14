@@ -1,7 +1,61 @@
 # PROGRESS — ad_flow v2
 
 ## Current phase
-**Phase 14 — Final verification** — ✅ DONE. All phases (2–14) complete.
+**Phase 15 — Post-publish adversarial audit (2026-07-14)** — ✅ code fixes landed; awaiting Faiz's
+decisions on the deferred items below, then a **2.0.2** tag/publish.
+
+## Audit outcome (2026-07-14)
+A 13-dimension adversarial audit (revenue, AdMob policy, consent/privacy, concurrency, lifecycle/memory,
+weak-network, API ergonomics, tests, seam, cross-device) with every finding independently refuted by three
+verifiers. 46 findings survived verification. **Nine real defects were fixed** (ADR-034 … ADR-038); each had a
+fail-first test verified failing against the old code. Version bumped to 2.0.2 — **NOT tagged, NOT published**
+(a tag auto-publishes; Faiz reviews first).
+
+Fixed (see CHANGELOG 2.0.2 for the full list):
+- Offline/slow launch served ZERO ads for the whole session — consent ran exactly once, never retried (ADR-035).
+- First-frame banner/native blank for 5 MINUTES on every new install — gate-recheck reused the failure cooldown (ADR-035).
+- A failed banner auto-refresh destroyed the LIVE banner + double-completed the load Completer (seam).
+- The AdMob-mandated rewarded-interstitial SKIP button rendered off-screen at large text scale (ADR-038).
+- A throwing caps/gate in `show()` left the coordinator claimed → EVERY full-screen format dead for the session (ADR-034).
+- A raw platform throw anywhere (load, ATT) escaped its `on AdFlowError` catch and wedged a slot / the consent flow (ADR-034).
+- A failed consent flow hid the privacy-options entry point while ads kept serving (invariant 2).
+- A future-dated persisted timestamp blocked every full-screen ad forever, across restarts (ADR-037).
+- Adaptive banners never reloaded on rotation/fold (ADR-036).
+
+## OPEN — needs Faiz's decision (deliberately NOT changed)
+These change a default, the public API, or behaviour, and are judgment calls. Full write-up in the audit
+report; the short list:
+1. **Global frequency cap silently blocks user-initiated REWARDED / rewarded-interstitial shows.** The user taps
+   "Watch ad for a reward", the shipped default global cap (`minGap: 15s`) blocks it, and they get no ad AND no
+   reward, with no signal. Recommendation: exempt user-initiated rewarded formats from the global cap.
+2. **Banner refreshes TWICE** — ad_flow's 60s client timer runs on top of AdMob's own console auto-refresh
+   (on by default). Recommendation: default the client-side refresh OFF (`minRefresh: null`) and let AdMob do it.
+3. **Banner refresh destroys the ad BEFORE requesting the next**, so the slot is blank for the whole load.
+4. **App-open ads show over screens that have a live banner**, and fire after a user returns from a banner/native
+   ad click (nothing above the seam subscribes to the click event).
+5. **Global `minGap` is measured from the previous ad's SHOW, not its DISMISS** — an interstitial can fire 0s after
+   another full-screen ad closes.
+6. **App-open: the first foreground event is consumed as a "cold start"** the platform never actually emits, so the
+   first genuine warm return of every session shows no ad.
+7. **A second `AdFlow.initialize()` silently leaks the whole previous graph** (two app-open reactors, two coordinators).
+8. **No diagnostic surface**: a gate-blocked load reports `AdIdle`, indistinguishable from "nothing requested".
+9. `RewardedInterstitial` shows the intro BEFORE the gate/caps are consulted (user taps Continue → no ad, no reward).
+10. Collapsible banners re-send the `collapsible` extra on every refresh; `AdFlowNativeAd` clips factory-rendered ads
+    to a fixed height; no way to attach targeting signals (keywords/contentUrl); mediation `InitializationStatus`
+    is discarded.
+
+## How to verify the current state
+`flutter analyze` && `flutter test --concurrency=2`
+Expected: analyze clean, **295 tests passing**.
+
+## Traps hit this session
+Appended to SKILL.md §6 — the big ones: "the seam's error contract is a lie, catch `Object`"; "a listener that
+fires again after load (banner auto-refresh) must not run the load-failure teardown"; "non-blocking init means
+the consent gate is a PROCESS, not a fact".
+
+---
+
+# Earlier phases (2–14) — complete
 
 ## Done
 - Phase 1 — Planning artifacts (committed `4e4132e`).

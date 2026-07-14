@@ -122,6 +122,30 @@ apps silently under-serve.
 <string>This identifier will be used to deliver personalized ads to you.</string>
 ```
 
+`NSUserTrackingUsageDescription` is **required** if you pass `attExplainer`
+(client-driven ATT): iOS terminates the app when the tracking prompt is
+requested without it.
+
+Also add **`SKAdNetworkItems`** to `Info.plist`. SKAdNetwork is how iOS attributes
+installs to ads when the user has not granted tracking permission — which is most
+users. Without these entries, ad networks cannot receive attribution for your app,
+which depresses your iOS eCPM with no error and no signal anywhere:
+
+```xml
+<key>SKAdNetworkItems</key>
+<array>
+  <dict>
+    <key>SKAdNetworkIdentifier</key>
+    <string>cstr6suwn9.skadnetwork</string>  <!-- Google/AdMob -->
+  </dict>
+  <!-- plus one entry per mediation network you use -->
+</array>
+```
+
+Copy the current, full list from Google's docs — it changes as networks are
+added: <https://developers.google.com/admob/ios/quick-start#update_your_infoplist>.
+If you use mediation, add each partner network's identifier too.
+
 Recent Flutter templates are already scene-based; if you maintain a custom
 `AppDelegate`, adopt the `UISceneDelegate` lifecycle (required by the v9
 plugin).
@@ -414,9 +438,23 @@ final ads = await AdFlow.initialize(
   store: InMemoryKeyValueStore(),
   platform: AdPlatform.android,
 );
+
+// initialize() is NON-BLOCKING: it returns before consent resolves, so at this
+// point nothing has preloaded yet. In a test, wait for the background startup
+// (and then for the preload itself) before asserting on loaded ads — otherwise
+// `sdk.interstitials` is still empty.
+await ads.whenReady;
+await pumpEventQueue(); // flutter_test; or `await Future<void>.delayed(...)`
+
 await ads.interstitial.show();
 sdk.interstitials.single.simulateDismissed(); // drive SDK behavior
 ```
+
+`FakeAdSdk` also models the failure modes worth testing: `consentUpdateError`
+(an offline launch), `onConsentInfoUpdate` (the network coming back),
+`alwaysLoadError` / `nextLoadError` (no-fill), `loadHold` and `initializeHold`
+(a hung network), and `enforceConsentGate = true`, which throws if anything
+requests an ad before consent allows it.
 
 ## 8. Next-Gen SDK (experimental, Android-only)
 
@@ -447,7 +485,16 @@ needs no ad_flow changes; adapters raise fill and eCPM transparently.
 - [ ] App open not combined with a banner on the same surface
 - [ ] Privacy-options button reachable (e.g. in settings)
 - [ ] Rewarded interstitial intro copy states the reward clearly
-- [ ] iOS: IDFA message configured in AdMob console
+- [ ] iOS: `NSUserTrackingUsageDescription` in `Info.plist` (required whenever
+      you pass `attExplainer` — iOS terminates the app on the ATT prompt
+      without it)
+- [ ] iOS: `SKAdNetworkItems` in `Info.plist` (see §2 — missing entries cost
+      real iOS revenue silently)
+- [ ] iOS ATT — pick exactly ONE, never both:
+  - **client-driven** (you pass `attExplainer`): do **not** configure the IDFA
+    message in the AdMob console, or the user is prompted twice;
+  - **UMP-driven** (no `attExplainer`): configure the IDFA message in the AdMob
+    console and let UMP show it.
 
 ## License
 

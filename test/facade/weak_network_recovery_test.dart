@@ -53,7 +53,8 @@ void main() {
         expect(
           sdk.banners,
           isNotEmpty,
-          reason: 'the banner must load once the consent gate opens — not sit '
+          reason:
+              'the banner must load once the consent gate opens — not sit '
               'blank until RetryConfig.cooldown (5 minutes) elapses. This is '
               'the first session of every new install: the highest-value '
               'window, on every app.',
@@ -142,7 +143,8 @@ void main() {
       expect(
         sdk.consentUpdateCalls,
         hasLength(1),
-        reason: 'a declined consent is a settled answer, not a failure — '
+        reason:
+            'a declined consent is a settled answer, not a failure — '
             're-running the flow would re-prompt the user forever',
       );
       expect(sdk.interstitials, isEmpty);

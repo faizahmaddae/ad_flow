@@ -96,24 +96,28 @@ void main() {
           retry: RetryPolicy(const RetryConfig(), random: () => 0.5),
         );
 
-    test('a throwing frequency-cap store leaves the coordinator free', () async {
-      final controller = build();
-      await controller.load();
-      expect(controller.state.value, isA<AdLoaded>());
+    test(
+      'a throwing frequency-cap store leaves the coordinator free',
+      () async {
+        final controller = build();
+        await controller.load();
+        expect(controller.state.value, isA<AdLoaded>());
 
-      caps.throwOnCanShow = true;
-      final shown = await controller.show();
+        caps.throwOnCanShow = true;
+        final shown = await controller.show();
 
-      expect(shown, isFalse);
-      expect(
-        coordinator.isFullScreenAdVisible,
-        isFalse,
-        reason: 'a throwing caps check must not leave the coordinator claimed '
-            '— otherwise EVERY full-screen format is dead for the session',
-      );
-      expect(controller.state.value, isNot(isA<AdShowing>()));
-      controller.dispose();
-    });
+        expect(shown, isFalse);
+        expect(
+          coordinator.isFullScreenAdVisible,
+          isFalse,
+          reason:
+              'a throwing caps check must not leave the coordinator claimed '
+              '— otherwise EVERY full-screen format is dead for the session',
+        );
+        expect(controller.state.value, isNot(isA<AdShowing>()));
+        controller.dispose();
+      },
+    );
 
     test('a throwing gate leaves the coordinator free', () async {
       var boom = false;
@@ -191,7 +195,8 @@ void main() {
         expect(
           controller.state.value,
           isA<AdFailed>(),
-          reason: 'a PlatformException must not leave the slot stuck at '
+          reason:
+              'a PlatformException must not leave the slot stuck at '
               'AdLoading forever with no retry armed',
         );
         controller.dispose();

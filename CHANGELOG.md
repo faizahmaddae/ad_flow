@@ -1,3 +1,67 @@
+## 2.0.2
+
+Bug-fix release from a full adversarial audit. Every fix below is guarded by a
+test that was verified failing first. No breaking API changes.
+
+**Revenue — weak/slow networks (ADR-035)**
+
+* **FIXED: an offline or very slow launch served ZERO ads for the entire
+  session**, even after the network returned seconds later. The consent flow ran
+  exactly once per launch; if its info update failed, `canRequestAds()` stayed
+  false and nothing ever re-asked. A failed consent flow is now retried
+  (rate-limited). A user who simply *declined* is still never re-prompted.
+* **FIXED: banner and native slots mounted on the first frame stayed blank for
+  5 minutes on every new install.** The consent gate resolves after the config
+  gate, so the first-frame load failed fast and re-armed only after the
+  5-minute failure cooldown. Loads now wait for consent to settle, and a
+  gate-blocked slot re-checks with a short exponential backoff instead.
+* **FIXED: a failed banner auto-refresh destroyed the live banner.** The same
+  `BannerAd`'s `onAdFailedToLoad` also fires on a failed AdMob-driven refresh —
+  routine on a weak network. The seam disposed the mounted ad, closed its
+  paid-event stream (silently ending revenue reporting for that placement) and
+  raised "Bad state: Future already completed".
+* **FIXED: adaptive banners never reloaded on rotation/fold (ADR-036)** — the ad
+  kept the old orientation's width for the rest of the session, including every
+  refresh.
+
+**Policy**
+
+* **FIXED: the mandatory rewarded-interstitial SKIP button was rendered
+  off-screen at large accessibility text scales (ADR-038)** — an AdMob-required
+  opt-out became unreachable. The consent/ATT primers became un-escapable dead
+  ends the same way. All three screens now scroll.
+* **FIXED: a raw platform error from ATT aborted the whole consent flow
+  (ADR-034)** — no info update, no GDPR form, no privacy-options entry point.
+  ATT and GDPR are independent regimes: ADR-031 established that an ATT
+  *denial* must not suppress a required form; an ATT *crash* must not either.
+* **FIXED: a failed/timed-out consent flow hid the privacy-options entry
+  point** while ads kept serving from cached consent (invariant 2 / GDPR).
+* **FIXED: an inline adaptive banner whose height could not be resolved was
+  rendered in a zero-height box** — a loaded, billable, unviewable impression.
+
+**Robustness (ADR-034, ADR-037)**
+
+* **FIXED: a throwing frequency-cap store or gate inside `show()` left the
+  full-screen coordinator claimed forever**, permanently blocking *every*
+  full-screen format for the session.
+* **FIXED: a `PlatformException`/`MissingPluginException` from any `load()`
+  pinned that slot at `AdLoading` forever** with no retry armed.
+* **FIXED: a device clock that was ahead when an ad showed blocked every
+  full-screen ad forever, across restarts.** Future-dated timestamps are now
+  ignored and pruned.
+
+**Docs**
+
+* Documented the required iOS `SKAdNetworkItems` (missing entries cost iOS
+  revenue silently) and clarified that client-driven ATT and the AdMob console
+  IDFA message are mutually exclusive.
+* Fixed the §7 testing snippet, which crashed verbatim under non-blocking init.
+
+**Testing**
+
+* `FakeAdSdk` gains `onConsentInfoUpdate` for modelling an offline launch that
+  later recovers.
+
 ## 2.0.1
 
 - Docs: added a "Set up with AI" README section with copy-paste new-setup and v1→v2 migration prompts. No code changes.

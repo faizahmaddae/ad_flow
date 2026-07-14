@@ -186,7 +186,8 @@ void main() {
       expect(
         await afterRollback.canShow('interstitial'),
         isTrue,
-        reason: 'a timestamp in the future is garbage, not a recent '
+        reason:
+            'a timestamp in the future is garbage, not a recent '
             'impression — it must be ignored, not treated as "0 seconds ago"',
       );
     });

@@ -23,10 +23,7 @@ void main() {
         ..privacyOptionsRequirement = PrivacyOptionsRequirement.required
         ..onConsentFormShown = () {}
         ..canRequestAdsResult = true;
-      final gateway = UmpConsentGateway(
-        sdk,
-        attExplainer: (_) async {},
-      );
+      final gateway = UmpConsentGateway(sdk, attExplainer: (_) async {});
 
       await gateway.ensureCanRequestAds();
 
@@ -38,7 +35,8 @@ void main() {
       expect(
         sdk.loadAndShowConsentFormCalls,
         1,
-        reason: 'the REQUIRED GDPR form must never be suppressed by an ATT '
+        reason:
+            'the REQUIRED GDPR form must never be suppressed by an ATT '
             'failure — ATT and GDPR are independent regimes (ADR-031)',
       );
       expect(gateway.privacyOptionsRequired.value, isTrue);
@@ -48,33 +46,31 @@ void main() {
     },
   );
 
-  test(
-    'a failed consent info update still surfaces the privacy-options entry '
-    'point when ads keep serving (invariant 2)',
-    () async {
-      // The returning EEA user who already consented on a previous launch:
-      // canRequestAds() is true from cached UMP state, so ads WILL serve — but
-      // this launch is offline, so the info update fails.
-      final sdk = FakeAdSdk()
-        ..consentUpdateError = const AdFlowError(
-          AdFlowErrorKind.consent,
-          'offline',
-        )
-        ..canRequestAdsResult = true
-        ..privacyOptionsRequirement = PrivacyOptionsRequirement.required;
-      final gateway = UmpConsentGateway(sdk);
+  test('a failed consent info update still surfaces the privacy-options entry '
+      'point when ads keep serving (invariant 2)', () async {
+    // The returning EEA user who already consented on a previous launch:
+    // canRequestAds() is true from cached UMP state, so ads WILL serve — but
+    // this launch is offline, so the info update fails.
+    final sdk = FakeAdSdk()
+      ..consentUpdateError = const AdFlowError(
+        AdFlowErrorKind.consent,
+        'offline',
+      )
+      ..canRequestAdsResult = true
+      ..privacyOptionsRequirement = PrivacyOptionsRequirement.required;
+    final gateway = UmpConsentGateway(sdk);
 
-      final canRequest = await gateway.ensureCanRequestAds();
+    final canRequest = await gateway.ensureCanRequestAds();
 
-      expect(canRequest, isTrue, reason: 'cached consent keeps ads serving');
-      expect(
-        gateway.privacyOptionsRequired.value,
-        isTrue,
-        reason: 'ads are serving to an EEA user, so the "Manage consent" entry '
-            'point is REQUIRED — a failed info update must not hide it',
-      );
-      gateway.dispose();
-      await sdk.dispose();
-    },
-  );
+    expect(canRequest, isTrue, reason: 'cached consent keeps ads serving');
+    expect(
+      gateway.privacyOptionsRequired.value,
+      isTrue,
+      reason:
+          'ads are serving to an EEA user, so the "Manage consent" entry '
+          'point is REQUIRED — a failed info update must not hide it',
+    );
+    gateway.dispose();
+    await sdk.dispose();
+  });
 }

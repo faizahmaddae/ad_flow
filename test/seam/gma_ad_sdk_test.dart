@@ -158,13 +158,15 @@ void main() {
       expect(
         log.map((c) => c.method),
         isNot(contains('disposeAd')),
-        reason: 'the live banner must survive a failed refresh — the SDK '
+        reason:
+            'the live banner must survive a failed refresh — the SDK '
             'keeps showing the previous creative and retries on its own',
       );
       expect(
         paidClosed,
         isFalse,
-        reason: 'closing the paid stream would silently stop all revenue '
+        reason:
+            'closing the paid stream would silently stop all revenue '
             'reporting for this placement for the rest of the session',
       );
     });

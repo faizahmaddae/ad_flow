@@ -541,7 +541,8 @@ void main() {
       await expectLater(
         ownedConsent.ensureCanRequestAds(),
         completes,
-        reason: 'a disposed gateway degrades quietly; it must not throw a '
+        reason:
+            'a disposed gateway degrades quietly; it must not throw a '
             'use-after-dispose error into the background startup zone',
       );
 
