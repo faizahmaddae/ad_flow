@@ -125,6 +125,49 @@ void main() {
       // not crash as an unhandled async error.
       await sendAdEvent(0, 'onAdLoaded');
     });
+
+    test('a FAILED AdMob auto-refresh must not destroy the live banner, close '
+        'its streams, or double-complete the load Future', () async {
+      final sdk = GmaAdSdk();
+      final future = sdk.loadBanner(
+        const BannerLoadSpec(
+          adUnitId: 'unit-b',
+          size: FixedSizeSpec(FixedBannerSize.banner),
+        ),
+      );
+      await pumpEventQueue();
+      await sendAdEvent(0, 'onAdLoaded');
+      final handle = await future; // the banner is live and mounted
+
+      final paid = <AdPaidEvent>[];
+      var paidClosed = false;
+      handle.paidEvents.listen(paid.add, onDone: () => paidClosed = true);
+      await pumpEventQueue();
+
+      // The SAME BannerAd's onAdFailedToLoad ALSO fires on a failed
+      // AdMob-driven auto-refresh — routine on a weak network. Before the
+      // fix this disposed the live, mounted ad, closed both of the handle's
+      // stream controllers, and called completeError() on an
+      // already-completed Completer ("Bad state: Future already completed",
+      // an unhandled async error). The symmetric hole to finding #2.
+      // ignore: invalid_use_of_protected_member
+      final loadAdError = LoadAdError(2, 'admob', 'network error', null);
+      await sendAdEvent(0, 'onAdFailedToLoad', {'loadAdError': loadAdError});
+      await pumpEventQueue();
+
+      expect(
+        log.map((c) => c.method),
+        isNot(contains('disposeAd')),
+        reason: 'the live banner must survive a failed refresh — the SDK '
+            'keeps showing the previous creative and retries on its own',
+      );
+      expect(
+        paidClosed,
+        isFalse,
+        reason: 'closing the paid stream would silently stop all revenue '
+            'reporting for this placement for the rest of the session',
+      );
+    });
   });
 
   group('interstitial (review finding #9 checklist)', () {

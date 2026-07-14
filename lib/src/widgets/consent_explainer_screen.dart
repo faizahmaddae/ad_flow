@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../consent/explainer_content.dart';
+import 'explainer_body.dart';
 
 /// The optional consent priming screen shown before the UMP GDPR form:
 /// explains, in the app's own words, why consent is about to be requested.
@@ -34,62 +35,53 @@ class ConsentExplainerScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                content.title,
-                style: theme.textTheme.headlineSmall,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                content.description,
-                style: theme.textTheme.bodyLarge,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              for (final bullet in content.bullets)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.check_circle,
-                        color: theme.colorScheme.primary,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(bullet, style: theme.textTheme.bodyMedium),
-                      ),
-                    ],
-                  ),
-                ),
-              const SizedBox(height: 24),
-              Text(
-                content.settingsHint,
-                style: theme.textTheme.bodySmall,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              FilledButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text(content.continueLabel),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text(content.skipLabel),
-              ),
-            ],
-          ),
+    // ExplainerBody scrolls rather than clipping — this primer is the longest
+    // of the three (it overflowed by 1536 logical px at 200% text scale on a
+    // 320x568 device), and both of its buttons are the way out.
+    return ExplainerBody(
+      children: [
+        Text(
+          content.title,
+          style: theme.textTheme.headlineSmall,
+          textAlign: TextAlign.center,
         ),
-      ),
+        const SizedBox(height: 16),
+        Text(
+          content.description,
+          style: theme.textTheme.bodyLarge,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 24),
+        for (final bullet in content.bullets)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
+                Icon(Icons.check_circle, color: theme.colorScheme.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(bullet, style: theme.textTheme.bodyMedium),
+                ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 24),
+        Text(
+          content.settingsHint,
+          style: theme.textTheme.bodySmall,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 24),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(content.continueLabel),
+        ),
+        const SizedBox(height: 8),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(content.skipLabel),
+        ),
+      ],
     );
   }
 }

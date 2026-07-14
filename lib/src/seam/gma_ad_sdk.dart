@@ -136,6 +136,20 @@ class GmaAdSdk implements AdSdk {
         onAdLoaded: (_) =>
             unawaited(_finishBannerLoad(handle, spec, completer)),
         onAdFailedToLoad: (ad, e) {
+          // Like onAdLoaded, BannerAdListener.onAdFailedToLoad fires on every
+          // AdMob-driven auto-refresh of this SAME BannerAd — not just the
+          // initial load. A refresh that fails (routine on a weak network) is
+          // NOT a load failure: the SDK keeps the previously loaded creative
+          // on screen and retries on its own schedule.
+          //
+          // Tearing down here unconditionally was the symmetric hole to review
+          // finding #2: it disposed the LIVE, mounted banner (leaving the
+          // mounted AdWidget hosting a destroyed ad), closed the handle's
+          // streams (silently ending paid-event/revenue reporting for the
+          // placement), and called completeError() on an already-completed
+          // Completer — "Bad state: Future already completed", an unhandled
+          // async error, on every failed refresh cycle.
+          if (completer.isCompleted) return;
           unawaited(ad.dispose());
           // handle's two StreamControllers are constructed eagerly, before
           // ad.load() even runs, so a failed load must still close them —
@@ -175,19 +189,44 @@ class GmaAdSdk implements AdSdk {
       height: handle._ad.size.height.toDouble(),
     );
     if (spec.size is InlineAdaptiveSizeSpec) {
-      // Inline adaptive banners get their real height only after load.
+      // Inline adaptive banners get their real height only after load: the
+      // plugin's InlineAdaptiveSize is constructed with HEIGHT 0 and is only
+      // resolved by getPlatformAdSize() (see AdSize.getInlineAdaptiveBanner…
+      // in the plugin — "an AdSize with the given width and 0 height").
+      AdDimensions? resolved;
       try {
         final platformSize = await handle._ad.getPlatformAdSize();
         if (platformSize != null) {
-          size = AdDimensions(
+          resolved = AdDimensions(
             width: platformSize.width.toDouble(),
             height: platformSize.height.toDouble(),
           );
         }
       } catch (_) {
-        // Keep the requested size; a wrong reserved height is recoverable,
-        // a failed load is not.
+        // Fall through to the failure path below.
       }
+      if (resolved == null || resolved.height <= 0) {
+        // We cannot size the container, and the requested size's height is 0.
+        // Rendering the ad anyway would put a LOADED, BILLABLE creative in a
+        // zero-height box: an impression the user can never see. Google's own
+        // guidance is to use getPlatformAdSize() to size the container, so if
+        // it will not tell us, treat this as a failed load — dispose the ad
+        // (no impression) and let the controller's normal retry path run.
+        unawaited(handle._ad.dispose());
+        unawaited(handle._events.close());
+        unawaited(handle._paid.close());
+        if (!completer.isCompleted) {
+          completer.completeError(
+            const AdFlowError(
+              AdFlowErrorKind.loadFailed,
+              'Could not resolve the inline adaptive banner height '
+              '(getPlatformAdSize returned no size).',
+            ),
+          );
+        }
+        return;
+      }
+      size = resolved;
     }
     var collapsible = false;
     if (spec.collapsible != null) {
@@ -265,8 +304,10 @@ class GmaAdSdk implements AdSdk {
       listener: gma.NativeAdListener(
         onAdLoaded: (_) => completer.complete(handle),
         onAdFailedToLoad: (ad, e) {
+          // See loadBanner's onAdFailedToLoad: never tear down an ad whose
+          // load already succeeded, and never complete the Completer twice.
+          if (completer.isCompleted) return;
           unawaited(ad.dispose());
-          // See the identical comment in loadBanner's onAdFailedToLoad.
           unawaited(handle._events.close());
           unawaited(handle._paid.close());
           completer.completeError(loadErrorFrom(e));
