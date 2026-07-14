@@ -45,6 +45,9 @@ class FakeAdSdk implements AdSdk {
   /// Number of [openAdInspector] calls.
   int adInspectorCalls = 0;
 
+  /// Number of [requestTrackingAuthorization] calls.
+  int requestTrackingAuthorizationCalls = 0;
+
   /// Every load in order, as `'<format>:<adUnitId>'` entries.
   final List<String> loadLog = [];
 
@@ -122,6 +125,16 @@ class FakeAdSdk implements AdSdk {
 
   /// Result returned by [openAdInspector].
   AdInspectorResult inspectorResult = const AdInspectorResult();
+
+  /// Value returned by [getTrackingAuthorizationStatus] (the current ATT
+  /// status). Defaults to [AttStatus.notSupported] so tests that do not
+  /// exercise ATT behave as if off iOS.
+  AttStatus attStatus = AttStatus.notSupported;
+
+  /// Value [requestTrackingAuthorization] resolves to (the post-prompt
+  /// status). The call also updates [attStatus] to this, mirroring the real
+  /// SDK transitioning out of [AttStatus.notDetermined].
+  AttStatus attRequestResult = AttStatus.authorized;
 
   /// Invoked by [loadAndShowConsentFormIfRequired] (when it does not throw);
   /// use it to flip [canRequestAdsResult]/[consentStatus] the way a real
@@ -310,6 +323,15 @@ class FakeAdSdk implements AdSdk {
   @override
   Future<void> resetConsent() async {
     resetConsentCalls++;
+  }
+
+  @override
+  Future<AttStatus> getTrackingAuthorizationStatus() async => attStatus;
+
+  @override
+  Future<AttStatus> requestTrackingAuthorization() async {
+    requestTrackingAuthorizationCalls++;
+    return attStatus = attRequestResult;
   }
 }
 

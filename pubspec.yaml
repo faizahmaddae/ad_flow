@@ -14,6 +14,9 @@ dependencies:
     sdk: flutter
   google_mobile_ads: ^9.0.0
   shared_preferences: ^2.5.5
+  # iOS App Tracking Transparency, used ONLY for the opt-in client-driven ATT
+  # mode (the AttExplainer flow). Android/others degrade to notSupported.
+  app_tracking_transparency: ^2.0.6
 
   # OPTIONAL: Mediation adapters - add only the networks you use.
   # Check each adapter's compatibility with google_mobile_ads 9.x before adding.

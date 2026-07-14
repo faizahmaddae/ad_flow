@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import 'package:app_tracking_transparency/app_tracking_transparency.dart'
+    as att;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart' as gma;
 
@@ -388,6 +391,29 @@ class GmaAdSdk implements AdSdk {
 
   @override
   Future<void> resetConsent() => gma.ConsentInformation.instance.reset();
+
+  @override
+  Future<AttStatus> getTrackingAuthorizationStatus() async {
+    // Guard client-side so no channel call is made off iOS (the plugin also
+    // returns notSupported there, but this keeps the seam honest and unit
+    // testable via debugDefaultTargetPlatformOverride).
+    if (defaultTargetPlatform != TargetPlatform.iOS) {
+      return AttStatus.notSupported;
+    }
+    return attStatusFrom(
+      await att.AppTrackingTransparency.trackingAuthorizationStatus,
+    );
+  }
+
+  @override
+  Future<AttStatus> requestTrackingAuthorization() async {
+    if (defaultTargetPlatform != TargetPlatform.iOS) {
+      return AttStatus.notSupported;
+    }
+    return attStatusFrom(
+      await att.AppTrackingTransparency.requestTrackingAuthorization(),
+    );
+  }
 }
 
 // ── Pure mappers (unit-tested without platform channels) ─────────────────
@@ -532,6 +558,15 @@ AdFlowError showErrorFrom(gma.AdError error) => AdFlowError(
 /// Builds a typed consent error from a UMP form error.
 AdFlowError consentErrorFrom(gma.FormError error) =>
     AdFlowError(AdFlowErrorKind.consent, error.message, code: error.errorCode);
+
+/// Maps the `app_tracking_transparency` status to the seam's [AttStatus].
+AttStatus attStatusFrom(att.TrackingStatus status) => switch (status) {
+  att.TrackingStatus.notDetermined => AttStatus.notDetermined,
+  att.TrackingStatus.restricted => AttStatus.restricted,
+  att.TrackingStatus.denied => AttStatus.denied,
+  att.TrackingStatus.authorized => AttStatus.authorized,
+  att.TrackingStatus.notSupported => AttStatus.notSupported,
+};
 
 // ── Handles ───────────────────────────────────────────────────────────────
 

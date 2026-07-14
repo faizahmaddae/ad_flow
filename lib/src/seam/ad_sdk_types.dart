@@ -429,6 +429,27 @@ enum PrivacyOptionsRequirement {
   notRequired,
 }
 
+/// iOS App Tracking Transparency authorization status, mirrored above the
+/// seam. Only iOS 14+ ever reports the first four; every other platform (and
+/// older iOS) reports [notSupported].
+enum AttStatus {
+  /// The user has not yet been shown the system tracking prompt — the only
+  /// state in which requesting authorization shows the dialog.
+  notDetermined,
+
+  /// Tracking is restricted at the device level; the prompt cannot be shown.
+  restricted,
+
+  /// The user denied tracking authorization.
+  denied,
+
+  /// The user authorized tracking.
+  authorized,
+
+  /// Not iOS (or below iOS 14) — ATT does not apply.
+  notSupported,
+}
+
 /// Debug geography override for UMP testing.
 enum ConsentDebugGeography {
   /// No override.

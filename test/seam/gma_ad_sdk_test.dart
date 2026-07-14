@@ -2,6 +2,7 @@ import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/seam/ad_sdk.dart';
 import 'package:ad_flow/src/seam/ad_sdk_types.dart';
 import 'package:ad_flow/src/seam/gma_ad_sdk.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 // ignore: implementation_imports
@@ -234,6 +235,27 @@ void main() {
 
       expect(appStateLog.map((c) => c.method), contains('start'));
       await subscription.cancel();
+    });
+  });
+
+  group('ATT platform guard', () {
+    // On any non-iOS platform both ATT methods must short-circuit to
+    // notSupported WITHOUT touching the app_tracking_transparency channel.
+    tearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    test('getTrackingAuthorizationStatus → notSupported off iOS', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final sdk = GmaAdSdk();
+      expect(
+        await sdk.getTrackingAuthorizationStatus(),
+        AttStatus.notSupported,
+      );
+    });
+
+    test('requestTrackingAuthorization → notSupported off iOS', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final sdk = GmaAdSdk();
+      expect(await sdk.requestTrackingAuthorization(), AttStatus.notSupported);
     });
   });
 }

@@ -1,6 +1,8 @@
 import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/seam/ad_sdk_types.dart';
 import 'package:ad_flow/src/seam/gma_ad_sdk.dart';
+import 'package:app_tracking_transparency/app_tracking_transparency.dart'
+    as att;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart' as gma;
 
@@ -200,6 +202,28 @@ void main() {
       expect(consent.kind, AdFlowErrorKind.consent);
       expect(consent.code, 7);
       expect(consent.message, 'timeout');
+    });
+  });
+
+  group('attStatusFrom', () {
+    test('maps every tracking status one-to-one', () {
+      expect(
+        attStatusFrom(att.TrackingStatus.notDetermined),
+        AttStatus.notDetermined,
+      );
+      expect(
+        attStatusFrom(att.TrackingStatus.restricted),
+        AttStatus.restricted,
+      );
+      expect(attStatusFrom(att.TrackingStatus.denied), AttStatus.denied);
+      expect(
+        attStatusFrom(att.TrackingStatus.authorized),
+        AttStatus.authorized,
+      );
+      expect(
+        attStatusFrom(att.TrackingStatus.notSupported),
+        AttStatus.notSupported,
+      );
     });
   });
 }

@@ -343,4 +343,31 @@ void main() {
       expect(sdk.adInspectorCalls, 1);
     });
   });
+
+  group('ATT', () {
+    test('getTrackingAuthorizationStatus returns the settable status', () async {
+      expect(await sdk.getTrackingAuthorizationStatus(), AttStatus.notSupported);
+      sdk.attStatus = AttStatus.notDetermined;
+      expect(
+        await sdk.getTrackingAuthorizationStatus(),
+        AttStatus.notDetermined,
+      );
+    });
+
+    test(
+      'requestTrackingAuthorization records the call, returns the configured '
+      'result, and updates the status',
+      () async {
+        sdk.attStatus = AttStatus.notDetermined;
+        sdk.attRequestResult = AttStatus.denied;
+
+        final result = await sdk.requestTrackingAuthorization();
+
+        expect(result, AttStatus.denied);
+        expect(sdk.requestTrackingAuthorizationCalls, 1);
+        // The status now reflects the prompt result.
+        expect(await sdk.getTrackingAuthorizationStatus(), AttStatus.denied);
+      },
+    );
+  });
 }

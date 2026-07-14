@@ -173,4 +173,17 @@ abstract interface class AdSdk {
 
   /// Resets UMP consent state. Testing only — never call in production.
   Future<void> resetConsent();
+
+  // ── ATT (iOS App Tracking Transparency) ───────────────────────────────
+  // Used only by the opt-in client-driven ATT flow. On Android and any
+  // non-iOS platform both methods resolve to [AttStatus.notSupported].
+
+  /// The current ATT authorization status. Android/others →
+  /// [AttStatus.notSupported].
+  Future<AttStatus> getTrackingAuthorizationStatus();
+
+  /// Shows the iOS system tracking prompt (only when the current status is
+  /// [AttStatus.notDetermined]) and resolves to the resulting status. A
+  /// no-op returning [AttStatus.notSupported] off iOS.
+  Future<AttStatus> requestTrackingAuthorization();
 }
