@@ -76,20 +76,70 @@ plugin).
 The application ID **cannot** be set from Dart — `AdFlowConfig` carries ad
 *unit* IDs only.
 
-## 3. Initialize
+## 3. Quick start
+
+**Step 1 — platform setup.** Do [§2](#2-platform-setup) first (app IDs +
+`app-ads.txt`).
+
+**Step 2 — initialize (non-blocking) and drop in a banner.** `initialize()`
+returns immediately; consent, ATT and ad loading all run in the **background**.
+Render your UI on the first frame — **never `await`-block it behind a splash**.
+Create each ad controller **once** (a `State` field, never inside `build()`).
 
 ```dart
 final navigatorKey = GlobalKey<NavigatorState>();
 
-// During development: Google's sample ads for every format.
-final ads = await AdFlow.initialize(
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // The await resolves on the next microtask (graph construction only) — it
+  // NEVER waits on the network, so the first frame is instant.
+  final ads = await AdFlow.initialize(
+    AdFlowConfig.test(), // dev: Google sample ads. Swap for your production config.
+    rewardedIntroPresenter: (c) =>
+        RewardedIntroScreen.show(navigatorKey.currentContext!, c),
+  );
+  runApp(MyApp(ads: ads, navigatorKey: navigatorKey)); // renders immediately
+}
+
+class _HomeState extends State<Home> {
+  late final _banner = ads.banner(); // create the controller ONCE, never in build()
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        bottomNavigationBar: SafeArea(
+          child: AdFlowBanner(controller: _banner, ownsController: true),
+        ),
+      );
+}
+```
+
+Nothing loads before request configuration is applied **and** the consent gate
+opens — this holds even for a first-frame banner/native. Do **not** wrap your
+app in a `FutureBuilder<AdFlow>` splash gate (that was v1's hang). Need the
+consent result? `await ads.whenReady` (`Future<bool>`) — optional, never gate
+UI on it.
+
+### Add consent + ATT priming (recommended for EEA / iOS)
+
+Show your own soft primer before the UMP GDPR form and Apple's ATT prompt —
+opt-in, additive, better opt-in rates. Add two presenters (details + copy
+localization in [§5](#5-consent--privacy)):
+
+```dart
+await AdFlow.initialize(
   AdFlowConfig.test(),
-  rewardedIntroPresenter: (content) =>
-      RewardedIntroScreen.show(navigatorKey.currentContext!, content),
+  rewardedIntroPresenter: (c) => RewardedIntroScreen.show(navigatorKey.currentContext!, c),
+  attExplainer:     (c) => AttExplainerScreen.show(navigatorKey.currentContext!, c),
+  consentExplainer: (c) => ConsentExplainerScreen.show(navigatorKey.currentContext!, c),
 );
 ```
 
-Production config — only configured slots ever load:
+The [example](example/lib/main.dart) runs **both** modes behind one
+`useExplainer` flag.
+
+### Production config
+
+Only configured slots ever load:
 
 ```dart
 final ads = await AdFlow.initialize(
@@ -109,33 +159,6 @@ final ads = await AdFlow.initialize(
   ),
 );
 ```
-
-`initialize` builds the whole graph synchronously and **returns immediately** —
-consent gathering, the Ads SDK init and request configuration all run in the
-**background**. No ad request goes out before request configuration is applied
-**and** the consent gate opens (ADR-028/ADR-033) — this holds even for a
-banner/native you mount on the first frame — so it is safe to render at once;
-the app-open manager starts and every configured full-screen format preloads
-once the gate resolves.
-
-**Never block your first frame on `AdFlow.initialize()`.** Render your real UI
-immediately; ads, consent and ATT appear over it:
-
-```dart
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  final ads = await AdFlow.initialize(myConfig, /* presenters… */);
-  runApp(MyApp(ads: ads)); // the await resolves instantly — never a network wait
-}
-```
-
-The `await` completes on the next microtask (graph construction only), so the
-first frame is never delayed by consent/network. If you genuinely need to know
-when the consent gate has resolved, `await ads.whenReady` (`Future<bool>` = the
-gate result) — but it is **not** required for normal use, and you should not
-gate UI on it. Do **not** wrap your app in a `FutureBuilder<AdFlow>` that shows
-a spinner until consent finishes (that was v1's splash-hang pain on weak
-connections). See [example/lib/main.dart](example/lib/main.dart).
 
 Set `testMode: true` (or use `AdFlowConfig.test()`) during development —
 it swaps every **configured** slot to Google's sample IDs. Never ship it.
