@@ -232,6 +232,21 @@ class AdFlow {
       store: store ?? SharedPrefsKeyValueStore(),
       rewardedIntroPresenter: rewardedIntroPresenter,
     );
+    // IDEMPOTENT (ADR-044): a second initialize() replaces the first graph
+    // instead of leaving it running. Apps DO re-initialize — on login/logout,
+    // on a config change, on a debug hot restart — and every call builds a
+    // whole new graph. Without this the previous one stayed fully alive: still
+    // subscribed to the foreground stream, still preloading and refreshing,
+    // still able to show ads, and coordinating through its OWN separate
+    // FullScreenAdCoordinator, so it could not even see the new graph's ads.
+    // That is v1 trap #6 — two lifecycle reactors fighting — coming back in
+    // through the front door.
+    //
+    // Torn down AFTER the new graph is constructed, so a throwing constructor
+    // (e.g. a missing rewardedIntroPresenter) leaves the working graph intact.
+    final previous = _instance;
+    if (previous != null && !previous._disposed) previous.dispose();
+
     // NON-BLOCKING (ADR-032): the whole graph is built synchronously above.
     // Publish the instance pointer and kick consent + SDK init in the
     // BACKGROUND, then return immediately — the caller's first frame must
