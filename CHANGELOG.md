@@ -16,6 +16,11 @@ symbol-by-symbol mapping.
   can unit-test their ad integration.
 * **NEW**: Experimental Next-Gen GMA SDK opt-in on Android via
   `--dart-define=USE_NEXT_GEN_SDK=true` (no Dart changes).
+* **NEW**: Non-blocking `AdFlow.initialize()` — builds the graph synchronously
+  and returns immediately; consent/ATT/SDK-init run in the background. Render
+  your first frame at once (no `FutureBuilder<AdFlow>` spinner). Optional
+  `Future<bool> ads.whenReady` awaits the consent gate. Nothing loads before
+  the gate opens (ADR-032).
 * **NEW**: Opt-in consent & ATT priming screens — the v2 equivalent of v1's
   `initializeWithExplainer`, now decoupled from `BuildContext` via presenters
   (`attExplainer`/`consentExplainer` on `initialize`, ready-made

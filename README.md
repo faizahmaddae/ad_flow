@@ -110,11 +110,30 @@ final ads = await AdFlow.initialize(
 );
 ```
 
-`initialize` runs SDK init in parallel with consent gathering, pushes the
-request configuration once the gate opens, starts the app-open manager and
-preloads every configured full-screen format. Don't block your first frame
-on it — see [example/lib/main.dart](example/lib/main.dart) for the
-`FutureBuilder` pattern.
+`initialize` builds the whole graph synchronously and **returns immediately** —
+consent gathering, the Ads SDK init and request configuration all run in the
+**background**. Nothing loads before the consent gate opens (invariant 1), so
+it is safe to render at once; the app-open manager starts and every configured
+full-screen format preloads once the gate resolves.
+
+**Never block your first frame on `AdFlow.initialize()`.** Render your real UI
+immediately; ads, consent and ATT appear over it:
+
+```dart
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final ads = await AdFlow.initialize(myConfig, /* presenters… */);
+  runApp(MyApp(ads: ads)); // the await resolves instantly — never a network wait
+}
+```
+
+The `await` completes on the next microtask (graph construction only), so the
+first frame is never delayed by consent/network. If you genuinely need to know
+when the consent gate has resolved, `await ads.whenReady` (`Future<bool>` = the
+gate result) — but it is **not** required for normal use, and you should not
+gate UI on it. Do **not** wrap your app in a `FutureBuilder<AdFlow>` that shows
+a spinner until consent finishes (that was v1's splash-hang pain on weak
+connections). See [example/lib/main.dart](example/lib/main.dart).
 
 Set `testMode: true` (or use `AdFlowConfig.test()`) during development —
 it swaps every **configured** slot to Google's sample IDs. Never ship it.

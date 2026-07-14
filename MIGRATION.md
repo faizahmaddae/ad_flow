@@ -21,6 +21,8 @@ final ads = await AdFlow.initialize(myConfig);      // consent-gated internally
 ```
 Consent is gathered and `canRequestAds`-gated automatically; you no longer sequence UMP yourself.
 
+**Non-blocking (behavior change — ADR-032).** `AdFlow.initialize()` still returns `Future<AdFlow>` (type unchanged), but the Future now **completes immediately, before consent** — the graph is built synchronously and consent/ATT/SDK-init run in the **background**. Do NOT gate your first frame on it: render your UI at once and let ads/consent/ATT appear over it. If you previously wrapped the app in a `FutureBuilder<AdFlow>` that showed a spinner until `initialize` resolved, drop it — the resolve no longer means "consent finished," and blocking on it reintroduces v1's splash hang. New `Future<bool> ads.whenReady` completes when the consent gate resolves, for the rare caller that must await it (not required for normal use). Nothing loads before the gate opens, so rendering immediately is safe.
+
 **Priming screens (v1 `initializeWithExplainer`)** are restored as opt-in presenters — decoupled from `BuildContext`:
 ```dart
 final ads = await AdFlow.initialize(
