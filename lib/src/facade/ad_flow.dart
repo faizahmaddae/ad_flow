@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../config/ad_flow_config.dart';
 import '../config/ad_platform.dart';
 import '../consent/consent_gateway.dart';
+import '../consent/explainer_content.dart';
 import '../controllers/app_open_ad_controller.dart';
 import '../controllers/banner_ad_controller.dart';
 import '../controllers/interstitial_ad_controller.dart';
@@ -148,6 +149,25 @@ class AdFlow {
   /// [rewardedIntroPresenter] is required when the rewarded interstitial
   /// slot is configured. [consentDebug] passes UMP debug geography —
   /// remove before release.
+  ///
+  /// The optional priming ("explainer") parameters restore v1's
+  /// `initializeWithExplainer` in the v2 presenter style — all opt-in and
+  /// additive (pass none and behaviour is exactly as before):
+  ///
+  /// - [attExplainer] — the app's ATT primer shown before Apple's system
+  ///   tracking prompt (client-driven ATT, iOS). Supplying it also opts into
+  ///   running ATT *before* the GDPR flow. In this mode do **not** also
+  ///   configure the UMP IDFA message in the AdMob console (avoids a double
+  ///   prompt).
+  /// - [consentExplainer] — the app's consent primer shown before the UMP
+  ///   GDPR form, only when a form will actually appear.
+  /// - [consentExplainerContent] / [attExplainerContent] — the copy for the
+  ///   presenters (localize by overriding).
+  /// - [skipGdprConsentIfAttDenied] — skip the GDPR form when the user just
+  ///   denied ATT (default true, matching v1).
+  ///
+  /// These apply only to a gateway this facade creates. If you inject your
+  /// own [consent], construct it with these options yourself.
   static Future<AdFlow> initialize(
     AdFlowConfig config, {
     AdSdk? sdk,
@@ -156,6 +176,12 @@ class AdFlow {
     AdPlatform? platform,
     RewardedIntroPresenter? rewardedIntroPresenter,
     ConsentDebugOptions? consentDebug,
+    ConsentExplainerPresenter? consentExplainer,
+    AttExplainerPresenter? attExplainer,
+    ConsentExplainerContent consentExplainerContent =
+        const ConsentExplainerContent(),
+    AttExplainerContent attExplainerContent = const AttExplainerContent(),
+    bool skipGdprConsentIfAttDenied = true,
   }) async {
     final resolvedSdk = sdk ?? GmaAdSdk();
     final flow = AdFlow._(
@@ -166,6 +192,11 @@ class AdFlow {
           UmpConsentGateway(
             resolvedSdk,
             tagForUnderAgeOfConsent: config.tagForUnderAgeOfConsent,
+            consentExplainer: consentExplainer,
+            attExplainer: attExplainer,
+            consentExplainerContent: consentExplainerContent,
+            attExplainerContent: attExplainerContent,
+            skipGdprConsentIfAttDenied: skipGdprConsentIfAttDenied,
           ),
       // Only dispose a consent gateway this facade created itself — an
       // injected one may be shared/reused by the caller beyond dispose().

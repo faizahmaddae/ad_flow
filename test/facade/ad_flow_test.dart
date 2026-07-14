@@ -303,6 +303,86 @@ void main() {
     });
   });
 
+  group('explainer / ATT priming (slice 4)', () {
+    test(
+      'end to end: ATT primer + prompt, then consent primer + form, then '
+      'the gate opens and preloads run',
+      () async {
+        final events = <String>[];
+        sdk.attStatus = AttStatus.notDetermined;
+        sdk.attRequestResult = AttStatus.authorized;
+        sdk.consentStatus = AdConsentStatus.required;
+        sdk.consentFormAvailable = true;
+        sdk.onConsentFormShown = () {
+          sdk.canRequestAdsResult = true;
+          sdk.consentStatus = AdConsentStatus.obtained;
+          events.add('form');
+        };
+
+        final ads = await AdFlow.initialize(
+          fullConfig,
+          sdk: sdk,
+          store: InMemoryKeyValueStore(),
+          platform: AdPlatform.android,
+          rewardedIntroPresenter: (_) async => true,
+          attExplainer: (_) async => events.add('att-primer'),
+          consentExplainer: (_) async => events.add('consent-primer'),
+        );
+        await Future<void>.delayed(Duration.zero); // let preloads land
+
+        expect(events, ['att-primer', 'consent-primer', 'form']);
+        expect(sdk.requestTrackingAuthorizationCalls, 1);
+        expect(sdk.loadAndShowConsentFormCalls, 1);
+        // The gate opened → the interstitial preloaded (enforceConsentGate
+        // would have thrown on a load with the gate closed).
+        expect(sdk.interstitials, hasLength(1));
+        ads.dispose();
+      },
+    );
+
+    test(
+      'no explainers: no ATT call at all, consent flow unchanged '
+      '(regression guard for the default path)',
+      () async {
+        final ads = await boot(); // boot() passes no explainers
+        await Future<void>.delayed(Duration.zero);
+
+        expect(sdk.requestTrackingAuthorizationCalls, 0);
+        expect(sdk.loadAndShowConsentFormCalls, 1);
+        ads.dispose();
+      },
+    );
+
+    test(
+      'an injected consent gateway ignores the facade explainer params',
+      () async {
+        // The explainer params only configure a gateway AdFlow creates
+        // itself; an injected gateway is used verbatim.
+        final injectedSdk = FakeAdSdk()
+          ..attStatus = AttStatus.notDetermined
+          ..attRequestResult = AttStatus.authorized
+          ..canRequestAdsResult = true;
+        final injectedConsent = UmpConsentGateway(injectedSdk); // no explainer
+        addTearDown(() {
+          injectedConsent.dispose();
+          injectedSdk.dispose();
+        });
+
+        final ads = await AdFlow.initialize(
+          const AdFlowConfig(),
+          sdk: injectedSdk,
+          consent: injectedConsent,
+          store: InMemoryKeyValueStore(),
+          platform: AdPlatform.android,
+          attExplainer: (_) async {}, // ignored — gateway was injected
+        );
+
+        expect(injectedSdk.requestTrackingAuthorizationCalls, 0);
+        ads.dispose();
+      },
+    );
+  });
+
   group('remove-ads (enable/disableAds)', () {
     test('disableAds blocks loads and shows; enableAds restores', () async {
       final ads = await boot();
