@@ -1,3 +1,7 @@
+## 2.0.1
+
+- Docs: added a "Set up with AI" README section with copy-paste new-setup and v1→v2 migration prompts. No code changes.
+
 ## 2.0.0
 
 Ground-up rewrite targeting `google_mobile_ads ^9.0.0`. **Breaking** — see
