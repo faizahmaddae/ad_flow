@@ -1,3 +1,9 @@
+## 2.1.1
+
+Docs: README updated to 2.1.x; documented the diagnostic surface
+(`AdBlockReason` / `onAdBlocked` / `lastBlockReason`) and the rewarded
+global-cap exemption; fixed a stale skill trap. No code changes.
+
 ## 2.1.0
 
 Behaviour and default changes from the eight judgment calls raised by the 2.0.2
