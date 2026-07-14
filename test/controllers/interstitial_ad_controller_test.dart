@@ -85,19 +85,29 @@ void main() {
 
   group('show', () {
     test(
-      'shows a warm ad, enters the coordinator, records the impression',
+      'shows a warm ad, enters the coordinator, and records the impression on '
+      'DISMISS (ADR-040)',
       () async {
         final c = controller();
         await c.load();
         expect(c.isReady, isTrue);
 
         final shown = await c.show();
-        await Future<void>.delayed(Duration.zero); // let recordImpression land
+        await Future<void>.delayed(Duration.zero);
 
         expect(shown, isTrue);
         expect(c.state.value, const AdShowing());
         expect(sdk.interstitials.single.showCalls, 1);
         expect(coordinator.isFullScreenAdVisible, isTrue);
+
+        // While the ad is ON SCREEN the impression is not recorded yet — the
+        // cap clock must start when it CLOSES, not while the user is still
+        // watching (ADR-040). Nothing else can show meanwhile: the coordinator
+        // holds the claim, which is the guard that actually matters here.
+        sdk.interstitials.single.simulateShowed();
+        sdk.interstitials.single.simulateDismissed();
+        await Future<void>.delayed(Duration.zero);
+
         expect(await caps.canShow('interstitial'), isFalse); // minGap running
         c.dispose();
       },

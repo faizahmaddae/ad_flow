@@ -69,6 +69,10 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   int _attempts = 0;
   int _gateAttempts = 0;
   bool _enteredCoordinator = false;
+
+  /// The ad reached the screen (AdShowedEvent) but has not been dismissed yet,
+  /// so its impression is not recorded yet (ADR-040).
+  bool _impressionPending = false;
   bool _disposed = false;
 
   /// The seam load call for this format.
@@ -247,12 +251,22 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     if (_disposed) return;
     switch (event) {
       case AdShowedEvent():
-        // Coordinator entry already happened synchronously in show(); this
-        // only records the confirmed impression. A throwing store must not
-        // become an unhandled async error — losing one recorded impression
-        // (slightly loose capping) is strictly better than crashing the zone.
-        unawaited(_caps.recordImpression(slot).catchError((Object _) {}));
+        // The SDK confirms the ad is really on screen. The impression is NOT
+        // recorded here — it is recorded on dismiss (see below, ADR-040).
+        // Coordinator entry already happened synchronously in show().
+        _impressionPending = true;
       case AdDismissedEvent():
+        // Record the impression HERE, not on AdShowedEvent (ADR-040).
+        //
+        // Every cap timestamp — including the global cross-format minGap — is
+        // stamped from this moment, so the gap between two full-screen ads is
+        // measured from when the previous one CLOSED. Stamping it at show time
+        // meant the gap ran down while the user was still watching: a 30s
+        // rewarded ad under a 15s global gap "used up" the whole gap on
+        // screen, so an interstitial could fire the instant the user closed it
+        // — two full-screen ads back to back, which is the exact thing the
+        // global cap exists to prevent.
+        _recordImpressionIfPending();
         // Single-use spent: dispose and immediately preload the next
         // (invariant 7, ADR-011).
         _exitCoordinator();
@@ -260,6 +274,8 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         _state.value = const AdIdle();
         unawaited(load());
       case AdFailedToShowEvent(:final error):
+        // If the ad had already reached the screen, it still counts.
+        _recordImpressionIfPending();
         _exitCoordinator();
         _dropHandle();
         _state.value = AdFailed(error);
@@ -267,6 +283,16 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       case AdImpressionEvent() || AdClickedEvent():
         break;
     }
+  }
+
+  /// Records the impression for an ad that reached the screen, exactly once.
+  ///
+  /// A throwing store must not become an unhandled async error — losing one
+  /// recorded impression (slightly loose capping) beats crashing the zone.
+  void _recordImpressionIfPending() {
+    if (!_impressionPending) return;
+    _impressionPending = false;
+    unawaited(_caps.recordImpression(slot).catchError((Object _) {}));
   }
 
   void _exitCoordinator() {
@@ -335,6 +361,10 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    // An ad that reached the screen but is torn down before its dismiss event
+    // arrives still happened — record it, or the cap under-counts and the next
+    // ad could fire too soon.
+    _recordImpressionIfPending();
     _timer?.cancel();
     _timer = null;
     _exitCoordinator();

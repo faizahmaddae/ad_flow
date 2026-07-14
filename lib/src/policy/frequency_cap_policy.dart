@@ -25,14 +25,23 @@ class StoredFrequencyCapPolicy implements FrequencyCapPolicy {
   ///
   /// [slotCaps] maps slot names (e.g. `'interstitial'`, `'app_open'`) to
   /// their caps; slots without an entry are limited only by [globalCap].
+  ///
+  /// [globalCapExemptSlots] are slots whose *shows* the [globalCap] may not
+  /// block — but whose *impressions* it still records (ADR-039). This is what
+  /// separates the two jobs the global cap was doing: pacing **involuntary**
+  /// ads (an interstitial or app-open the user never asked for) is its real
+  /// purpose; blocking an ad the user explicitly tapped "watch for a reward"
+  /// on is not. `AdFlow` exempts the rewarded and rewarded-interstitial slots.
   StoredFrequencyCapPolicy({
     required KeyValueStore store,
     required Map<String, FrequencyCap> slotCaps,
     required FrequencyCap globalCap,
+    Set<String> globalCapExemptSlots = const {},
     DateTime Function()? now,
   }) : _store = store,
        _slotCaps = Map.of(slotCaps),
        _globalCap = globalCap,
+       _globalCapExemptSlots = Set.of(globalCapExemptSlots),
        _now = now ?? DateTime.now;
 
   static const _globalSlot = '_global';
@@ -43,6 +52,7 @@ class StoredFrequencyCapPolicy implements FrequencyCapPolicy {
   final KeyValueStore _store;
   final Map<String, FrequencyCap> _slotCaps;
   final FrequencyCap _globalCap;
+  final Set<String> _globalCapExemptSlots;
   final DateTime Function() _now;
 
   final Map<String, int> _sessionCounts = {};
@@ -55,6 +65,11 @@ class StoredFrequencyCapPolicy implements FrequencyCapPolicy {
   Future<bool> canShow(String slot) async {
     final cap = _slotCaps[slot];
     if (cap != null && !await _allows(slot, cap)) return false;
+    // The slot's OWN cap always applies. The global cap only gates involuntary
+    // formats (ADR-039) — a user who tapped "watch an ad for a reward" must
+    // never be silently refused because an interstitial happened to fire a few
+    // seconds earlier; they would get no ad AND no reward, with no explanation.
+    if (_globalCapExemptSlots.contains(slot)) return true;
     return _allows(_globalSlot, _globalCap);
   }
 

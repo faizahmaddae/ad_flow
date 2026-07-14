@@ -724,32 +724,48 @@ void main() {
     });
   });
 
-  test('global frequency cap spans formats through the facade graph', () async {
-    final ads = await AdFlow.initialize(
-      const AdFlowConfig(
-        interstitial: InterstitialConfig(
-          adUnitId: PlatformAdUnitId(android: 'i-a'),
-          cap: FrequencyCap(),
+  test(
+    'the global frequency cap spans INVOLUNTARY formats through the facade '
+    'graph, but never blocks a user-initiated rewarded ad (ADR-039)',
+    () async {
+      final ads = await AdFlow.initialize(
+        const AdFlowConfig(
+          interstitial: InterstitialConfig(
+            adUnitId: PlatformAdUnitId(android: 'i-a'),
+            cap: FrequencyCap(),
+          ),
+          rewarded: RewardedConfig(adUnitId: PlatformAdUnitId(android: 'r-a')),
+          appOpen: AppOpenConfig(
+            adUnitId: PlatformAdUnitId(android: 'ao-a'),
+            cap: FrequencyCap(),
+          ),
+          globalFrequencyCap: FrequencyCap(minGap: Duration(minutes: 10)),
         ),
-        rewarded: RewardedConfig(adUnitId: PlatformAdUnitId(android: 'r-a')),
-        globalFrequencyCap: FrequencyCap(minGap: Duration(minutes: 10)),
-      ),
-      sdk: sdk..canRequestAdsResult = true,
-      store: InMemoryKeyValueStore(),
-      platform: AdPlatform.android,
-    );
-    await ads.whenReady; // background startup (preloads) finishes
-    await Future<void>.delayed(Duration.zero);
+        sdk: sdk..canRequestAdsResult = true,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+      );
+      await ads.whenReady; // background startup (preloads) finishes
+      await Future<void>.delayed(Duration.zero);
 
-    expect(await ads.interstitial.show(), isTrue);
-    // Dismiss it so the coordinator is clear — only the cap remains.
-    sdk.interstitials.single.simulateDismissed();
-    await Future<void>.delayed(Duration.zero);
-    // The rewarded ad is warm but the GLOBAL cap blocks back-to-back shows.
-    expect(ads.rewarded.isReady, isTrue);
-    expect(await ads.rewarded.show(onReward: (_) {}), isFalse);
-    ads.dispose();
-  });
+      expect(await ads.interstitial.show(), isTrue);
+      // Dismiss it so the coordinator is clear — only the cap remains. The
+      // impression is recorded on this dismiss (ADR-040).
+      sdk.interstitials.single.simulateShowed();
+      sdk.interstitials.single.simulateDismissed();
+      await Future<void>.delayed(Duration.zero);
+
+      // An APP-OPEN ad is involuntary: the global 10-minute gap blocks it.
+      expect(ads.appOpenController.isReady, isTrue);
+      expect(await ads.appOpenController.show(), isFalse);
+
+      // A REWARDED ad is one the user asked for, in exchange for a reward: the
+      // global gap must never silently swallow it (ADR-039).
+      expect(ads.rewarded.isReady, isTrue);
+      expect(await ads.rewarded.show(onReward: (_) {}), isTrue);
+      ads.dispose();
+    },
+  );
 
   test('openAdInspector delegates to the seam', () async {
     final ads = await boot();

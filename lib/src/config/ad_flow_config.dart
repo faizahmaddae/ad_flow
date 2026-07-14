@@ -203,10 +203,25 @@ class InterstitialConfig {
 /// Configuration for the rewarded slot.
 class RewardedConfig {
   /// Creates rewarded configuration.
-  const RewardedConfig({required this.adUnitId, this.ssv});
+  const RewardedConfig({
+    required this.adUnitId,
+    this.cap = const FrequencyCap(),
+    this.ssv,
+  });
 
   /// Per-platform rewarded ad unit IDs.
   final PlatformAdUnitId adUnitId;
+
+  /// Per-slot frequency cap. **Unlimited by default**, and deliberately so: a
+  /// rewarded ad is one the user explicitly asked for, in exchange for
+  /// something. Capping it means refusing a user who tapped "watch an ad for
+  /// 100 coins" — they get no ad and no reward. Set a cap only if you have a
+  /// specific abuse to prevent.
+  ///
+  /// This slot is exempt from [AdFlowConfig.globalFrequencyCap] (ADR-039):
+  /// the global cap paces **involuntary** ads and must never swallow a
+  /// user-initiated one.
+  final FrequencyCap cap;
 
   /// Server-side verification for high-value rewards.
   final ServerSideVerification? ssv;
@@ -217,12 +232,19 @@ class RewardedInterstitialConfig {
   /// Creates rewarded interstitial configuration.
   const RewardedInterstitialConfig({
     required this.adUnitId,
+    this.cap = const FrequencyCap(),
     this.intro = const RewardIntroContent(),
     this.ssv,
   });
 
   /// Per-platform rewarded interstitial ad unit IDs.
   final PlatformAdUnitId adUnitId;
+
+  /// Per-slot frequency cap. Unlimited by default — see [RewardedConfig.cap].
+  /// The user reaches this ad only by tapping "continue" on the mandatory
+  /// intro screen, so it too is exempt from
+  /// [AdFlowConfig.globalFrequencyCap] (ADR-039).
+  final FrequencyCap cap;
 
   /// Copy for the mandatory intro/skip screen shown before the ad.
   final RewardIntroContent intro;

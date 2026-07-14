@@ -55,8 +55,24 @@ class AdFlow {
           InterstitialAdController.slotName: config.interstitial!.cap,
         if (config.appOpen != null)
           AppOpenAdController.slotName: config.appOpen!.cap,
+        if (config.rewarded != null)
+          RewardedAdController.slotName: config.rewarded!.cap,
+        if (config.rewardedInterstitial != null)
+          RewardedInterstitialAdController.slotName:
+              config.rewardedInterstitial!.cap,
       },
       globalCap: config.globalFrequencyCap,
+      // The global cap paces INVOLUNTARY ads (interstitial, app-open). The
+      // rewarded formats are reached only by an explicit user action — a tap on
+      // "watch an ad for a reward", and for the rewarded interstitial a tap on
+      // the mandatory intro's continue button — so the global cap must never
+      // block them: the user would get no ad, no reward and no explanation
+      // (ADR-039). Their impressions are still RECORDED globally, so an
+      // interstitial cannot fire straight after one.
+      globalCapExemptSlots: const {
+        RewardedAdController.slotName,
+        RewardedInterstitialAdController.slotName,
+      },
     );
     _gate = AdGate(
       canRequestAds: _sdk.canRequestAds,
