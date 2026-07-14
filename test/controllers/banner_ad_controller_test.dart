@@ -232,12 +232,8 @@ void main() {
       });
     });
 
-    test('a successful load always re-arms the shared timer as a refresh, so '
-        'a stale retry timer can never survive past recovery (review finding '
-        '#3 — this controller is structurally safe already: unlike the '
-        'full-screen base and NativeAdController, every successful load '
-        'calls _scheduleRefresh(), which cancels+replaces the one shared '
-        '_timer field outright)', () {
+    test('a stale retry timer can never stomp a recovered load (review finding '
+        '#3)', () {
       fakeAsync((async) {
         sdk.alwaysLoadError = const AdFlowError(
           AdFlowErrorKind.loadFailed,
@@ -255,21 +251,22 @@ void main() {
         async.flushMicrotasks();
         expect(c.state.value, isA<AdFailed>());
 
-        // A direct load() call succeeds independently of that timer —
-        // and, on success, schedules its own refresh timer, replacing
-        // the pending retry timer outright.
+        // A direct load() call succeeds independently of that timer.
         sdk.alwaysLoadError = null;
         c.load(width: 320);
         async.flushMicrotasks();
         expect(c.state.value, const AdLoaded());
         expect(sdk.banners, hasLength(1));
 
-        // The would-be retry-timer deadline passes; only the (already
-        // correctly-guarded) refresh timer is live, so refreshes happen
-        // on their normal ~60s cadence, not a stray reload at 5min.
+        // The would-be retry-timer deadline passes. It must not stomp the
+        // recovered ad back to AdIdle and force a second, unrelated load —
+        // its `state is! AdFailed` guard is what stops it. (Since ADR-041 the
+        // client-side refresh is off by default, so no refresh timer replaces
+        // that stale one either; the guard is now doing the work alone.)
         async.elapse(const Duration(minutes: 5));
         expect(c.state.value, const AdLoaded());
-        expect(sdk.banners, hasLength(6)); // 5 normal 60s refreshes
+        expect(sdk.banners, hasLength(1));
+        expect(sdk.banners.single.disposed, isFalse);
 
         c.dispose();
       });

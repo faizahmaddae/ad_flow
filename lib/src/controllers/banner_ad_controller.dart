@@ -53,6 +53,7 @@ class BannerAdController implements AdController {
   final void Function(AdPaidEvent event)? _onPaid;
 
   final ValueNotifier<AdLoadState> _state = ValueNotifier(const AdIdle());
+  final ValueNotifier<int> _revision = ValueNotifier(0);
   BannerHandle? _handle;
   StreamSubscription<AdPaidEvent>? _paidSub;
   Timer? _timer;
@@ -60,10 +61,20 @@ class BannerAdController implements AdController {
   int _gateAttempts = 0;
   int? _width;
   int? _loadedWidth;
+  bool _refreshing = false;
   bool _disposed = false;
 
   @override
   ValueListenable<AdLoadState> get state => _state;
+
+  /// Bumped every time [handle] is replaced by a *different* live ad — a
+  /// client-side refresh swap (ADR-041).
+  ///
+  /// [state] cannot carry this: the swap goes `AdLoaded → AdLoaded`, and
+  /// `ValueNotifier` skips `notifyListeners()` when the new value equals the
+  /// old one, so a widget listening only to [state] would go on rendering the
+  /// previous, now-disposed handle. `AdFlowBanner` listens to both.
+  ValueListenable<int> get revision => _revision;
 
   /// The loaded banner, ready for `buildWidget()`. Null unless [state] is
   /// [AdLoaded].
@@ -216,17 +227,109 @@ class BannerAdController implements AdController {
     }
   }
 
+  /// Arms the opt-in client-side refresh, if one is configured.
+  ///
+  /// No config, no timer (ADR-041) — AdMob's own server-side auto-refresh is
+  /// on by default and already does this job.
   void _scheduleRefresh() {
-    final interval = _config.minRefresh < minRefreshFloor
-        ? minRefreshFloor
-        : _config.minRefresh;
+    final configured = _config.minRefresh;
+    if (configured == null) return;
+    final interval = configured < minRefreshFloor ? minRefreshFloor : configured;
     _timer?.cancel();
-    _timer = Timer(interval, () {
-      if (_disposed || _state.value is! AdLoaded) return;
-      _dropHandle();
-      _state.value = const AdIdle();
-      unawaited(load());
-    });
+    _timer = Timer(interval, _refresh);
+  }
+
+  /// Loads a replacement ad **in the background** and swaps it in only once it
+  /// has actually arrived (ADR-041).
+  ///
+  /// The old code dropped the live handle, went `AdIdle` and started a fresh
+  /// load — so the slot went BLANK for the entire duration of that load, on
+  /// every single refresh cycle. On a weak network that is a multi-second hole
+  /// in the middle of the screen, every minute; and a refresh that failed
+  /// (no-fill — routine) left the slot empty until a retry finally succeeded,
+  /// having destroyed a perfectly good ad to get there.
+  Future<void> _refresh() async {
+    if (_disposed || _refreshing) return;
+    if (_state.value is! AdLoaded) return; // nothing on screen to refresh
+    _refreshing = true;
+    try {
+      if (_disposed) return;
+      if (!await _gate.canLoad(slot)) {
+        // NOT a failure — ads are no longer PERMITTED (Remove-Ads bought,
+        // consent withdrawn). Unlike a failed refresh, the current ad may not
+        // stay: drop it and go idle, then re-check the gate later.
+        if (_disposed) return;
+        _dropHandle();
+        _state.value = const AdIdle();
+        _scheduleGateRecheck();
+        return;
+      }
+      if (_disposed) return;
+      final requestWidth = _width;
+      final size = _sizeSpec();
+      if (size == null) return; // adaptive with no width — cannot refresh
+      final handle = await _sdk.loadBanner(
+        BannerLoadSpec(
+          adUnitId: _adUnitId,
+          size: size,
+          collapsible: _config.collapsible,
+        ),
+      );
+      if (_disposed) {
+        unawaited(handle.dispose());
+        return;
+      }
+      // The replacement is here: swap atomically, THEN release the old ad.
+      final old = _handle;
+      final oldSub = _paidSub;
+      _handle = handle;
+      _paidSub = handle.paidEvents.listen(_onPaid ?? (_) {});
+      _loadedWidth = requestWidth;
+      unawaited(oldSub?.cancel());
+      if (old != null) unawaited(old.dispose());
+      // `AdLoaded == AdLoaded`, so writing the state again would NOT notify —
+      // the widget would keep rendering the old, now-disposed handle. Bump the
+      // revision instead; AdFlowBanner listens to both.
+      _revision.value++;
+      _attempts = 0;
+      _scheduleRefresh();
+    } catch (_) {
+      // A failed refresh (no-fill, network) must NOT take down the ad that is
+      // already on screen — that was the old behaviour's worst property. Keep
+      // it, back off, and try again.
+      if (_disposed) return;
+      _attempts++;
+      _timer?.cancel();
+      _timer = Timer(
+        _retry.shouldRetry(_attempts)
+            ? _retry.nextDelay(_attempts)
+            : _retry.cooldown,
+        () {
+          if (_disposed) return;
+          if (!_retry.shouldRetry(_attempts)) _attempts = 0;
+          unawaited(_refresh());
+        },
+      );
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  /// The size spec for the current config/width, or null when an adaptive
+  /// banner has no width yet.
+  BannerSizeSpec? _sizeSpec() {
+    final width = _width;
+    return switch (_config.kind) {
+      BannerKind.anchoredAdaptive when width != null => AnchoredAdaptiveSizeSpec(
+        width: width,
+      ),
+      BannerKind.inlineAdaptive when width != null => InlineAdaptiveSizeSpec(
+        width: width,
+        maxHeight: _config.maxInlineHeight,
+      ),
+      BannerKind.anchoredAdaptive || BannerKind.inlineAdaptive => null,
+      BannerKind.fixed => FixedSizeSpec(_config.fixedSize),
+    };
   }
 
   void _scheduleRetry() {
@@ -287,5 +390,6 @@ class BannerAdController implements AdController {
     _timer = null;
     _dropHandle();
     _state.dispose();
+    _revision.dispose();
   }
 }

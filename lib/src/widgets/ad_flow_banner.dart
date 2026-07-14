@@ -87,9 +87,16 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
             widget.controller.resize(width);
           }
         }
-        return ValueListenableBuilder(
-          valueListenable: widget.controller.state,
-          builder: (context, state, _) {
+        return ListenableBuilder(
+          // Both, not just `state`: a client-side refresh swap (ADR-041) goes
+          // AdLoaded → AdLoaded, which does not notify, so a widget listening
+          // only to `state` would keep rendering the old, disposed handle.
+          listenable: Listenable.merge([
+            widget.controller.state,
+            widget.controller.revision,
+          ]),
+          builder: (context, _) {
+            final state = widget.controller.state.value;
             final handle = widget.controller.handle;
             if (state is AdLoaded && handle != null) {
               return SizedBox(

@@ -154,7 +154,7 @@ class BannerConfig {
     this.fixedSize = FixedBannerSize.banner,
     this.maxInlineHeight,
     this.collapsible,
-    this.minRefresh = const Duration(seconds: 60),
+    this.minRefresh,
   });
 
   /// Per-platform banner ad unit IDs.
@@ -173,11 +173,24 @@ class BannerConfig {
   /// only; auto-refresh does not re-request collapsible ads).
   final CollapsiblePlacement? collapsible;
 
-  /// Minimum time an ad stays on screen before a manual reload.
-  /// Keep at 60s or more per AdMob guidance; the banner controller clamps
-  /// values below 30s (Duration comparisons are not allowed in const
-  /// asserts, so this cannot be a constructor assert).
-  final Duration minRefresh;
+  /// Opt-in **client-side** refresh interval. **Null (the default) means no
+  /// client-side refresh at all** — no timer runs (ADR-041).
+  ///
+  /// Leave this null unless you know you need it. AdMob already refreshes
+  /// banner ad units **server-side**, configured per ad unit in the AdMob
+  /// console and **on by default**. A client-side timer on top of that is a
+  /// second, unsynchronised refresh loop for the same placement: up to 2x the
+  /// ad requests, for no extra revenue. Configure the refresh rate in the
+  /// console instead.
+  ///
+  /// Set it only when the console refresh is deliberately off and you want the
+  /// client to drive it. Values below 30s are clamped by the banner controller
+  /// (Duration comparisons are not allowed in const asserts, so this cannot be
+  /// a constructor assert); AdMob's own guidance is 60s or more.
+  ///
+  /// When set, a refresh never blanks the slot: the current ad keeps rendering
+  /// until its replacement has actually loaded (ADR-041).
+  final Duration? minRefresh;
 }
 
 /// Configuration for the interstitial slot.
