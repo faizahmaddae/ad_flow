@@ -7,6 +7,7 @@ import '../core/ad_controller.dart';
 import '../core/ad_flow_error.dart';
 import '../core/ad_load_state.dart';
 import '../policy/ad_gate.dart';
+import '../policy/full_screen_ad_coordinator.dart';
 import '../policy/retry_policy.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
@@ -18,17 +19,23 @@ import '../seam/ad_sdk_types.dart';
 /// ads stay until [reload] or [dispose].
 class NativeAdController implements AdController {
   /// Creates a controller for the native slot.
+  ///
+  /// [coordinator] — when given, a click/open on this native ad is reported to
+  /// it, so the app-open manager does not stack an app-open ad on the foreground
+  /// event that follows (ADR-042). `AdFlow.native()` passes it for you.
   NativeAdController({
     required AdSdk sdk,
     required AdGate gate,
     required NativeConfig config,
     required String adUnitId,
+    FullScreenAdCoordinator? coordinator,
     RetryPolicy? retry,
     void Function(AdPaidEvent event)? onPaid,
   }) : _sdk = sdk,
        _gate = gate,
        _config = config,
        _adUnitId = adUnitId,
+       _coordinator = coordinator,
        _retry = retry ?? RetryPolicy(const RetryConfig()),
        _onPaid = onPaid;
 
@@ -39,12 +46,14 @@ class NativeAdController implements AdController {
   final AdGate _gate;
   final NativeConfig _config;
   final String _adUnitId;
+  final FullScreenAdCoordinator? _coordinator;
   final RetryPolicy _retry;
   final void Function(AdPaidEvent event)? _onPaid;
 
   final ValueNotifier<AdLoadState> _state = ValueNotifier(const AdIdle());
   NativeHandle? _handle;
   StreamSubscription<AdPaidEvent>? _paidSub;
+  StreamSubscription<ViewAdEvent>? _eventSub;
   Timer? _timer;
   int _attempts = 0;
   int _gateAttempts = 0;
@@ -98,6 +107,7 @@ class NativeAdController implements AdController {
       }
       _handle = handle;
       _paidSub = handle.paidEvents.listen(_onPaid ?? (_) {});
+      _eventSub = handle.events.listen(_onViewEvent);
       _attempts = 0;
       _gateAttempts = 0;
       _state.value = const AdLoaded();
@@ -168,9 +178,24 @@ class NativeAdController implements AdController {
     });
   }
 
+  /// A click on this native ad backgrounds the app; tell the coordinator so the
+  /// foreground event that follows is treated as a return FROM AN AD, not a
+  /// fresh warm start (ADR-042).
+  void _onViewEvent(ViewAdEvent event) {
+    if (_disposed) return;
+    switch (event) {
+      case ViewAdEvent.opened || ViewAdEvent.clicked:
+        _coordinator?.noteViewAdOpened();
+      case ViewAdEvent.closed || ViewAdEvent.impression:
+        break;
+    }
+  }
+
   void _dropHandle() {
     unawaited(_paidSub?.cancel());
+    unawaited(_eventSub?.cancel());
     _paidSub = null;
+    _eventSub = null;
     final handle = _handle;
     _handle = null;
     if (handle != null) unawaited(handle.dispose());

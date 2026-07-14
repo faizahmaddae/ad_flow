@@ -553,6 +553,7 @@ class AdFlow {
       gate: _gate,
       config: config,
       adUnitId: adUnitId,
+      coordinator: _coordinator,
       retry: RetryPolicy(_config.retry),
       onPaid: _dispatchPaid,
     );
@@ -583,10 +584,41 @@ class AdFlow {
       gate: _gate,
       config: config,
       adUnitId: adUnitId,
+      coordinator: _coordinator,
       retry: RetryPolicy(_config.retry),
       onPaid: _dispatchPaid,
     );
   }
+
+  /// Tells ad_flow that a **blocking** banner or native ad currently occupies
+  /// the screen, so no app-open ad is shown over it (ADR-042).
+  ///
+  /// AdMob objects to an app-open ad covering content that is itself already
+  /// showing an ad. ad_flow cannot decide this for you: whether a banner is
+  /// "blocking" is a question about YOUR layout — a small anchored banner below
+  /// the content usually is not; a large native card filling the screen is. So
+  /// call this from the screens where it matters:
+  ///
+  /// ```dart
+  /// @override
+  /// void initState() {
+  ///   super.initState();
+  ///   ads.setBlockingViewAdVisible(true);
+  /// }
+  ///
+  /// @override
+  /// void dispose() {
+  ///   ads.setBlockingViewAdVisible(false);
+  ///   super.dispose();
+  /// }
+  /// ```
+  ///
+  /// ad_flow handles the *click* case for you already — returning from a banner
+  /// or native ad the user tapped never shows an app-open ad. This flag is for
+  /// the *placement* case, which only the app can know. Ad placement remains
+  /// partly the integrator's responsibility.
+  void setBlockingViewAdVisible(bool visible) =>
+      _coordinator.blockingViewAdVisible = visible;
 
   /// Opens the Ad Inspector debug overlay.
   Future<AdInspectorResult> openAdInspector() => _sdk.openAdInspector();

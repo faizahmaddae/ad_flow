@@ -7,6 +7,7 @@ import '../core/ad_controller.dart';
 import '../core/ad_flow_error.dart';
 import '../core/ad_load_state.dart';
 import '../policy/ad_gate.dart';
+import '../policy/full_screen_ad_coordinator.dart';
 import '../policy/retry_policy.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
@@ -24,17 +25,23 @@ class BannerAdController implements AdController {
   /// [adUnitId] is the already-resolved unit ID for the current platform
   /// (test-mode substitution happens in `AdFlowConfig`). [onPaid] receives
   /// impression-level revenue events.
+  /// [coordinator] — when given, the controller reports a click/open on this
+  /// banner to it, so the app-open manager knows the foreground event that
+  /// follows is a return FROM AN AD and does not stack an app-open ad on it
+  /// (ADR-042). `AdFlow.banner()` passes the shared coordinator for you.
   BannerAdController({
     required AdSdk sdk,
     required AdGate gate,
     required BannerConfig config,
     required String adUnitId,
+    FullScreenAdCoordinator? coordinator,
     RetryPolicy? retry,
     void Function(AdPaidEvent event)? onPaid,
   }) : _sdk = sdk,
        _gate = gate,
        _config = config,
        _adUnitId = adUnitId,
+       _coordinator = coordinator,
        _retry = retry ?? RetryPolicy(const RetryConfig()),
        _onPaid = onPaid;
 
@@ -49,6 +56,7 @@ class BannerAdController implements AdController {
   final AdGate _gate;
   final BannerConfig _config;
   final String _adUnitId;
+  final FullScreenAdCoordinator? _coordinator;
   final RetryPolicy _retry;
   final void Function(AdPaidEvent event)? _onPaid;
 
@@ -56,6 +64,7 @@ class BannerAdController implements AdController {
   final ValueNotifier<int> _revision = ValueNotifier(0);
   BannerHandle? _handle;
   StreamSubscription<AdPaidEvent>? _paidSub;
+  StreamSubscription<ViewAdEvent>? _eventSub;
   Timer? _timer;
   int _attempts = 0;
   int _gateAttempts = 0;
@@ -207,6 +216,7 @@ class BannerAdController implements AdController {
       }
       _handle = handle;
       _paidSub = handle.paidEvents.listen(_onPaid ?? (_) {});
+      _eventSub = handle.events.listen(_onViewEvent);
       _attempts = 0;
       _gateAttempts = 0;
       _loadedWidth = requestWidth;
@@ -281,11 +291,14 @@ class BannerAdController implements AdController {
       }
       // The replacement is here: swap atomically, THEN release the old ad.
       final old = _handle;
-      final oldSub = _paidSub;
+      final oldPaidSub = _paidSub;
+      final oldEventSub = _eventSub;
       _handle = handle;
       _paidSub = handle.paidEvents.listen(_onPaid ?? (_) {});
+      _eventSub = handle.events.listen(_onViewEvent);
       _loadedWidth = requestWidth;
-      unawaited(oldSub?.cancel());
+      unawaited(oldPaidSub?.cancel());
+      unawaited(oldEventSub?.cancel());
       if (old != null) unawaited(old.dispose());
       // `AdLoaded == AdLoaded`, so writing the state again would NOT notify —
       // the widget would keep rendering the old, now-disposed handle. Bump the
@@ -374,9 +387,26 @@ class BannerAdController implements AdController {
     });
   }
 
+  /// A click on this banner opens the landing page and backgrounds the app.
+  /// Tell the coordinator, so the app-open manager treats the foreground event
+  /// that follows as a return FROM AN AD rather than a fresh warm start —
+  /// otherwise the user closes the landing page and is immediately handed an
+  /// app-open ad (ADR-042).
+  void _onViewEvent(ViewAdEvent event) {
+    if (_disposed) return;
+    switch (event) {
+      case ViewAdEvent.opened || ViewAdEvent.clicked:
+        _coordinator?.noteViewAdOpened();
+      case ViewAdEvent.closed || ViewAdEvent.impression:
+        break;
+    }
+  }
+
   void _dropHandle() {
     unawaited(_paidSub?.cancel());
+    unawaited(_eventSub?.cancel());
     _paidSub = null;
+    _eventSub = null;
     final handle = _handle;
     _handle = null;
     if (handle != null) unawaited(handle.dispose());

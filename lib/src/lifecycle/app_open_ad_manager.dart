@@ -16,10 +16,13 @@ import '../seam/ad_sdk_types.dart';
 /// with all policy checks delegated to the controller and gate:
 /// consent, enabled, frequency caps, coordinator suppression, 4h expiry.
 ///
-/// Cold-start rule: the underlying platform notifier emits a foreground
-/// event on app start too, so the FIRST event after [start] never shows an
-/// ad (it just warms the preload) unless [AppOpenConfig.showOnColdStart]
-/// is explicitly on.
+/// Cold-start rule (ADR-043): every foreground return may show an ad,
+/// **including the first one**. `AppStateEventNotifier` does NOT replay the
+/// cold-launch foreground — the seam only calls `startListening()` once the app
+/// is already foregrounded — so the first event the manager ever receives is a
+/// genuine background→return. Invariant 3 ("never show on a cold launch") holds
+/// structurally: at cold launch no ad is loaded yet, so there is nothing to
+/// show.
 class AppOpenAdManager {
   /// Creates the manager. Call [start] to begin reacting to foreground
   /// returns.
@@ -42,20 +45,17 @@ class AppOpenAdManager {
     DateTime Function()? now,
   }) : _controller = controller,
        _sdk = sdk,
-       _config = config,
        _coordinator = coordinator,
        _postDismissSuppression = postDismissSuppression,
        _now = now ?? DateTime.now;
 
   final AppOpenAdController _controller;
   final AdSdk _sdk;
-  final AppOpenConfig _config;
   final FullScreenAdCoordinator? _coordinator;
   final Duration _postDismissSuppression;
   final DateTime Function() _now;
 
   StreamSubscription<AppForegroundEvent>? _sub;
-  bool _firstEventSeen = false;
 
   /// Whether the manager is currently reacting to foreground events.
   bool get isStarted => _sub != null;
@@ -74,13 +74,18 @@ class AppOpenAdManager {
   }
 
   Future<void> _onForeground(AppForegroundEvent event) async {
-    if (!_firstEventSeen) {
-      _firstEventSeen = true;
-      if (!_config.showOnColdStart) {
-        // Cold start: never show, just make sure one is warm.
-        unawaited(_controller.load());
-        return;
-      }
+    // The user is coming back from a banner/native ad they just clicked: this
+    // foreground event is a return FROM AN AD, not a genuine warm return
+    // (ADR-042). One-shot — the next return is a normal one.
+    if (_coordinator?.consumeViewAdOpened() ?? false) {
+      unawaited(_controller.load());
+      return;
+    }
+    // The app says a blocking banner/native ad currently occupies the screen —
+    // do not stack an app-open ad over it (ADR-042).
+    if (_coordinator?.blockingViewAdVisible ?? false) {
+      unawaited(_controller.load());
+      return;
     }
     if (_withinPostDismissSuppression()) {
       // Another full-screen ad (of any format) just closed — never stack
@@ -89,8 +94,16 @@ class AppOpenAdManager {
       unawaited(_controller.load());
       return;
     }
-    // The controller enforces gate, caps, coordinator and expiry; a
-    // false result also re-warms the next ad.
+    // NOTE (ADR-043): there is deliberately no "first event is the cold start"
+    // latch here any more. `AppStateEventNotifier` does not replay the
+    // cold-launch foreground — the seam calls `startListening()` only once the
+    // app is already foregrounded — so the first event we ever receive is a
+    // real background→return, and swallowing it threw away one app-open
+    // impression in EVERY session. Invariant 3 (never show on a cold launch)
+    // is upheld structurally instead: at cold launch nothing is loaded yet, so
+    // `show()` finds no warm ad and returns false. The controller enforces
+    // gate, caps, coordinator and the 4h expiry; a false result also re-warms
+    // the next ad.
     await _controller.show();
   }
 

@@ -315,8 +315,19 @@ class AppOpenConfig {
   /// (Google mandates 4 hours).
   final Duration expiry;
 
-  /// Whether the very first launch may show an app open ad from a
-  /// dedicated splash gate. Default false: warm starts only, per policy.
+  /// **Deprecated and ignored** since ADR-043.
+  ///
+  /// It never did what its name promised. `AppStateEventNotifier` does not
+  /// deliver a foreground event for the cold launch at all, so this flag could
+  /// not cause an ad to show on one; all it actually did was un-suppress the
+  /// first *warm* return — which now happens by default, because that return is
+  /// a genuine one and swallowing it cost an impression in every session.
+  ///
+  /// A cold launch still cannot show an ad: nothing is loaded yet.
+  @Deprecated(
+    'Ignored since 2.1.0 (ADR-043): it could never show an ad on a cold launch, '
+    'and the first warm return now shows one by default. Remove it.',
+  )
   final bool showOnColdStart;
 }
 

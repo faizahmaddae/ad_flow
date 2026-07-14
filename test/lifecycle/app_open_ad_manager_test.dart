@@ -1,5 +1,6 @@
 import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/controllers/app_open_ad_controller.dart';
+import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/core/ad_load_state.dart';
 import 'package:ad_flow/src/lifecycle/app_open_ad_manager.dart';
 import 'package:ad_flow/src/policy/ad_gate.dart';
@@ -116,19 +117,20 @@ void main() {
 
   group('manager lifecycle', () {
     test(
-      'start warms a preload and never shows on the cold-start event',
+      'start warms a preload; the FIRST foreground event is a genuine warm '
+      'return and DOES show (ADR-043)',
       () async {
         final c = controller();
         final m = manager(c);
         m.start();
         await settle();
-        expect(sdk.appOpens, hasLength(1)); // preload only
+        expect(sdk.appOpens, hasLength(1)); // preload only, nothing shown
 
-        sdk.emitAppForeground(); // cold start: platform emits on app start too
-        await settle();
-        expect(sdk.appOpens.single.showCalls, 0);
-
-        sdk.emitAppForeground(); // warm return
+        // AppStateEventNotifier does not replay the cold-launch foreground
+        // (the seam only calls startListening() once the app is already
+        // foregrounded), so this first event IS a real background→return.
+        // Suppressing it cost one impression in every single session.
+        sdk.emitAppForeground();
         await settle();
         expect(sdk.appOpens.single.showCalls, 1);
 
@@ -138,21 +140,23 @@ void main() {
     );
 
     test(
-      'showOnColdStart lets the first event show (splash-gate mode)',
+      'a TRUE cold start cannot show, because nothing is loaded yet — that is '
+      'the structural guard for invariant 3, not a latch (ADR-043)',
       () async {
-        const config = AppOpenConfig(
-          adUnitId: PlatformAdUnitId(android: 'unit-ao'),
-          cap: FrequencyCap(),
-          showOnColdStart: true,
+        // No ad can be warm at the instant of a cold launch.
+        sdk.alwaysLoadError = const AdFlowError(
+          AdFlowErrorKind.loadFailed,
+          'still loading',
         );
-        final c = controller(config: config);
-        final m = manager(c, config: config);
+        final c = controller();
+        final m = manager(c);
         m.start();
         await settle();
 
         sdk.emitAppForeground();
         await settle();
-        expect(sdk.appOpens.single.showCalls, 1);
+
+        expect(sdk.appOpens, isEmpty);
 
         m.dispose();
         c.dispose();
@@ -164,9 +168,6 @@ void main() {
       final m = manager(c);
       m.start();
       await settle();
-      sdk.emitAppForeground(); // consume cold-start event
-      await settle();
-
       coordinator.enter(); // e.g. an interstitial is showing
       sdk.emitAppForeground();
       await settle();
@@ -197,9 +198,6 @@ void main() {
         final m = manager(c);
         m.start();
         await settle();
-        sdk.emitAppForeground(); // consume cold-start event
-        await settle();
-
         // A completely unrelated interstitial (or any other format)
         // shows and dismisses, touching only the shared coordinator —
         // this manager never sees it directly.
@@ -228,9 +226,6 @@ void main() {
       final m = manager(c, withCoordinator: false);
       m.start();
       await settle();
-      sdk.emitAppForeground(); // consume cold-start event
-      await settle();
-
       coordinator.enter();
       coordinator.exit();
 
@@ -247,9 +242,6 @@ void main() {
       final m = manager(c);
       m.start();
       await settle();
-      sdk.emitAppForeground(); // cold start
-      await settle();
-
       now = now.add(const Duration(hours: 5));
       sdk.emitAppForeground();
       await settle();
@@ -275,9 +267,6 @@ void main() {
       final m = manager(c);
       m.start();
       await settle();
-      sdk.emitAppForeground(); // cold start
-      await settle();
-
       sdk.emitAppForeground();
       await settle();
       expect(sdk.appOpens.first.showCalls, 1);
