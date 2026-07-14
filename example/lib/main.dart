@@ -2,60 +2,60 @@ import 'package:ad_flow/ad_flow.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-/// Global navigator key so the rewarded-interstitial intro screen can be
-/// pushed from outside the widget tree.
+/// Global navigator key so the consent/ATT/rewarded-intro presenters can push
+/// screens from outside the widget tree (the package never holds a
+/// BuildContext).
 final navigatorKey = GlobalKey<NavigatorState>();
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const ExampleApp());
+
+  // NON-BLOCKING startup (ADR-032): AdFlow.initialize() builds the graph and
+  // returns immediately — consent, ATT and the Ads SDK init all run in the
+  // BACKGROUND. The `await` below resolves on the next microtask (graph
+  // construction only); it NEVER waits on the network. So we render the real
+  // UI on the first frame and the consent/ATT/explainer screens appear OVER
+  // the already-visible app. NEVER gate your first frame on AdFlow.initialize()
+  // (that was v1's splash-hang pain on weak connections).
+  final ads = await AdFlow.initialize(
+    // Google sample ads everywhere. Replace with your production config:
+    //   AdFlowConfig(banner: BannerConfig(adUnitId: PlatformAdUnitId(...)))
+    AdFlowConfig.test(),
+    rewardedIntroPresenter: (content) async {
+      final context = navigatorKey.currentContext;
+      if (context == null || !context.mounted) return false;
+      return RewardedIntroScreen.show(context, content);
+    },
+    // Opt-in priming screens (the v2 equivalent of v1's initializeWithExplainer).
+    // Each presenter checks the navigatorKey's context itself, so the package
+    // never holds a BuildContext. On iOS the ATT primer runs before Apple's
+    // system prompt (client-driven ATT); the consent primer runs before the UMP
+    // GDPR form (EEA only). In this client-driven ATT mode, do NOT also
+    // configure the UMP IDFA message in the AdMob console — it would double-prompt.
+    attExplainer: (content) async {
+      final context = navigatorKey.currentContext;
+      if (context == null || !context.mounted) return;
+      await AttExplainerScreen.show(context, content);
+    },
+    consentExplainer: (content) async {
+      final context = navigatorKey.currentContext;
+      if (context == null || !context.mounted) return;
+      await ConsentExplainerScreen.show(context, content);
+    },
+  );
+  ads.onPaidEvent = (event) => debugPrint(
+    '[ad_flow] paid: ${event.adUnitId} '
+    '${event.valueMicros / 1e6} ${event.currencyCode} '
+    '(${event.precision.name})',
+  );
+
+  runApp(ExampleApp(ads: ads));
 }
 
-class ExampleApp extends StatefulWidget {
-  const ExampleApp({super.key});
+class ExampleApp extends StatelessWidget {
+  const ExampleApp({required this.ads, super.key});
 
-  @override
-  State<ExampleApp> createState() => _ExampleAppState();
-}
-
-class _ExampleAppState extends State<ExampleApp> {
-  // Initialize WITHOUT blocking the first frame: runApp draws immediately,
-  // the consent flow (and any UMP form) runs behind this Future.
-  late final Future<AdFlow> _ads =
-      AdFlow.initialize(
-        // Google sample ads everywhere. Replace with your production config:
-        //   AdFlowConfig(banner: BannerConfig(adUnitId: PlatformAdUnitId(...)))
-        AdFlowConfig.test(),
-        rewardedIntroPresenter: (content) async {
-          final context = navigatorKey.currentContext;
-          if (context == null || !context.mounted) return false;
-          return RewardedIntroScreen.show(context, content);
-        },
-        // Opt-in priming screens (the v2 equivalent of v1's
-        // initializeWithExplainer). Each presenter checks the navigatorKey's
-        // context itself, so the package never holds a BuildContext. On iOS
-        // the ATT primer runs before Apple's system prompt (client-driven
-        // ATT); the consent primer runs before the UMP GDPR form (EEA only).
-        // In this client-driven ATT mode, do NOT also configure the UMP IDFA
-        // message in the AdMob console — it would double-prompt.
-        attExplainer: (content) async {
-          final context = navigatorKey.currentContext;
-          if (context == null || !context.mounted) return;
-          await AttExplainerScreen.show(context, content);
-        },
-        consentExplainer: (content) async {
-          final context = navigatorKey.currentContext;
-          if (context == null || !context.mounted) return;
-          await ConsentExplainerScreen.show(context, content);
-        },
-      ).then((ads) {
-        ads.onPaidEvent = (event) => debugPrint(
-          '[ad_flow] paid: ${event.adUnitId} '
-          '${event.valueMicros / 1e6} ${event.currencyCode} '
-          '(${event.precision.name})',
-        );
-        return ads;
-      });
+  final AdFlow ads;
 
   @override
   Widget build(BuildContext context) {
@@ -63,18 +63,9 @@ class _ExampleAppState extends State<ExampleApp> {
       title: 'ad_flow example',
       navigatorKey: navigatorKey,
       theme: ThemeData(colorSchemeSeed: Colors.indigo),
-      home: FutureBuilder<AdFlow>(
-        future: _ads,
-        builder: (context, snapshot) {
-          final ads = snapshot.data;
-          if (ads == null) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          }
-          return HomeScreen(ads: ads);
-        },
-      ),
+      // Rendered IMMEDIATELY — no FutureBuilder<AdFlow> gate. Consent, ATT and
+      // the explainer screens push over this via navigatorKey as they resolve.
+      home: HomeScreen(ads: ads),
     );
   }
 }
