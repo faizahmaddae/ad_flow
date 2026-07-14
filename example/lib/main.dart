@@ -31,6 +31,23 @@ class _ExampleAppState extends State<ExampleApp> {
           if (context == null || !context.mounted) return false;
           return RewardedIntroScreen.show(context, content);
         },
+        // Opt-in priming screens (the v2 equivalent of v1's
+        // initializeWithExplainer). Each presenter checks the navigatorKey's
+        // context itself, so the package never holds a BuildContext. On iOS
+        // the ATT primer runs before Apple's system prompt (client-driven
+        // ATT); the consent primer runs before the UMP GDPR form (EEA only).
+        // In this client-driven ATT mode, do NOT also configure the UMP IDFA
+        // message in the AdMob console — it would double-prompt.
+        attExplainer: (content) async {
+          final context = navigatorKey.currentContext;
+          if (context == null || !context.mounted) return;
+          await AttExplainerScreen.show(context, content);
+        },
+        consentExplainer: (content) async {
+          final context = navigatorKey.currentContext;
+          if (context == null || !context.mounted) return;
+          await ConsentExplainerScreen.show(context, content);
+        },
       ).then((ads) {
         ads.onPaidEvent = (event) => debugPrint(
           '[ad_flow] paid: ${event.adUnitId} '
