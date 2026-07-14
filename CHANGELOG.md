@@ -16,6 +16,12 @@ symbol-by-symbol mapping.
   can unit-test their ad integration.
 * **NEW**: Experimental Next-Gen GMA SDK opt-in on Android via
   `--dart-define=USE_NEXT_GEN_SDK=true` (no Dart changes).
+* **NEW**: Opt-in consent & ATT priming screens — the v2 equivalent of v1's
+  `initializeWithExplainer`, now decoupled from `BuildContext` via presenters
+  (`attExplainer`/`consentExplainer` on `initialize`, ready-made
+  `AttExplainerScreen`/`ConsentExplainerScreen`). Supplying `attExplainer`
+  enables client-driven ATT (iOS). Additive — pass nothing for today's
+  UMP-driven behaviour (ADR-030).
 * **IMPROVED**: Architecture — dependency injection everywhere, no static
   global config; one `AdSdk` seam is the only door to the plugin; state is
   `ValueListenable<AdLoadState>`.

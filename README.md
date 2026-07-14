@@ -218,11 +218,8 @@ gate, set `AppOpenConfig(showOnColdStart: true)`.
 
 ## 5. Consent & privacy
 
-UMP runs inside `initialize`. On iOS, UMP also drives the ATT explainer and
-system prompt — configure the IDFA message in AdMob's *Privacy & messaging*
-and do **not** call `app_tracking_transparency` yourself (double prompts).
-
-GDPR requires a persistent "Manage consent" entry point when applicable:
+UMP runs inside `initialize`. GDPR requires a persistent "Manage consent"
+entry point when applicable:
 
 ```dart
 PrivacyOptionsButton(consent: ads.consent) // renders nothing when not required
@@ -231,6 +228,57 @@ PrivacyOptionsButton(consent: ads.consent) // renders nothing when not required
 Consent failures never throw from `initialize` — the flow degrades to the
 SDK's own `canRequestAds()` answer and surfaces the failure on
 `ads.consent.lastError`.
+
+### ATT (iOS App Tracking Transparency) — two modes
+
+- **UMP-driven (default).** Pass no `attExplainer`. On iOS, UMP drives the
+  ATT explainer and system prompt for you — configure the IDFA message in
+  AdMob's *Privacy & messaging*. `ad_flow` makes no ATT calls itself.
+- **Client-driven (opt-in, like v1).** Pass an `attExplainer` (below). Then
+  `ad_flow` runs your own ATT primer → a short delay (200 ms, Apple's
+  guidance) → Apple's system prompt, **before** the GDPR flow. In this mode
+  do **not** also configure the UMP IDFA message in the AdMob console — that
+  would double-prompt.
+
+Either way, add `NSUserTrackingUsageDescription` to `Info.plist`.
+
+### Consent & ATT explainers (priming)
+
+Opt-in priming screens — the v2 equivalent of v1's `initializeWithExplainer`,
+decoupled from `BuildContext` via the same presenter pattern as the
+rewarded-interstitial intro. Show your own localizable screen explaining what
+the next system dialog will ask; the real UMP form / ATT prompt always
+follows. The consent primer appears **only when a form will actually show**
+(non-EEA users never see it). Everything is additive — pass nothing and
+behaviour is exactly as before.
+
+```dart
+final navigatorKey = GlobalKey<NavigatorState>();
+// ...MaterialApp(navigatorKey: navigatorKey, ...)
+
+final ads = await AdFlow.initialize(
+  myConfig,
+  // iOS: your ATT primer → 200 ms → Apple's system prompt, before GDPR.
+  attExplainer: (content) async {
+    final context = navigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    await AttExplainerScreen.show(context, content);
+  },
+  // Shown before the GDPR form (EEA only).
+  consentExplainer: (content) async {
+    final context = navigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    await ConsentExplainerScreen.show(context, content);
+  },
+  // Optional: localize / customize the copy.
+  // attExplainerContent: const AttExplainerContent(title: 'Autoriser le suivi ?'),
+);
+```
+
+`AttExplainerScreen` and `ConsentExplainerScreen` are ready-made; pass your
+own presenter to use custom UI, keeping it context-safe (the package never
+holds a `BuildContext` — the callback resolves it). `skipGdprConsentIfAttDenied`
+(default true) skips the GDPR form when the user just denied ATT.
 
 Testing EEA behavior:
 

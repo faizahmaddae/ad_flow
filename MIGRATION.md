@@ -21,6 +21,22 @@ final ads = await AdFlow.initialize(myConfig);      // consent-gated internally
 ```
 Consent is gathered and `canRequestAds`-gated automatically; you no longer sequence UMP yourself.
 
+**Priming screens (v1 `initializeWithExplainer`)** are restored as opt-in presenters — decoupled from `BuildContext`:
+```dart
+final ads = await AdFlow.initialize(
+  myConfig,
+  attExplainer:     (c) => AttExplainerScreen.show(navigatorKey.currentContext!, c),
+  consentExplainer: (c) => ConsentExplainerScreen.show(navigatorKey.currentContext!, c),
+  // optional: attExplainerContent:/consentExplainerContent: to localize the copy
+);
+```
+
+| v1 | v2 |
+|---|---|
+| `initializeWithExplainer(context:, consentTexts:, attTexts:)` | `initialize(attExplainer:, consentExplainer:, attExplainerContent:, consentExplainerContent:, skipGdprConsentIfAttDenied:)` |
+
+The `context:` parameter is gone: the app supplies the UI through a presenter callback (exactly like `rewardedIntroPresenter`), so the package never holds a `BuildContext`. Supplying `attExplainer` opts into **client-driven ATT** (re-adds `app_tracking_transparency` behind the seam, iOS only) — in that mode do **not** also set the UMP IDFA message in the AdMob console (double prompt). Pass nothing and behaviour is exactly today's (UMP-driven).
+
 ## 3. Configuration object
 - v1's single flat `AdFlowConfig(androidBannerAdUnitId:, iosBannerAdUnitId:, …)` becomes **per-format config objects** with `PlatformAdUnitId(android:, ios:)`, plus per-format frequency caps and a global cap.
 - **Test mode:** `AdFlowConfig.test()` (uses Google sample ids). Test-mode is now an explicit flag, not inferred from ids.
@@ -75,7 +91,8 @@ No code change. To try it: build with `--dart-define=USE_NEXT_GEN_SDK=true` (And
 | `BannerAdManager` / `InterstitialAdManager` / `RewardedAdManager` / `NativeAdManager` / `AppOpenAdManager` (v1) | `ads.banner()` / `ads.interstitial` / `ads.rewarded` / `ads.native()` / `ads.appOpen` controllers |
 | `AppLifecycleReactor` / `AppOpenAdWrapper` / `enableAppOpenOnForeground` | the single `AppOpenAdManager` started by `initialize` |
 | `AdsEnabledManager` | `ads.enableAds()` / `ads.disableAds()` / `ads.adsEnabled` |
-| `ConsentManager` / `ConsentExplainerDialog` / `ConsentExplainerLocalizations` | `ConsentGateway` (`ads.consent`); UMP owns the explainer UI (and ATT on iOS — drop `app_tracking_transparency`) |
+| `ConsentManager` / `ConsentExplainerDialog` / `ConsentExplainerLocalizations` | `ConsentGateway` (`ads.consent`); UMP owns the form UI. Priming screens return as opt-in presenters — `AttExplainerScreen` / `ConsentExplainerScreen` (or your own), passed to `initialize` (see §2). Default (no presenter): UMP-driven, no ATT calls |
+| `initializeWithExplainer(context:, consentTexts:, attTexts:)` | `initialize(attExplainer:, consentExplainer:, attExplainerContent:, consentExplainerContent:)` — presenter pattern, no `BuildContext` (see §2) |
 | `AdErrorHandler` | typed `AdFlowError` (thrown by the seam, carried in `AdFailed`, surfaced on `consent.lastError`) |
 | `AdManagerMixin` / `PrivacyRequirementMixin` | not needed — subscribe to `controller.state` / read `consent.isPrivacyOptionsRequired` |
 | `MediationHelper` / `MediationConsentConfig` / `MediationForward…` | removed — UMP forwards consent to partners registered in AdMob's Privacy & messaging; add `gma_mediation_*` adapters directly |

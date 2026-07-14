@@ -121,14 +121,24 @@
   - Verified on-device: two reward cycles (coins 0→10→20) — native + banner stayed rendered both times. All six formats confirmed working end-to-end (interstitial pacing gate, rewards flowing, rewarded-interstitial intro+skip screen, app-open on warm return). 232 tests green.
   - Observation (left as-is, policy-safe): app-open shows on the *second* background→return, not the first — the first foreground event is consumed as the cold-start suppression because `AppStateEventNotifier` doesn't replay the cold-launch foreground (lazy `startListening`). Erring toward not-showing is correct (invariant 3).
 
+- **Explainer v2 — restore `initializeWithExplainer` as presenter-based consent + ATT priming (opt-in, additive; ADR-030, spec `EXPLAINER_V2_SPEC.md`).** Shipped in 6 green slices, each analyze-clean + test-green + committed:
+  1. `consent/explainer_content.dart` (`ConsentExplainerContent`/`AttExplainerContent` const+copyWith, `ConsentExplainerPresenter`/`AttExplainerPresenter` typedefs) + `widgets/consent_explainer_screen.dart` / `att_explainer_screen.dart` (copy the `RewardedIntroScreen` shape) + barrel exports + widget tests (`71315dd`).
+  2. Seam ATT: `AttStatus` enum + `getTrackingAuthorizationStatus()`/`requestTrackingAuthorization()` on `AdSdk`; `GmaAdSdk` via re-added `app_tracking_transparency` (iOS-guarded by `defaultTargetPlatform`, non-iOS → `notSupported`), pure `attStatusFrom` mapper; `FakeAdSdk` gained `attStatus`/`attRequestResult`/`requestTrackingAuthorizationCalls` (`dbdad1f`).
+  3. `UmpConsentGateway` flow: ATT first (primer → 200ms `attPromptDelay` → system prompt, only when `notDetermined`) → unchanged info update → GDPR form (primed only when `getConsentStatus()==required && isConsentFormAvailable()`, skipped when ATT denied && `skipGdprConsentIfAttDenied` default true). Throwing presenter → `lastError` set, real prompt proceeds. All §5 tests (`e693180`).
+  4. Facade: `AdFlow.initialize` gained `consentExplainer`/`attExplainer`/`consentExplainerContent`/`attExplainerContent`/`skipGdprConsentIfAttDenied` threaded into a self-created gateway (injected gateway used verbatim); end-to-end + no-presenter regression tests (`e28d31e`).
+  5. Example: `attExplainer`/`consentExplainer` wired via the existing `navigatorKey` (`908cdbb`).
+  6. Docs (README §5 rewrite, MIGRATION mapping, ADR-030, SKILL §6 traps) + this update.
+  263 tests green, analyze clean. **Still opt-in: no presenter → today's exact behaviour (regression-guarded at both gateway and facade level).**
+
 ## In progress
-- Nothing. **ad_flow v2 is feature-complete and verified through two independent review passes plus a four-round hang-triage that ended in a real fix.** If resuming, there is no "next slice" — start from a fresh initiative (a v2.1 feature, a bug report, or the maintainer's next ask).
+- **Docs slice (6) of the explainer-v2 feature: on-device verification pending.** README/MIGRATION/DECISIONS/SKILL updated and committed; the very next concrete step is: run the example on iOS with a forced-EEA debug geography and a fresh install to see the ATT primer → system prompt → consent primer → GDPR form order in the flesh (spec §7 slice 6). Code + unit tests are complete and green.
 
 ## Next (ordered)
-- None outstanding from PLAN.md or either review. Optional future work (not blocking, not started): extend `test/seam/gma_ad_sdk_test.dart` to rewarded/rewarded-interstitial/app-open/native (currently interstitial + banner only — the pattern is established, just needs repeating per format); a real-device/CI smoke test as a final belt-and-suspenders layer above the platform-channel mock tests.
+1. On-device: `cd example && flutter run` on iOS (fresh install for ATT; add a `consentDebug: ConsentDebugOptions(geography: eea, testIdentifiers: [...])` temporarily, or force EEA) → confirm ATT primer, then Apple prompt, then consent primer, then UMP form; confirm Android shows no ATT step. Re-verify Android build still green.
+- Optional future work (unchanged): extend `test/seam/gma_ad_sdk_test.dart` to rewarded/rewarded-interstitial/app-open/native; a real-device/CI smoke test.
 
 ## How to verify the current state
-`flutter analyze && flutter test` (root: 230 tests) · `cd example && flutter analyze && flutter build apk --debug` · `dart pub publish --dry-run` · `pana` (160/160 as of the last check — re-run after the ADR-026/027/028 changes if publishing). Example app confirmed running end-to-end on an Android emulator (all six formats load) after the ADR-028 fix. **If `flutter test` throws `Unsupported runtime stages format version. Expected 2, got 1` on a widget test, that's a stale `ink_sparkle.frag` shader cache — `flutter clean && flutter pub get` and re-run (SKILL.md §6), not a real failure.**
+`flutter analyze && flutter test` (root: 263 tests; use `--concurrency=2` if the machine OOM-kills the runner) · `cd example && flutter analyze && flutter build apk --debug` · `dart pub publish --dry-run` · `pana` (was 160/160; re-run after these changes + the new `app_tracking_transparency` dep if publishing). **If `flutter test` throws `Unsupported runtime stages format version. Expected 2, got 1` on a widget test, that's a stale `ink_sparkle.frag` shader cache — `flutter clean && flutter pub get` and re-run (SKILL.md §6), not a real failure.**
 
 ## Open questions / assumptions
 - `test/seam/gma_ad_sdk_test.dart` covers interstitial + banner only; the same mock-channel pattern applies directly to rewarded/rewarded-interstitial/app-open/native if a future session wants full-format seam coverage — not required, `FakeAdSdk`-level tests already cover their controller logic.
@@ -136,6 +146,7 @@
 - `AdFlowBanner`'s adaptive-height estimate (`deviceHeight * 0.15`, clamped 50-90) is grounded in Google's documented bounds (now in RESEARCH.md) but is still an estimate — `placeholderHeight` is the exact override when the real height is known.
 
 ## Traps hit this session
+- **Explainer-v2 session:** a `capture?.call(show(...))` in a widget test short-circuits argument evaluation when `capture` is null (`?.` guards the whole expression), so the primer never opened — call `show(...)` first, then forward. And a nested `Future<Future<void>>` return type is illegal (`void`-flattening) where `Future<Future<bool>>` compiles — capture the primer future via a `void Function(Future<void>)` callback param. Both appended to SKILL.md §6, plus the "presenter must be context-safe; package never holds a `BuildContext`" trap (ADR-030).
 - **Const asserts cannot compare `Duration`s** (`const_eval_type_num`: only `num` operands allowed in const-expression comparisons). A `Duration`-comparing assert compiles until someone `const`-invokes the constructor, then every const call site errors. Validate Durations at use-time instead → SKILL.md §6.
 - `AppStateEventNotifier.appStateStream` emits nothing until `startListening()` → appended to SKILL.md §6 (GmaAdSdk handles it lazily).
 - `BannerAd.isCollapsible` is `Future<bool>`; inline adaptive height needs post-load `getPlatformAdSize()` → SKILL.md §6.
