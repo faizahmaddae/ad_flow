@@ -100,42 +100,47 @@ void main() {
       ads.dispose();
     });
 
-    test('CONFIG-BEFORE-LOAD: an on-demand banner load does NOT fire before '
-        'updateRequestConfiguration is applied, even with the consent gate '
-        'already open (review-fix #5 under non-blocking init, ADR-033)',
-        () async {
-      // Hold SDK init so request configuration (applied after init, ADR-028)
-      // is delayed. Consent is non-EEA → the gate opens immediately, so ONLY
-      // a config-readiness gate can stop the load.
-      sdk.initializeHold = Completer<void>();
-      sdk.consentStatus = AdConsentStatus.notRequired;
-      sdk.canRequestAdsResult = true;
+    test(
+      'CONFIG-BEFORE-LOAD: an on-demand banner load does NOT fire before '
+      'updateRequestConfiguration is applied, even with the consent gate '
+      'already open (review-fix #5 under non-blocking init, ADR-033)',
+      () async {
+        // Hold SDK init so request configuration (applied after init, ADR-028)
+        // is delayed. Consent is non-EEA → the gate opens immediately, so ONLY
+        // a config-readiness gate can stop the load.
+        sdk.initializeHold = Completer<void>();
+        sdk.consentStatus = AdConsentStatus.notRequired;
+        sdk.canRequestAdsResult = true;
 
-      final ads = await AdFlow.initialize(
-        fullConfig,
-        sdk: sdk,
-        store: InMemoryKeyValueStore(),
-        platform: AdPlatform.android,
-        rewardedIntroPresenter: (_) async => true,
-      );
-      // The app mounts a banner on frame 1 (as the example now does).
-      final banner = ads.banner();
-      final loadFuture = banner.load(width: 320);
+        final ads = await AdFlow.initialize(
+          fullConfig,
+          sdk: sdk,
+          store: InMemoryKeyValueStore(),
+          platform: AdPlatform.android,
+          rewardedIntroPresenter: (_) async => true,
+        );
+        // The app mounts a banner on frame 1 (as the example now does).
+        final banner = ads.banner();
+        final loadFuture = banner.load(width: 320);
 
-      await Future<void>.delayed(Duration.zero); // drain microtasks
-      // init is held → config not applied → the banner MUST NOT have loaded,
-      // or its first request would go out untagged (testDeviceIds/COPPA).
-      expect(sdk.requestConfigs, isEmpty);
-      expect(sdk.bannerSpecs, isEmpty);
+        await Future<void>.delayed(Duration.zero); // drain microtasks
+        // init is held → config not applied → the banner MUST NOT have loaded,
+        // or its first request would go out untagged (testDeviceIds/COPPA).
+        expect(sdk.requestConfigs, isEmpty);
+        expect(sdk.bannerSpecs, isEmpty);
 
-      sdk.initializeHold!.complete(); // init done → config applied
-      await ads.whenReady;
-      await loadFuture;
-      expect(sdk.requestConfigs, hasLength(1)); // config applied first
-      expect(sdk.bannerSpecs.single.adUnitId, 'b-a'); // then the banner loaded
-      banner.dispose();
-      ads.dispose();
-    });
+        sdk.initializeHold!.complete(); // init done → config applied
+        await ads.whenReady;
+        await loadFuture;
+        expect(sdk.requestConfigs, hasLength(1)); // config applied first
+        expect(
+          sdk.bannerSpecs.single.adUnitId,
+          'b-a',
+        ); // then the banner loaded
+        banner.dispose();
+        ads.dispose();
+      },
+    );
 
     test('CONFIG-GATE ROBUSTNESS: a hanging updateRequestConfiguration does '
         'not wedge loads forever — the config gate degrades open after the '
@@ -174,29 +179,34 @@ void main() {
       });
     });
 
-    test('a throwing updateRequestConfiguration still releases the config '
-        'gate — loads proceed (degraded), the completer never leaks (ADR-033)',
-        () async {
-      sdk.updateRequestConfigurationError = const AdFlowError(
-        AdFlowErrorKind.unknown,
-        'config boom',
-      );
-      sdk.consentStatus = AdConsentStatus.notRequired;
-      sdk.canRequestAdsResult = true;
+    test(
+      'a throwing updateRequestConfiguration still releases the config '
+      'gate — loads proceed (degraded), the completer never leaks (ADR-033)',
+      () async {
+        sdk.updateRequestConfigurationError = const AdFlowError(
+          AdFlowErrorKind.unknown,
+          'config boom',
+        );
+        sdk.consentStatus = AdConsentStatus.notRequired;
+        sdk.canRequestAdsResult = true;
 
-      final ads = await AdFlow.initialize(
-        fullConfig,
-        sdk: sdk,
-        store: InMemoryKeyValueStore(),
-        platform: AdPlatform.android,
-        rewardedIntroPresenter: (_) async => true,
-      );
-      final banner = ads.banner();
-      await banner.load(width: 320); // must complete, not hang
-      expect(sdk.bannerSpecs.single.adUnitId, 'b-a'); // load proceeded degraded
-      banner.dispose();
-      ads.dispose();
-    });
+        final ads = await AdFlow.initialize(
+          fullConfig,
+          sdk: sdk,
+          store: InMemoryKeyValueStore(),
+          platform: AdPlatform.android,
+          rewardedIntroPresenter: (_) async => true,
+        );
+        final banner = ads.banner();
+        await banner.load(width: 320); // must complete, not hang
+        expect(
+          sdk.bannerSpecs.single.adUnitId,
+          'b-a',
+        ); // load proceeded degraded
+        banner.dispose();
+        ads.dispose();
+      },
+    );
 
     test('whenReady completes false and nothing loads when the gate stays '
         'closed', () async {
@@ -275,8 +285,7 @@ void main() {
     });
 
     test('whenReady captures a background _start failure: resolves false, '
-        'never throws, no unhandled async error (ADR-032 error net)',
-        () async {
+        'never throws, no unhandled async error (ADR-032 error net)', () async {
       // A throwing canRequestAds() models the production gateway's final
       // (outside-try/catch) canRequestAds() failing → _start rejects.
       sdk.canRequestAdsError = const AdFlowError(
@@ -338,20 +347,17 @@ void main() {
       ads.dispose();
     });
 
-    test(
-      'request configuration is applied even when consent is closed at '
-      'init (review finding #5) — it sends no ad request, so gating it '
-      'on consent only means test-device/child-directed/content-rating '
-      'settings never reach the SDK if consent resolves later',
-      () async {
-        final ads = await boot(consentOpens: false);
-        await Future<void>.delayed(Duration.zero);
+    test('request configuration is applied even when consent is closed at '
+        'init (review finding #5) — it sends no ad request, so gating it '
+        'on consent only means test-device/child-directed/content-rating '
+        'settings never reach the SDK if consent resolves later', () async {
+      final ads = await boot(consentOpens: false);
+      await Future<void>.delayed(Duration.zero);
 
-        expect(sdk.requestConfigs, hasLength(1));
-        expect(sdk.requestConfigs.single.testDeviceIds, ['dev-1']);
-        ads.dispose();
-      },
-    );
+      expect(sdk.requestConfigs, hasLength(1));
+      expect(sdk.requestConfigs.single.testDeviceIds, ['dev-1']);
+      ads.dispose();
+    });
 
     test(
       'a native SDK that never calls initialize() back does not wedge '
@@ -551,57 +557,51 @@ void main() {
   });
 
   group('explainer / ATT priming (slice 4)', () {
-    test(
-      'end to end: ATT primer + prompt, then consent primer + form, then '
-      'the gate opens and preloads run',
-      () async {
-        final events = <String>[];
-        sdk.attStatus = AttStatus.notDetermined;
-        sdk.attRequestResult = AttStatus.authorized;
-        sdk.consentStatus = AdConsentStatus.required;
-        sdk.consentFormAvailable = true;
-        sdk.onConsentFormShown = () {
-          sdk.canRequestAdsResult = true;
-          sdk.consentStatus = AdConsentStatus.obtained;
-          events.add('form');
-        };
+    test('end to end: ATT primer + prompt, then consent primer + form, then '
+        'the gate opens and preloads run', () async {
+      final events = <String>[];
+      sdk.attStatus = AttStatus.notDetermined;
+      sdk.attRequestResult = AttStatus.authorized;
+      sdk.consentStatus = AdConsentStatus.required;
+      sdk.consentFormAvailable = true;
+      sdk.onConsentFormShown = () {
+        sdk.canRequestAdsResult = true;
+        sdk.consentStatus = AdConsentStatus.obtained;
+        events.add('form');
+      };
 
-        final ads = await AdFlow.initialize(
-          fullConfig,
-          sdk: sdk,
-          store: InMemoryKeyValueStore(),
-          platform: AdPlatform.android,
-          rewardedIntroPresenter: (_) async => true,
-          attExplainer: (_) async => events.add('att-primer'),
-          consentExplainer: (_) async => events.add('consent-primer'),
-        );
-        // initialize() returns before the (background) explainer/consent flow;
-        // wait for it, then a microtask for the preloads to land.
-        await ads.whenReady;
-        await Future<void>.delayed(Duration.zero);
+      final ads = await AdFlow.initialize(
+        fullConfig,
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+        rewardedIntroPresenter: (_) async => true,
+        attExplainer: (_) async => events.add('att-primer'),
+        consentExplainer: (_) async => events.add('consent-primer'),
+      );
+      // initialize() returns before the (background) explainer/consent flow;
+      // wait for it, then a microtask for the preloads to land.
+      await ads.whenReady;
+      await Future<void>.delayed(Duration.zero);
 
-        expect(events, ['att-primer', 'consent-primer', 'form']);
-        expect(sdk.requestTrackingAuthorizationCalls, 1);
-        expect(sdk.loadAndShowConsentFormCalls, 1);
-        // The gate opened → the interstitial preloaded (enforceConsentGate
-        // would have thrown on a load with the gate closed).
-        expect(sdk.interstitials, hasLength(1));
-        ads.dispose();
-      },
-    );
+      expect(events, ['att-primer', 'consent-primer', 'form']);
+      expect(sdk.requestTrackingAuthorizationCalls, 1);
+      expect(sdk.loadAndShowConsentFormCalls, 1);
+      // The gate opened → the interstitial preloaded (enforceConsentGate
+      // would have thrown on a load with the gate closed).
+      expect(sdk.interstitials, hasLength(1));
+      ads.dispose();
+    });
 
-    test(
-      'no explainers: no ATT call at all, consent flow unchanged '
-      '(regression guard for the default path)',
-      () async {
-        final ads = await boot(); // boot() passes no explainers
-        await Future<void>.delayed(Duration.zero);
+    test('no explainers: no ATT call at all, consent flow unchanged '
+        '(regression guard for the default path)', () async {
+      final ads = await boot(); // boot() passes no explainers
+      await Future<void>.delayed(Duration.zero);
 
-        expect(sdk.requestTrackingAuthorizationCalls, 0);
-        expect(sdk.loadAndShowConsentFormCalls, 1);
-        ads.dispose();
-      },
-    );
+      expect(sdk.requestTrackingAuthorizationCalls, 0);
+      expect(sdk.loadAndShowConsentFormCalls, 1);
+      ads.dispose();
+    });
 
     test(
       'an injected consent gateway ignores the facade explainer params',

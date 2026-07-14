@@ -104,33 +104,27 @@ void main() {
 
       expect(handle.adUnitId, 'unit-b');
       expect(handle.size, const AdDimensions(width: 320, height: 50));
-      expect(
-        log.map((c) => c.method),
-        contains('loadBannerAd'),
-      );
+      expect(log.map((c) => c.method), contains('loadBannerAd'));
     });
 
-    test(
-      'a SECOND onAdLoaded firing (AdMob auto-refresh) does not throw '
-      '"Future already completed" — the whole point of finding #2',
-      () async {
-        final sdk = GmaAdSdk();
-        final future = sdk.loadBanner(
-          const BannerLoadSpec(
-            adUnitId: 'unit-b',
-            size: FixedSizeSpec(FixedBannerSize.banner),
-          ),
-        );
-        await pumpEventQueue();
-        await sendAdEvent(0, 'onAdLoaded');
-        await future; // first (real) load completes normally
+    test('a SECOND onAdLoaded firing (AdMob auto-refresh) does not throw '
+        '"Future already completed" — the whole point of finding #2', () async {
+      final sdk = GmaAdSdk();
+      final future = sdk.loadBanner(
+        const BannerLoadSpec(
+          adUnitId: 'unit-b',
+          size: FixedSizeSpec(FixedBannerSize.banner),
+        ),
+      );
+      await pumpEventQueue();
+      await sendAdEvent(0, 'onAdLoaded');
+      await future; // first (real) load completes normally
 
-        // BannerAdListener.onAdLoaded fires on every AdMob-driven refresh
-        // of the SAME BannerAd/adId, not just the first load — this must
-        // not crash as an unhandled async error.
-        await sendAdEvent(0, 'onAdLoaded');
-      },
-    );
+      // BannerAdListener.onAdLoaded fires on every AdMob-driven refresh
+      // of the SAME BannerAd/adId, not just the first load — this must
+      // not crash as an unhandled async error.
+      await sendAdEvent(0, 'onAdLoaded');
+    });
   });
 
   group('interstitial (review finding #9 checklist)', () {
@@ -193,21 +187,18 @@ void main() {
       await expectation;
     });
 
-    test(
-      'a rejected show() (finding #1\'s premise) throws rather than '
-      'silently no-oping — confirms the controller-level try/catch fix '
-      'guards a real, not just hypothetical, plugin failure mode',
-      () async {
-        final sdk = GmaAdSdk();
-        final handle = await loadInterstitial(sdk);
-        showRejectsWith = PlatformException(
-          code: 'ad_already_released',
-          message: 'This ad has already been shown or disposed.',
-        );
+    test('a rejected show() (finding #1\'s premise) throws rather than '
+        'silently no-oping — confirms the controller-level try/catch fix '
+        'guards a real, not just hypothetical, plugin failure mode', () async {
+      final sdk = GmaAdSdk();
+      final handle = await loadInterstitial(sdk);
+      showRejectsWith = PlatformException(
+        code: 'ad_already_released',
+        message: 'This ad has already been shown or disposed.',
+      );
 
-        await expectLater(handle.show(), throwsA(isA<PlatformException>()));
-      },
-    );
+      await expectLater(handle.show(), throwsA(isA<PlatformException>()));
+    });
   });
 
   group('appForegroundEvents (review finding #9 checklist)', () {

@@ -232,7 +232,10 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       // Reserved height from the first frame — no layout shift.
       bottomNavigationBar: SafeArea(
-        child: AdFlowBanner(controller: _bannerController, ownsController: true),
+        child: AdFlowBanner(
+          controller: _bannerController,
+          ownsController: true,
+        ),
       ),
     );
   }

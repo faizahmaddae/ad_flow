@@ -149,83 +149,77 @@ void main() {
     });
   });
 
-  test(
-    'a stale retry timer does not stomp a since-recovered AdLoaded state '
-    '(review finding #3)',
-    () {
-      fakeAsync((async) {
-        sdk.alwaysLoadError = const AdFlowError(
-          AdFlowErrorKind.loadFailed,
-          'no fill',
-        );
-        final c = controller(
-          retryConfig: const RetryConfig(
-            maxAttempts: 1,
-            cooldown: Duration(minutes: 5),
-          ),
-        );
+  test('a stale retry timer does not stomp a since-recovered AdLoaded state '
+      '(review finding #3)', () {
+    fakeAsync((async) {
+      sdk.alwaysLoadError = const AdFlowError(
+        AdFlowErrorKind.loadFailed,
+        'no fill',
+      );
+      final c = controller(
+        retryConfig: const RetryConfig(
+          maxAttempts: 1,
+          cooldown: Duration(minutes: 5),
+        ),
+      );
 
-        // Load #1 fails; a cooldown-timer retry is armed for 5 min.
-        c.load();
-        async.flushMicrotasks();
-        expect(c.state.value, isA<AdFailed>());
+      // Load #1 fails; a cooldown-timer retry is armed for 5 min.
+      c.load();
+      async.flushMicrotasks();
+      expect(c.state.value, isA<AdFailed>());
 
-        // A direct load() call (e.g. a UI "retry" action) succeeds
-        // independently of that timer. Deliberately NOT reload(), which
-        // cancels _timer itself as a side effect and would defuse the
-        // very race this test is proving is otherwise unguarded.
-        sdk.alwaysLoadError = null;
-        c.load();
-        async.flushMicrotasks();
-        expect(c.state.value, const AdLoaded());
-        final loaded = sdk.natives.single;
+      // A direct load() call (e.g. a UI "retry" action) succeeds
+      // independently of that timer. Deliberately NOT reload(), which
+      // cancels _timer itself as a side effect and would defuse the
+      // very race this test is proving is otherwise unguarded.
+      sdk.alwaysLoadError = null;
+      c.load();
+      async.flushMicrotasks();
+      expect(c.state.value, const AdLoaded());
+      final loaded = sdk.natives.single;
 
-        // The stale timer fires now, while the recovered ad is loaded.
-        // Before the fix this stomped state to AdIdle and triggered a
-        // second, unrelated load — leaking the first ad's handle.
-        async.elapse(const Duration(minutes: 5));
+      // The stale timer fires now, while the recovered ad is loaded.
+      // Before the fix this stomped state to AdIdle and triggered a
+      // second, unrelated load — leaking the first ad's handle.
+      async.elapse(const Duration(minutes: 5));
 
-        expect(c.state.value, const AdLoaded());
-        expect(sdk.natives, hasLength(1)); // no second, stray load
-        expect(loaded.disposed, isFalse);
-        expect(c.handle, same(loaded));
+      expect(c.state.value, const AdLoaded());
+      expect(sdk.natives, hasLength(1)); // no second, stray load
+      expect(loaded.disposed, isFalse);
+      expect(c.handle, same(loaded));
 
-        c.dispose();
-      });
-    },
-  );
+      c.dispose();
+    });
+  });
 
-  test(
-    'reload() while a load is already in flight does not double-load '
-    '(review finding #4)',
-    () {
-      fakeAsync((async) {
-        sdk.loadHold = Completer<void>();
-        final c = controller();
+  test('reload() while a load is already in flight does not double-load '
+      '(review finding #4)', () {
+    fakeAsync((async) {
+      sdk.loadHold = Completer<void>();
+      final c = controller();
 
-        c.load(); // load #1: reaches the SDK call and suspends there
-        async.flushMicrotasks();
-        expect(c.state.value, const AdLoading());
-        expect(sdk.natives, isEmpty); // still in flight, no handle yet
+      c.load(); // load #1: reaches the SDK call and suspends there
+      async.flushMicrotasks();
+      expect(c.state.value, const AdLoading());
+      expect(sdk.natives, isEmpty); // still in flight, no handle yet
 
-        // reload() arrives while load #1 is still pending. Before the fix
-        // this reset state to AdIdle, defeating load()'s synchronous
-        // AdLoading re-entry guard (ADR-024) and letting a second,
-        // concurrent loadNative() call start.
-        c.reload();
-        async.flushMicrotasks();
+      // reload() arrives while load #1 is still pending. Before the fix
+      // this reset state to AdIdle, defeating load()'s synchronous
+      // AdLoading re-entry guard (ADR-024) and letting a second,
+      // concurrent loadNative() call start.
+      c.reload();
+      async.flushMicrotasks();
 
-        sdk.loadHold!.complete();
-        async.flushMicrotasks();
+      sdk.loadHold!.complete();
+      async.flushMicrotasks();
 
-        expect(sdk.natives, hasLength(1)); // exactly one SDK call, not two
-        expect(c.state.value, const AdLoaded());
-        expect(c.handle, same(sdk.natives.single));
+      expect(sdk.natives, hasLength(1)); // exactly one SDK call, not two
+      expect(c.state.value, const AdLoaded());
+      expect(c.handle, same(sdk.natives.single));
 
-        c.dispose();
-      });
-    },
-  );
+      c.dispose();
+    });
+  });
 
   test('forwards paid events', () async {
     final paid = <AdPaidEvent>[];

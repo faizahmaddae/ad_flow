@@ -222,28 +222,25 @@ void main() {
       },
     );
 
-    test(
-      'without a coordinator wired in, no suppression applies (documents '
-      'why the facade always passes one — see AdFlow._appOpen)',
-      () async {
-        final c = controller();
-        final m = manager(c, withCoordinator: false);
-        m.start();
-        await settle();
-        sdk.emitAppForeground(); // consume cold-start event
-        await settle();
+    test('without a coordinator wired in, no suppression applies (documents '
+        'why the facade always passes one — see AdFlow._appOpen)', () async {
+      final c = controller();
+      final m = manager(c, withCoordinator: false);
+      m.start();
+      await settle();
+      sdk.emitAppForeground(); // consume cold-start event
+      await settle();
 
-        coordinator.enter();
-        coordinator.exit();
+      coordinator.enter();
+      coordinator.exit();
 
-        sdk.emitAppForeground();
-        await settle();
-        expect(sdk.appOpens.single.showCalls, 1); // no suppression signal
+      sdk.emitAppForeground();
+      await settle();
+      expect(sdk.appOpens.single.showCalls, 1); // no suppression signal
 
-        m.dispose();
-        c.dispose();
-      },
-    );
+      m.dispose();
+      c.dispose();
+    });
 
     test('expired ad on foreground is discarded, not shown', () async {
       final c = controller();

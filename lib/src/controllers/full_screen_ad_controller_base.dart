@@ -211,9 +211,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       _exitCoordinator();
       _dropHandle();
       if (!_disposed) {
-        _state.value = AdFailed(
-          AdFlowError(AdFlowErrorKind.showFailed, '$e'),
-        );
+        _state.value = AdFailed(AdFlowError(AdFlowErrorKind.showFailed, '$e'));
         unawaited(load());
       }
       return false;

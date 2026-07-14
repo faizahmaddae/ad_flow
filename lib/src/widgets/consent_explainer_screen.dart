@@ -59,7 +59,10 @@ class ConsentExplainerScreen extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: Row(
                     children: [
-                      Icon(Icons.check_circle, color: theme.colorScheme.primary),
+                      Icon(
+                        Icons.check_circle,
+                        color: theme.colorScheme.primary,
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(bullet, style: theme.textTheme.bodyMedium),

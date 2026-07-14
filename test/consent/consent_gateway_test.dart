@@ -189,20 +189,17 @@ void main() {
   });
 
   group('explainer / ATT flow (slice 3)', () {
-    test(
-      'no presenters: today\'s behaviour exactly — no ATT, no primer '
-      '(regression guard)',
-      () async {
-        sdk.consentStatus = AdConsentStatus.required;
-        sdk.consentFormAvailable = true;
-        sdk.canRequestAdsResult = true;
+    test('no presenters: today\'s behaviour exactly — no ATT, no primer '
+        '(regression guard)', () async {
+      sdk.consentStatus = AdConsentStatus.required;
+      sdk.consentFormAvailable = true;
+      sdk.canRequestAdsResult = true;
 
-        await gateway.ensureCanRequestAds(); // default gateway, no explainers
+      await gateway.ensureCanRequestAds(); // default gateway, no explainers
 
-        expect(sdk.requestTrackingAuthorizationCalls, 0); // no ATT at all
-        expect(sdk.loadAndShowConsentFormCalls, 1); // form as before
-      },
-    );
+      expect(sdk.requestTrackingAuthorizationCalls, 0); // no ATT at all
+      expect(sdk.loadAndShowConsentFormCalls, 1); // form as before
+    });
 
     group('ATT', () {
       test('the explainer runs before requestTrackingAuthorization', () async {
@@ -359,13 +356,18 @@ void main() {
         expect(events, ['primer', 'form']);
       });
 
-      test('the consent info update always runs (even when ATT was denied)',
-          () async {
-        armEeaWithAtt(AttStatus.denied);
-        await gateway.ensureCanRequestAds();
-        expect(sdk.consentUpdateCalls, hasLength(1));
-        expect(sdk.loadAndShowConsentFormCalls, 1); // form no longer suppressed
-      });
+      test(
+        'the consent info update always runs (even when ATT was denied)',
+        () async {
+          armEeaWithAtt(AttStatus.denied);
+          await gateway.ensureCanRequestAds();
+          expect(sdk.consentUpdateCalls, hasLength(1));
+          expect(
+            sdk.loadAndShowConsentFormCalls,
+            1,
+          ); // form no longer suppressed
+        },
+      );
     });
 
     group('consent primer', () {
