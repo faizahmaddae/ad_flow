@@ -29,6 +29,59 @@ Read [MIGRATION](MIGRATION.md).
 
 ---
 
+## Set up with AI (copy-paste)
+
+Prefer to let your AI assistant (Claude Code, Cursor, Copilot, …) do the wiring? Copy the matching prompt below into your assistant **inside your project**. Each prompt tells it to read this package's real API first, then integrate or migrate following the recommended patterns — so it never guesses an API and never blocks your app's first frame.
+
+### 🆕 New setup — add ad_flow (fresh, or replacing your existing ad code)
+
+```
+Set up the ad_flow Flutter package (AdMob) in my project. Do it idiomatically — do not guess the API.
+
+1. FIRST read the real API: this package's README and its public API
+   (package:ad_flow/ad_flow.dart, e.g. in the pub cache). Use only symbols that exist there.
+2. Scan my project for existing ad code (google_mobile_ads usage, AdMob, banner/interstitial/
+   rewarded/app-open, or another ads wrapper).
+   • If you find any: show me what it is, then REPLACE it with ad_flow equivalents and remove the
+     old implementation (and the direct google_mobile_ads dependency if nothing else uses it).
+   • If none: do a clean fresh integration.
+3. Add ad_flow: ^2.0.0 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
+   Android minSdk 24 / compileSdk 36). Platform setup: Android APPLICATION_ID meta-data, iOS
+   GADApplicationIdentifier + NSUserTrackingUsageDescription. Remind me to publish & verify app-ads.txt.
+4. Ask me which formats I want and for my ad unit IDs (or use AdFlowConfig.test() for now).
+5. Follow the README best practices EXACTLY: non-blocking init (never gate the first frame / a
+   splash on it), create ad controllers ONCE as fields (never inside build()), consent-first, and —
+   if I want the consent/ATT priming screens — wire the explainer presenters.
+6. Verify: flutter analyze is clean and the app builds; show me where each ad renders.
+
+Ask me anything you need (formats, IDs, EEA/iOS) before writing code. Keep changes minimal and explained.
+```
+
+### 🔁 Migrate — upgrade from ad_flow 1.x to 2.0.0
+
+```
+Migrate my project from ad_flow 1.x to 2.0.0 (a ground-up rewrite). Be careful — the API changed a lot.
+
+1. FIRST read ad_flow's MIGRATION.md plus the 2.0.0 README and public API. Use only real v2 symbols.
+2. Bump ad_flow to ^2.0.0 and meet v2's min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
+   Android minSdk 24 / compileSdk 36; adopt the iOS UISceneDelegate lifecycle if I have a custom AppDelegate).
+3. Find EVERY v1 ad_flow usage (AdFlow.instance, initialize / initializeWithExplainer, EasyBannerAd,
+   the old managers/widgets, the broad google_mobile_ads re-export). List them, then migrate each to
+   its v2 equivalent per MIGRATION.md.
+4. Apply the v2 best practices while you're in there: non-blocking init (drop any FutureBuilder/await
+   that gates the UI on init), controllers created ONCE as fields (not in build()), the presenter-based
+   consent/ATT explainer (the v2 replacement for initializeWithExplainer), and ValueListenable state.
+5. Remove whatever is now dead from v1; keep my ad unit IDs and behavior intact.
+6. Verify: flutter analyze is clean and the app builds.
+
+Show me the v1 → v2 mapping before large edits, and flag any behavior change (e.g. EEA users now see
+the GDPR consent form even if they denied ATT).
+```
+
+> These prompts intentionally defer to the package's own README / MIGRATION for exact symbols, so they stay correct as the package evolves.
+
+---
+
 ## 1. Install
 
 ```yaml
