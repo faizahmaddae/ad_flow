@@ -97,6 +97,13 @@ class FakeAdSdk implements AdSdk {
   /// incomplete to simulate a native SDK init call that never calls back.
   Completer<void>? initializeHold;
 
+  /// If set, [updateRequestConfiguration] awaits this before recording —
+  /// leave it incomplete to simulate a config call that hangs.
+  Completer<void>? updateRequestConfigurationHold;
+
+  /// If set, [updateRequestConfiguration] throws this instead of recording.
+  AdFlowError? updateRequestConfigurationError;
+
   /// If set, [requestConsentInfoUpdate] throws this.
   AdFlowError? consentUpdateError;
 
@@ -211,6 +218,10 @@ class FakeAdSdk implements AdSdk {
 
   @override
   Future<void> updateRequestConfiguration(AdRequestConfig config) async {
+    final hold = updateRequestConfigurationHold;
+    if (hold != null) await hold.future;
+    final error = updateRequestConfigurationError;
+    if (error != null) throw error;
     requestConfigs.add(config);
   }
 

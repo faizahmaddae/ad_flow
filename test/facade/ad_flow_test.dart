@@ -137,6 +137,67 @@ void main() {
       ads.dispose();
     });
 
+    test('CONFIG-GATE ROBUSTNESS: a hanging updateRequestConfiguration does '
+        'not wedge loads forever — the config gate degrades open after the '
+        'timeout, so loads proceed rather than await _configApplied forever '
+        '(ADR-033)', () {
+      fakeAsync((async) {
+        sdk.updateRequestConfigurationHold = Completer<void>(); // config hangs
+        sdk.consentStatus = AdConsentStatus.notRequired;
+        sdk.canRequestAdsResult = true;
+
+        AdFlow? ads;
+        unawaited(
+          AdFlow.initialize(
+            fullConfig,
+            sdk: sdk,
+            store: InMemoryKeyValueStore(),
+            platform: AdPlatform.android,
+            rewardedIntroPresenter: (_) async => true,
+          ).then((f) => ads = f),
+        );
+        async.flushMicrotasks();
+        final banner = ads!.banner(); // mounted on the first frame
+        unawaited(banner.load(width: 320));
+
+        async.elapse(const Duration(seconds: 5));
+        async.flushMicrotasks();
+        expect(sdk.bannerSpecs, isEmpty); // config hung → load correctly waits
+
+        async.elapse(const Duration(seconds: 31)); // past the config timeout
+        async.flushMicrotasks();
+        // The config gate degraded open → the banner load proceeded (better
+        // than hanging forever on weak internet). The completer never leaks.
+        expect(sdk.bannerSpecs, isNotEmpty);
+        banner.dispose();
+        ads!.dispose();
+      });
+    });
+
+    test('a throwing updateRequestConfiguration still releases the config '
+        'gate — loads proceed (degraded), the completer never leaks (ADR-033)',
+        () async {
+      sdk.updateRequestConfigurationError = const AdFlowError(
+        AdFlowErrorKind.unknown,
+        'config boom',
+      );
+      sdk.consentStatus = AdConsentStatus.notRequired;
+      sdk.canRequestAdsResult = true;
+
+      final ads = await AdFlow.initialize(
+        fullConfig,
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+        rewardedIntroPresenter: (_) async => true,
+      );
+      final banner = ads.banner();
+      await banner.load(width: 320); // must complete, not hang
+      expect(sdk.bannerSpecs.single.adUnitId, 'b-a'); // load proceeded degraded
+      banner.dispose();
+      ads.dispose();
+    });
+
     test('whenReady completes false and nothing loads when the gate stays '
         'closed', () async {
       sdk.consentStatus = AdConsentStatus.required;

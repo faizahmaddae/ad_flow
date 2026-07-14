@@ -338,27 +338,34 @@ class AdFlow {
     //
     // `catchError` keeps a failed/slow init from bricking the app; loads
     // retry independently.
-    await _sdk.initialize().timeout(_initTimeout).catchError((Object _) {});
+    //
+    // Everything up to releasing the config gate runs in a try/finally: the
+    // config gate (_configApplied) MUST be released no matter what, or every
+    // ad load — which now awaits it in AdGate.canLoad (ADR-033) — would hang
+    // forever on a startup hiccup (worst on weak internet). The timeouts bound
+    // a *hung* init/config; the `finally` covers any *thrown* path.
+    try {
+      await _sdk.initialize().timeout(_initTimeout).catchError((Object _) {});
 
-    // Now that the Ads SDK is initialized, apply request configuration.
-    // This still runs UNCONDITIONALLY (not gated on the consent *result*):
-    // it sends no ad request, and controllers loading ads later must have
-    // testDeviceIds/tagForChildDirectedTreatment/maxAdContentRating/
-    // tagForUnderAgeOfConsent applied regardless of how or when consent
-    // resolves (review finding #5: otherwise a registered test device gets
-    // live ads, and a child-directed app serves untagged/wrongly-rated
-    // ads). Guarded so a native failure here can't brick startup either.
-    await _sdk
-        .updateRequestConfiguration(_config.toRequestConfig())
-        .catchError((Object _) {});
-
-    // Request configuration is now applied — release the config gate so any
-    // on-demand load waiting in AdGate.canLoad may proceed (it still checks
-    // consent). Completed even if the config call above failed/timed out:
-    // loads must never hang forever, and a failed config setter is no worse
-    // than not having ad_flow. (updateRequestConfiguration swallows its own
-    // errors, and init is bounded by _initTimeout, so this always runs.)
-    if (!_configApplied.isCompleted) _configApplied.complete();
+      // Now that the Ads SDK is initialized, apply request configuration.
+      // This still runs UNCONDITIONALLY (not gated on the consent *result*):
+      // it sends no ad request, and controllers loading ads later must have
+      // testDeviceIds/tagForChildDirectedTreatment/maxAdContentRating/
+      // tagForUnderAgeOfConsent applied regardless of how or when consent
+      // resolves (review finding #5: otherwise a registered test device gets
+      // live ads, and a child-directed app serves untagged/wrongly-rated
+      // ads). Bounded by _initTimeout so a hung config call can't wedge loads.
+      await _sdk
+          .updateRequestConfiguration(_config.toRequestConfig())
+          .timeout(_initTimeout)
+          .catchError((Object _) {});
+    } finally {
+      // ALWAYS release the config gate — even if init/config threw, timed out,
+      // or hung past the timeout. A failed/slow config setter must let loads
+      // DEGRADE (proceed without config) rather than await forever; that is no
+      // worse than not using ad_flow at all.
+      if (!_configApplied.isCompleted) _configApplied.complete();
+    }
 
     // Gate ad loads on consent (init already awaited above).
     final canRequestAds = await consent;
