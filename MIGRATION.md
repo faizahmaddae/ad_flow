@@ -1,3 +1,43 @@
+# Upgrading 2.0.x → 2.1.0
+
+**No breaking API changes** — everything still compiles. But several defaults and
+behaviours changed on purpose. Check these five things:
+
+1. **Banner refresh is now OFF by default.** `BannerConfig.minRefresh` defaults to
+   `null` (no client-side refresh timer). AdMob already auto-refreshes banner ad
+   units server-side, from the console, on by default — the client timer was a
+   second, unsynchronised loop on the same placement. **Action:** confirm the
+   refresh rate is set on the ad unit in the AdMob console. Pass `minRefresh:`
+   explicitly only if you deliberately turned the console refresh off.
+
+2. **`AppOpenConfig.showOnColdStart` is deprecated and ignored.** Delete it. App-open
+   ads now show on the first genuine warm return of a session (they never could
+   show on a cold launch — the platform emits no event for one).
+
+3. **The global frequency cap no longer blocks rewarded ads.** If you were relying
+   on `globalFrequencyCap` to limit how often users can watch rewarded ads, set
+   `RewardedConfig(cap: ...)` / `RewardedInterstitialConfig(cap: ...)` instead —
+   they are unlimited by default.
+
+4. **Frequency gaps are measured from an ad's DISMISS, not its show.** A `minGap`
+   of 30s now means 30s of *app* after the ad closes, not 30s that the ad itself
+   may partly consume. Effective pacing is slightly more conservative; retune the
+   value if you had compensated for the old behaviour.
+
+5. **`AdFlow.initialize()` now disposes the previous graph.** If you call it more
+   than once (login/logout, config change), that is now safe — and the old graph
+   really stops. Two simultaneous `AdFlow` instances are not supported.
+
+**Worth adopting:**
+
+- `ads.onAdBlocked = (slot, reason) => log('ad_flow: $slot blocked: ${reason.name}')`
+  — tells you *why* an ad did not appear (consent not granted, Remove-Ads,
+  frequency cap, …) instead of the silent `AdIdle` you got before.
+- `ads.setBlockingViewAdVisible(true/false)` on screens where a large banner or
+  native ad fills the view, so no app-open ad is shown over it.
+
+---
+
 # MIGRATION — ad_flow v1 → v2
 
 For apps currently on `ad_flow` 1.3.x. A consumer should be able to migrate from this file alone.

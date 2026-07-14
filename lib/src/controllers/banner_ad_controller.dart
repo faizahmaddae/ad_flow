@@ -262,7 +262,9 @@ class BannerAdController implements AdController {
   void _scheduleRefresh() {
     final configured = _config.minRefresh;
     if (configured == null) return;
-    final interval = configured < minRefreshFloor ? minRefreshFloor : configured;
+    final interval = configured < minRefreshFloor
+        ? minRefreshFloor
+        : configured;
     _timer?.cancel();
     _timer = Timer(interval, _refresh);
   }
@@ -351,9 +353,8 @@ class BannerAdController implements AdController {
   BannerSizeSpec? _sizeSpec() {
     final width = _width;
     return switch (_config.kind) {
-      BannerKind.anchoredAdaptive when width != null => AnchoredAdaptiveSizeSpec(
-        width: width,
-      ),
+      BannerKind.anchoredAdaptive when width != null =>
+        AnchoredAdaptiveSizeSpec(width: width),
       BannerKind.inlineAdaptive when width != null => InlineAdaptiveSizeSpec(
         width: width,
         maxHeight: _config.maxInlineHeight,

@@ -1,3 +1,84 @@
+## 2.1.0
+
+Behaviour and default changes from the eight judgment calls raised by the 2.0.2
+audit, all approved by the maintainer. **No breaking API changes** — every
+existing call site still compiles. But several DEFAULTS and BEHAVIOURS changed
+deliberately; read this section before upgrading. See MIGRATION.md for the
+upgrade checklist and ADR-039 … ADR-045 for the reasoning.
+
+### Revenue
+
+* **The global frequency cap no longer blocks user-initiated rewarded ads**
+  (ADR-039). A user who tapped "watch an ad for 100 coins" 10s after an
+  interstitial fired got no ad, no reward and no explanation — the shipped
+  default global gap (15s) silently refused the highest-eCPM format in the
+  package. The global cap now paces **involuntary** ads only (interstitial,
+  app-open). Rewarded impressions are still *recorded* globally, so an
+  interstitial cannot fire straight after one.
+  **New:** `RewardedConfig.cap` / `RewardedInterstitialConfig.cap` (unlimited by
+  default) if you do want a per-format limit.
+* **App-open ads now show on the FIRST genuine warm return of a session**
+  (ADR-043). The manager was consuming that return as a "cold start" the
+  platform never actually emits — costing one impression in every single
+  session, on both platforms. A true cold start still cannot show an ad: nothing
+  is loaded yet.
+* **A banner refresh no longer blanks the slot** (ADR-041). It used to destroy
+  the live ad and reload from empty, so the slot went blank for the whole load —
+  multi-second on a weak network, every cycle — and a refresh that merely failed
+  (no-fill, routine) left it empty, having destroyed a perfectly good ad to get
+  there. The replacement now loads in the background and swaps in only on
+  success.
+
+### Defaults changed
+
+* **`BannerConfig.minRefresh` now defaults to `null` = no client-side refresh at
+  all** (ADR-041). AdMob already auto-refreshes banner ad units server-side, from
+  the console, **on by default**; the client timer was a second, unsynchronised
+  refresh loop on the same placement — up to 2x the ad requests for no extra
+  revenue. Set the refresh rate in the AdMob console. Pass `minRefresh:`
+  explicitly to opt back in.
+* **The frequency gap is now measured from the previous ad's DISMISS, not its
+  SHOW** (ADR-040). Stamped at show time, the gap ran down while the user was
+  still watching: a 30s rewarded ad under a 15s global gap used the gap up on
+  screen, so an interstitial could fire the instant the user closed it — two
+  full-screen ads back to back.
+* **`AppOpenConfig.showOnColdStart` is deprecated and ignored** (ADR-043). It
+  could never do what its name promised, and its only real effect is now the
+  default. Remove it.
+
+### Policy
+
+* **An app-open ad no longer stacks on a banner/native ad** (ADR-042). Returning
+  from a banner or native ad the user *clicked* no longer shows one — they were
+  being handed a second ad the moment they closed the first. And the new
+  `AdFlow.setBlockingViewAdVisible(bool)` lets the app declare that a blocking
+  banner occupies the screen, so no app-open ad covers it. ad_flow cannot judge
+  that itself — whether a banner is "blocking" is a question about your layout —
+  so placement remains partly the integrator's job.
+
+### Robustness
+
+* **`AdFlow.initialize()` is now idempotent** (ADR-044). A second call used to
+  build a whole new graph and leave the previous one fully alive — still
+  listening to the foreground stream, still preloading, still able to show ads,
+  and coordinating through its own separate coordinator, so it could not even see
+  the new graph's ads. Two app-open reactors, each blind to the other. It now
+  disposes the previous graph.
+
+### New
+
+* **`AdBlockReason` + `AdFlow.onAdBlocked` + `controller.lastBlockReason`**
+  (ADR-045) — the answer to "why aren't my ads showing?". A refused load reported
+  plain `AdIdle`, which is also what "nothing requested yet" looks like, so
+  consent-not-gathered, Remove-Ads and a frequency cap all looked identical, and
+  the package logged nothing. Deliberately **not** a new `AdLoadState` case:
+  `AdLoadState` is sealed, and adding one would break every exhaustive `switch`
+  in every app.
+* `AdFlow.setBlockingViewAdVisible(bool)`; `BannerAdController.revision`,
+  `.resize()`, `.loadedWidth`; `StoredFrequencyCapPolicy.globalCapExemptSlots`;
+  `AdGate.loadBlockReason()`; `FullScreenAdCoordinator.noteViewAdOpened()` /
+  `.consumeViewAdOpened()` / `.blockingViewAdVisible`.
+
 ## 2.0.2
 
 Bug-fix release from a full adversarial audit. Every fix below is guarded by a

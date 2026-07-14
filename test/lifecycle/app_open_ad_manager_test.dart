@@ -116,28 +116,25 @@ void main() {
   });
 
   group('manager lifecycle', () {
-    test(
-      'start warms a preload; the FIRST foreground event is a genuine warm '
-      'return and DOES show (ADR-043)',
-      () async {
-        final c = controller();
-        final m = manager(c);
-        m.start();
-        await settle();
-        expect(sdk.appOpens, hasLength(1)); // preload only, nothing shown
+    test('start warms a preload; the FIRST foreground event is a genuine warm '
+        'return and DOES show (ADR-043)', () async {
+      final c = controller();
+      final m = manager(c);
+      m.start();
+      await settle();
+      expect(sdk.appOpens, hasLength(1)); // preload only, nothing shown
 
-        // AppStateEventNotifier does not replay the cold-launch foreground
-        // (the seam only calls startListening() once the app is already
-        // foregrounded), so this first event IS a real background→return.
-        // Suppressing it cost one impression in every single session.
-        sdk.emitAppForeground();
-        await settle();
-        expect(sdk.appOpens.single.showCalls, 1);
+      // AppStateEventNotifier does not replay the cold-launch foreground
+      // (the seam only calls startListening() once the app is already
+      // foregrounded), so this first event IS a real background→return.
+      // Suppressing it cost one impression in every single session.
+      sdk.emitAppForeground();
+      await settle();
+      expect(sdk.appOpens.single.showCalls, 1);
 
-        m.dispose();
-        c.dispose();
-      },
-    );
+      m.dispose();
+      c.dispose();
+    });
 
     test(
       'a TRUE cold start cannot show, because nothing is loaded yet — that is '

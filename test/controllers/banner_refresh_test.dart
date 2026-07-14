@@ -57,7 +57,8 @@ void main() {
       expect(
         sdk.banners,
         hasLength(1),
-        reason: 'AdMob already auto-refreshes this ad unit from the console. A '
+        reason:
+            'AdMob already auto-refreshes this ad unit from the console. A '
             'client timer on top is a second, unsynchronised refresh loop — up '
             'to 2x the requests for one placement.',
       );
@@ -107,7 +108,8 @@ void main() {
         expect(
           first.disposed,
           isFalse,
-          reason: 'the visible ad must NOT be destroyed before its replacement '
+          reason:
+              'the visible ad must NOT be destroyed before its replacement '
               'has actually loaded',
         );
         expect(
@@ -123,7 +125,11 @@ void main() {
 
         expect(sdk.banners, hasLength(2));
         expect(c.handle, same(sdk.banners.last));
-        expect(first.disposed, isTrue, reason: 'the old ad is released on swap');
+        expect(
+          first.disposed,
+          isTrue,
+          reason: 'the old ad is released on swap',
+        );
         expect(c.state.value, const AdLoaded());
         c.dispose();
       });
@@ -146,7 +152,8 @@ void main() {
         expect(
           first.disposed,
           isFalse,
-          reason: 'a no-fill on refresh (routine on a weak network) must not '
+          reason:
+              'a no-fill on refresh (routine on a weak network) must not '
               'take the perfectly good ad already on screen down with it',
         );
         expect(c.handle, same(first));
@@ -179,7 +186,8 @@ void main() {
         expect(
           c.revision.value,
           greaterThan(before),
-          reason: 'AdLoaded == AdLoaded, so the state notifier does NOT fire on '
+          reason:
+              'AdLoaded == AdLoaded, so the state notifier does NOT fire on '
               'a swap — without this the widget would keep rendering the old, '
               'disposed handle',
         );

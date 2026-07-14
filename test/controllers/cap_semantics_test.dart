@@ -63,31 +63,34 @@ void main() {
   );
 
   group('the GLOBAL cap gates involuntary ads only (ADR-039)', () {
-    test('a user-initiated REWARDED show is never blocked by the global cap',
-        () async {
-      // An interstitial fires (an ad the user did not ask for), so the global
-      // 15s gap is now running.
-      final i = interstitial();
-      await i.load();
-      expect(await i.show(), isTrue);
-      sdk.interstitials.single.simulateShowed();
-      sdk.interstitials.single.simulateDismissed();
+    test(
+      'a user-initiated REWARDED show is never blocked by the global cap',
+      () async {
+        // An interstitial fires (an ad the user did not ask for), so the global
+        // 15s gap is now running.
+        final i = interstitial();
+        await i.load();
+        expect(await i.show(), isTrue);
+        sdk.interstitials.single.simulateShowed();
+        sdk.interstitials.single.simulateDismissed();
 
-      // 1 second later the user taps "Watch an ad for 100 coins".
-      now = now.add(const Duration(seconds: 1));
-      final r = rewarded();
-      await r.load();
+        // 1 second later the user taps "Watch an ad for 100 coins".
+        now = now.add(const Duration(seconds: 1));
+        final r = rewarded();
+        await r.load();
 
-      expect(
-        await r.show(onReward: (_) {}),
-        isTrue,
-        reason: 'the user ASKED for this ad and is owed a reward for it — the '
-            'global involuntary-ad gap must never silently swallow it, '
-            'leaving them with no ad and no reward and no explanation',
-      );
-      i.dispose();
-      r.dispose();
-    });
+        expect(
+          await r.show(onReward: (_) {}),
+          isTrue,
+          reason:
+              'the user ASKED for this ad and is owed a reward for it — the '
+              'global involuntary-ad gap must never silently swallow it, '
+              'leaving them with no ad and no reward and no explanation',
+        );
+        i.dispose();
+        r.dispose();
+      },
+    );
 
     test('an INTERSTITIAL is still blocked by the same global gap', () async {
       final r = rewarded();
@@ -103,7 +106,8 @@ void main() {
       expect(
         await i.show(),
         isFalse,
-        reason: "a rewarded impression still COUNTS globally: the user just "
+        reason:
+            "a rewarded impression still COUNTS globally: the user just "
             'watched an ad, so an involuntary interstitial 1s later is exactly '
             'what the global cap exists to prevent',
       );
@@ -130,7 +134,8 @@ void main() {
       expect(
         await i.show(),
         isFalse,
-        reason: 'measured from the SHOW timestamp the gap has "elapsed" while '
+        reason:
+            'measured from the SHOW timestamp the gap has "elapsed" while '
             'the user was still watching, so an interstitial would slam in the '
             'instant they closed the ad — two full-screen ads back to back. '
             'The gap must run from the DISMISS.',

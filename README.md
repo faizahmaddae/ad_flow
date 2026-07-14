@@ -269,7 +269,9 @@ Anchored adaptive by default (Google's revenue recommendation); the widget
 reserves its height from the first frame so content never shifts under a
 loading ad. Inline adaptive, fixed sizes and collapsible banners are
 configured via `BannerConfig(kind:, fixedSize:, collapsible:)`. Refresh is
-client-driven every `minRefresh` (≥ 60s recommended, values under 30s are
+client-driven every `minRefresh` — **off by default** (`minRefresh: null`), because
+AdMob already auto-refreshes banner ad units server-side from the console; set the
+rate there instead. When opted in, values under 30s are
 clamped).
 
 Adaptive banners have no pure-width height formula — Google documents
@@ -335,7 +337,21 @@ Nothing to call. The `AppOpenAdManager` (started by `initialize`) shows a
 preloaded ad when the app returns to the foreground — never on cold launch,
 never over another full-screen ad, never past the 4-hour expiry (stale ads
 are discarded and reloaded). To show on cold start from a dedicated splash
-gate, set `AppOpenConfig(showOnColdStart: true)`.
+gate: app-open ads show on the first genuine warm return of a session.
+`AppOpenConfig.showOnColdStart` is deprecated and ignored — a cold launch emits no
+foreground event, so it never did anything.
+
+An app-open ad is never shown when the user returns from a banner/native ad they
+clicked. If a screen shows a large, *blocking* banner or native ad, tell ad_flow
+so no app-open ad covers it:
+
+```dart
+ads.setBlockingViewAdVisible(true);   // in initState
+ads.setBlockingViewAdVisible(false);  // in dispose
+```
+
+ad_flow cannot judge that for you — whether a banner is "blocking" depends on your
+layout — so ad placement remains partly your responsibility.
 
 ## 5. Consent & privacy
 
