@@ -42,4 +42,19 @@ class RetryPolicy {
   /// How long to back off after the attempt budget is exhausted, before
   /// auto re-arming.
   Duration get cooldown => _config.cooldown;
+
+  /// How long to wait before re-checking a gate that was CLOSED (consent not
+  /// settled yet, or ads disabled) — as opposed to a load that FAILED.
+  ///
+  /// This is a different question from [nextDelay]: a closed gate is not an
+  /// error, it is a "not yet", and the common case (consent resolving a second
+  /// or two after the first frame) wants a prompt re-check. Re-using
+  /// [cooldown] here — 5 minutes by default — is what left first-frame banner
+  /// and native slots blank for the first five minutes of every new install.
+  ///
+  /// Backs off exponentially from [RetryConfig.baseDelay] and caps at
+  /// [RetryConfig.maxDelay] (never at the far longer [cooldown]), so a
+  /// permanently closed gate (the user bought Remove-Ads, or declined consent)
+  /// settles into a cheap once-a-minute check rather than spinning.
+  Duration gateRecheckDelay(int attempt) => nextDelay(attempt);
 }

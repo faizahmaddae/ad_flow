@@ -57,6 +57,7 @@ class BannerAdController implements AdController {
   StreamSubscription<AdPaidEvent>? _paidSub;
   Timer? _timer;
   int _attempts = 0;
+  int _gateAttempts = 0;
   int? _width;
   bool _disposed = false;
 
@@ -150,6 +151,7 @@ class BannerAdController implements AdController {
       _handle = handle;
       _paidSub = handle.paidEvents.listen(_onPaid ?? (_) {});
       _attempts = 0;
+      _gateAttempts = 0;
       _state.value = const AdLoaded();
       _scheduleRefresh();
     } catch (e) {
@@ -200,13 +202,19 @@ class BannerAdController implements AdController {
     }
   }
 
-  /// Re-checks the gate after a cooldown when a load was blocked (consent
-  /// closed / ads disabled) rather than failed — otherwise a banner whose
-  /// refresh or initial load happened to land while the gate was shut
-  /// stays blank forever with nothing left to prompt a reload.
+  /// Re-checks the gate after a backoff when a load was blocked (consent not
+  /// settled / ads disabled) rather than failed — otherwise a banner whose
+  /// refresh or initial load happened to land while the gate was shut stays
+  /// blank forever with nothing left to prompt a reload.
+  ///
+  /// [RetryPolicy.gateRecheckDelay], not the 5-minute failure cooldown: a
+  /// first-frame banner (ADR-032) routinely reaches the gate before consent
+  /// has settled, and reusing the cooldown left it blank for the first five
+  /// minutes of every new install.
   void _scheduleGateRecheck() {
+    _gateAttempts++;
     _timer?.cancel();
-    _timer = Timer(_retry.cooldown, () {
+    _timer = Timer(_retry.gateRecheckDelay(_gateAttempts), () {
       if (_disposed) return;
       unawaited(load());
     });

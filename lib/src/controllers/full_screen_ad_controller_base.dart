@@ -67,6 +67,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   StreamSubscription<AdPaidEvent>? _paidSub;
   Timer? _timer;
   int _attempts = 0;
+  int _gateAttempts = 0;
   bool _enteredCoordinator = false;
   bool _disposed = false;
 
@@ -142,6 +143,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       _contentSub = handle.contentEvents.listen(_onContentEvent);
       _paidSub = handle.paidEvents.listen(_onPaid ?? (_) {});
       _attempts = 0;
+      _gateAttempts = 0;
       _state.value = const AdLoaded();
       onLoaded();
     } catch (e) {
@@ -301,13 +303,19 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     }
   }
 
-  /// Re-checks the gate after a cooldown when a load was blocked (consent
-  /// closed / ads disabled) rather than failed — otherwise a slot whose
-  /// one preload attempt happened to land while the gate was shut stays
-  /// idle forever with nothing left to prompt a retry.
+  /// Re-checks the gate after a backoff when a load was blocked (consent not
+  /// settled / ads disabled) rather than failed — otherwise a slot whose one
+  /// preload attempt happened to land while the gate was shut stays idle
+  /// forever with nothing left to prompt a retry.
+  ///
+  /// Uses [RetryPolicy.gateRecheckDelay] (exponential from baseDelay, capped
+  /// at maxDelay) rather than the 5-minute failure cooldown: a closed gate is
+  /// a "not yet", not an error, and the common case — consent resolving a
+  /// second or two after the first frame — must not cost a five-minute wait.
   void _scheduleGateRecheck() {
+    _gateAttempts++;
     _timer?.cancel();
-    _timer = Timer(_retry.cooldown, () {
+    _timer = Timer(_retry.gateRecheckDelay(_gateAttempts), () {
       if (_disposed) return;
       unawaited(load());
     });

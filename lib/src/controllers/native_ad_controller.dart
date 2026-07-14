@@ -47,6 +47,7 @@ class NativeAdController implements AdController {
   StreamSubscription<AdPaidEvent>? _paidSub;
   Timer? _timer;
   int _attempts = 0;
+  int _gateAttempts = 0;
   bool _disposed = false;
 
   @override
@@ -98,6 +99,7 @@ class NativeAdController implements AdController {
       _handle = handle;
       _paidSub = handle.paidEvents.listen(_onPaid ?? (_) {});
       _attempts = 0;
+      _gateAttempts = 0;
       _state.value = const AdLoaded();
     } catch (e) {
       // See BannerAdController.load: catch everything, not just AdFlowError —
@@ -150,13 +152,17 @@ class NativeAdController implements AdController {
     }
   }
 
-  /// Re-checks the gate after a cooldown when a load was blocked (consent
-  /// closed / ads disabled) rather than failed — otherwise a slot whose
-  /// one load attempt happened to land while the gate was shut stays idle
-  /// forever with nothing left to prompt a reload.
+  /// Re-checks the gate after a backoff when a load was blocked (consent not
+  /// settled / ads disabled) rather than failed — otherwise a slot whose one
+  /// load attempt happened to land while the gate was shut stays idle forever
+  /// with nothing left to prompt a reload.
+  ///
+  /// [RetryPolicy.gateRecheckDelay], not the 5-minute failure cooldown — see
+  /// `BannerAdController._scheduleGateRecheck`.
   void _scheduleGateRecheck() {
+    _gateAttempts++;
     _timer?.cancel();
-    _timer = Timer(_retry.cooldown, () {
+    _timer = Timer(_retry.gateRecheckDelay(_gateAttempts), () {
       if (_disposed) return;
       unawaited(load());
     });

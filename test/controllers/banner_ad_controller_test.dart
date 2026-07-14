@@ -347,7 +347,13 @@ void main() {
 
         // Ads re-enabled before the next gate recheck fires.
         enabled = true;
-        async.elapse(const Duration(minutes: 5));
+        // The gate recheck now backs off from RetryConfig.baseDelay (5s) via
+        // RetryPolicy.gateRecheckDelay, instead of reusing the 5-minute
+        // failure cooldown. A closed gate is a "not yet", not an error: the
+        // common case is consent resolving a second or two after the first
+        // frame, and making that cost five blank minutes was costing the first
+        // (highest-value) session of every new install.
+        async.elapse(const Duration(seconds: 10));
 
         expect(sdk.banners, hasLength(2)); // recovered, not dead forever
         expect(c.state.value, const AdLoaded());

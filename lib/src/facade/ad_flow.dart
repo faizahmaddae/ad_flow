@@ -64,6 +64,7 @@ class AdFlow {
       caps: _caps,
       coordinator: _coordinator,
       configReady: _configApplied.future,
+      settleConsent: _settleConsent,
     );
 
     final interstitialId = config.interstitialAdUnitId(_platform);
@@ -270,6 +271,30 @@ class AdFlow {
   bool _disposed = false;
   late final Future<bool> _ready;
 
+  // ── Consent, and its retry ────────────────────────────────────────────────
+  //
+  // The consent flow is the single gate every ad load waits behind, and it is
+  // network-bound — so on this package's target population (mostly weak, slow,
+  // intermittent connections) it is also the thing most likely to fail. It
+  // used to run EXACTLY ONCE per session: a launch in airplane mode, or on a
+  // connection too slow for the 30s info-update timeout, left
+  // `canRequestAds()` false with nothing to ever re-ask — so the app served
+  // ZERO ads for the whole session, even after the network came back seconds
+  // later. Nothing surfaced it, because a closed gate looks exactly like a
+  // user who declined.
+  //
+  // The gate now routes every load through [_settleConsent], which joins the
+  // in-flight attempt and re-attempts a FAILED one.
+  ConsentDebugOptions? _consentDebug;
+  Future<bool>? _consentInFlight;
+  bool _consentOpen = false;
+  bool _consentRetryArmed = true;
+  Timer? _consentRetryTimer;
+
+  /// Minimum spacing between two consent attempts, so the gate re-checks that
+  /// several controllers make while offline coalesce into one UMP call.
+  static const _consentRetryInterval = Duration(seconds: 10);
+
   /// Kicks the background startup ([_start]) exactly once and stores its
   /// result future for [whenReady]. Errors are captured here — a background
   /// startup failure must never become an unhandled async error or reach
@@ -309,6 +334,57 @@ class AdFlow {
   /// fixed by the call ORDERING in [_start] — see ADR-028. This timeout
   /// remains as belt-and-suspenders for a genuinely slow init.
   static const _initTimeout = Duration(seconds: 30);
+
+  /// Awaited by [AdGate.canLoad] before it reads `canRequestAds()`.
+  ///
+  /// Joins the consent attempt that is already in flight (so a first-frame
+  /// banner simply waits for consent to resolve, instead of reading a
+  /// still-false answer and sleeping out a 5-minute cooldown), and RE-ATTEMPTS
+  /// one that previously failed (so an offline launch recovers when the
+  /// network returns).
+  ///
+  /// A user who merely DECLINED is a settled answer, not a failure: the flow
+  /// completed and `lastError` is null, so it is never re-run — re-prompting
+  /// them on a timer would be both hostile and a policy problem.
+  Future<void> _settleConsent() async {
+    if (_disposed || _consentOpen) return;
+
+    final inFlight = _consentInFlight;
+    if (inFlight != null) {
+      await inFlight;
+      return;
+    }
+    // The last attempt finished without opening the gate. Only retry a genuine
+    // FAILURE (network/timeout/platform error — surfaced on lastError), and at
+    // most once per _consentRetryInterval so several controllers re-checking
+    // the gate at once coalesce into a single UMP call.
+    if (_consent.lastError == null || !_consentRetryArmed) return;
+    await _runConsent(_consentDebug);
+  }
+
+  /// Runs one consent attempt, publishing it on [_consentInFlight] so
+  /// concurrent [_settleConsent] callers join it rather than starting a second.
+  Future<bool> _runConsent(ConsentDebugOptions? debug) {
+    _consentRetryArmed = false;
+    final run = _consent.ensureCanRequestAds(debug: debug);
+    _consentInFlight = run;
+    return run
+        .then((open) {
+          _consentOpen = open;
+          return open;
+        })
+        .whenComplete(() {
+          if (identical(_consentInFlight, run)) _consentInFlight = null;
+          if (_disposed || _consentOpen) return;
+          // Re-arm the retry after a cooldown, so a still-offline device keeps
+          // trying (at a sane rate) rather than giving up for the session.
+          _consentRetryTimer?.cancel();
+          _consentRetryTimer = Timer(
+            _consentRetryInterval,
+            () => _consentRetryArmed = true,
+          );
+        });
+  }
 
   Future<bool> _start(ConsentDebugOptions? debug) async {
     // Consent (UMP) is independent of the Ads SDK and safe to run in
@@ -350,7 +426,8 @@ class AdFlow {
     // forever on a startup hiccup (worst on weak internet). The timeouts bound
     // a *hung* init/config; the `finally` covers any *thrown* path.
     try {
-      consent = _consent.ensureCanRequestAds(debug: debug);
+      _consentDebug = debug;
+      consent = _runConsent(debug);
 
       await _sdk.initialize().timeout(_initTimeout).catchError((Object _) {});
 
@@ -503,6 +580,8 @@ class AdFlow {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _consentRetryTimer?.cancel();
+    _consentRetryTimer = null;
     // Release any load parked in AdGate.canLoad awaiting config (a background
     // startup may not have applied it yet) — the controllers are disposed
     // below, so those loads then bail on their own _disposed guard instead of

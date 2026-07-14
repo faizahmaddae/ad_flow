@@ -28,17 +28,20 @@ class AdGate {
     required FrequencyCapPolicy caps,
     required FullScreenAdCoordinator coordinator,
     Future<void>? configReady,
+    Future<void> Function()? settleConsent,
   }) : _canRequestAds = canRequestAds,
        _isEnabled = isEnabled,
        _caps = caps,
        _coordinator = coordinator,
-       _configReady = configReady ?? Future<void>.value();
+       _configReady = configReady ?? Future<void>.value(),
+       _settleConsent = settleConsent;
 
   final Future<bool> Function() _canRequestAds;
   final bool Function() _isEnabled;
   final FrequencyCapPolicy _caps;
   final FullScreenAdCoordinator _coordinator;
   final Future<void> _configReady;
+  final Future<void> Function()? _settleConsent;
 
   /// Whether [slot] may load an ad now.
   Future<bool> canLoad(String slot) async {
@@ -48,6 +51,22 @@ class AdGate {
     // here while the background init/config is still in flight; loading now
     // would send an untagged/untest-flagged first request (review-fix #5).
     await _configReady;
+    // Then wait for the consent flow to actually SETTLE, rather than reading a
+    // still-false canRequestAds() and failing fast.
+    //
+    // This closes the gap ADR-032 opened. Startup is non-blocking, so the app
+    // renders and mounts its banner/native on the first frame — but the config
+    // gate above (SDK init, no user interaction, ~1s) always opens well BEFORE
+    // consent (a network-bound info update, and possibly an ATT prompt and a
+    // GDPR form the user must read). So a first-frame view ad used to arrive
+    // here, get a hard `false`, go idle and re-arm only after RetryConfig's
+    // 5-minute cooldown — leaving every new install with blank banner and
+    // native slots for the first five minutes of its first session.
+    //
+    // The callback also RE-ATTEMPTS a consent flow that previously FAILED
+    // (see AdFlow._settleConsent), which is what lets an offline launch start
+    // serving ads once the network returns instead of staying dead all session.
+    await _settleConsent?.call();
     return _isEnabled() && await _canRequestAds();
   }
 

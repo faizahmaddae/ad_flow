@@ -153,6 +153,13 @@ class FakeAdSdk implements AdSdk {
   /// form dismissal would.
   void Function()? onConsentFormShown;
 
+  /// Invoked by [requestConsentInfoUpdate] when it does NOT throw. Use it to
+  /// flip [canRequestAdsResult] the way a real UMP info update does once the
+  /// network is reachable — e.g. to model an offline launch (set
+  /// [consentUpdateError], leave [canRequestAdsResult] false) that later
+  /// recovers (clear the error, set this to open the gate).
+  void Function()? onConsentInfoUpdate;
+
   /// When true, any `load*` while [canRequestAdsResult] is false throws a
   /// [StateError] — a tripwire for the "consent gates every load" invariant.
   /// Off by default so seam-level tests can exercise loads in isolation.
@@ -311,6 +318,7 @@ class FakeAdSdk implements AdSdk {
     if (hold != null) await hold.future;
     final error = consentUpdateError;
     if (error != null) throw error;
+    onConsentInfoUpdate?.call();
   }
 
   @override
