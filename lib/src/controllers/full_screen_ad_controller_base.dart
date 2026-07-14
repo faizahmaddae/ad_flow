@@ -144,9 +144,16 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       _attempts = 0;
       _state.value = const AdLoaded();
       onLoaded();
-    } on AdFlowError catch (e) {
+    } catch (e) {
+      // Catch EVERYTHING, not just AdFlowError. The seam's contract says it
+      // throws AdFlowError, but a real platform channel violates that freely:
+      // MissingPluginException, PlatformException, or the plugin's own
+      // canRequestAds() force-unwrapping a null channel result. Before this,
+      // such a throw escaped `on AdFlowError`, left the controller pinned at
+      // AdLoading (which load()'s own re-entry guard then rejects forever) and
+      // armed no retry — one platform hiccup killed the slot for the session.
       if (_disposed) return;
-      _state.value = AdFailed(e);
+      _state.value = AdFailed(asAdFlowError(e, AdFlowErrorKind.loadFailed));
       _scheduleRetry();
     }
   }
@@ -182,11 +189,25 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       return false;
     }
 
-    if (!await _gate.canLoad(slot)) return rejectAndRollBack();
-    if (_disposed) return false; // dispose() already rolled everything back
-    if (!await _caps.canShow(slot)) return rejectAndRollBack();
-    if (_disposed) return false;
-    if (!canShowExtra()) return rejectAndRollBack();
+    // These preconditions run AFTER the coordinator has been claimed and
+    // AdShowing written (both must be synchronous — ADR-024), so any throw in
+    // here MUST roll both back. A corrupt shared_preferences backend makes
+    // `_caps.canShow` throw a PlatformException, and the plugin's
+    // `canRequestAds()` can throw too; before this guard such a throw escaped
+    // show() with the coordinator still claimed, permanently blocking EVERY
+    // full-screen format (interstitial, rewarded, rewarded-interstitial and
+    // app-open) for the rest of the session. Review finding #1 fixed only the
+    // symmetric hole around `handle.show()`; this is the other half.
+    try {
+      if (!await _gate.canLoad(slot)) return rejectAndRollBack();
+      if (_disposed) return false; // dispose() already rolled everything back
+      if (!await _caps.canShow(slot)) return rejectAndRollBack();
+      if (_disposed) return false;
+      if (!canShowExtra()) return rejectAndRollBack();
+    } catch (_) {
+      // Degrade to "don't show", never to "wedged forever".
+      return rejectAndRollBack();
+    }
 
     OnUserEarnedReward? onRewardOnce;
     if (onReward != null) {
@@ -225,8 +246,10 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     switch (event) {
       case AdShowedEvent():
         // Coordinator entry already happened synchronously in show(); this
-        // only records the confirmed impression.
-        unawaited(_caps.recordImpression(slot));
+        // only records the confirmed impression. A throwing store must not
+        // become an unhandled async error — losing one recorded impression
+        // (slightly loose capping) is strictly better than crashing the zone.
+        unawaited(_caps.recordImpression(slot).catchError((Object _) {}));
       case AdDismissedEvent():
         // Single-use spent: dispose and immediately preload the next
         // (invariant 7, ADR-011).

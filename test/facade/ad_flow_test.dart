@@ -518,19 +518,32 @@ void main() {
     test('dispose() releases a self-created ConsentGateway but leaves an '
         'injected one usable', () async {
       // Self-created (no `consent:` injected): AdFlow owns it, so dispose()
-      // must release its internal ValueNotifier. ensureCanRequestAds()
-      // writes to it internally, so calling it post-dispose surfaces the
-      // "used after dispose" failure (a plain .value read would not — a
-      // ValueNotifier only throws on write after dispose, not on read).
+      // must release its internal ValueNotifier. `addListener` on a disposed
+      // ChangeNotifier throws — that is the direct, unambiguous proof that the
+      // notifier really was released.
+      //
+      // (This used to assert that a post-dispose ensureCanRequestAds() THREW a
+      // FlutterError from the write-after-dispose. That "proof" was really a
+      // latent bug: the consent flow is async and backgrounded, so a genuine
+      // dispose()-during-startup would have thrown that same error into the
+      // background zone. The gateway now guards its notifier writes with a
+      // _disposed check, so post-dispose use is inert instead of explosive —
+      // and the ownership assertion below no longer depends on a crash.)
       final owned = await boot();
       final ownedConsent = owned.consent;
       owned.dispose();
-      // ValueNotifier's setter no-ops when the new value equals the
-      // current one (no notifyListeners() call, so no disposed-check
-      // fires) — flip the underlying flag so the refresh actually writes
-      // a changed value and exercises the real "used after dispose" path.
+      expect(
+        () => ownedConsent.privacyOptionsRequired.addListener(() {}),
+        throwsFlutterError,
+        reason: 'AdFlow owns a self-created gateway and must dispose it',
+      );
       sdk.privacyOptionsRequirement = PrivacyOptionsRequirement.required;
-      await expectLater(ownedConsent.ensureCanRequestAds(), throwsFlutterError);
+      await expectLater(
+        ownedConsent.ensureCanRequestAds(),
+        completes,
+        reason: 'a disposed gateway degrades quietly; it must not throw a '
+            'use-after-dispose error into the background startup zone',
+      );
 
       // Injected: the caller supplied it and may keep using it after this
       // particular AdFlow is gone (e.g. sharing one gateway across a

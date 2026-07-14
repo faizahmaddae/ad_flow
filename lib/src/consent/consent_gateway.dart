@@ -116,6 +116,7 @@ class UmpConsentGateway implements ConsentGateway {
   Future<bool>? _inFlight;
   final ValueNotifier<bool> _privacyOptionsRequired = ValueNotifier(false);
   AdFlowError? _lastError;
+  bool _disposed = false;
 
   @override
   bool get isPrivacyOptionsRequired => _privacyOptionsRequired.value;
@@ -140,7 +141,21 @@ class UmpConsentGateway implements ConsentGateway {
     // Step 1 — client-driven ATT (opt-in; iOS only in practice). Runs before
     // GDPR, matching v1. Returns whether the user was just prompted and
     // denied, so we can optionally skip the consent PRIMER below.
-    final attDenied = await _maybeRunAtt();
+    //
+    // This is deliberately its own try/catch and NOT allowed to abort the
+    // rest of the flow: ATT (Apple) and GDPR (EU) are independent regimes, so
+    // an ATT failure must never suppress the required consent form. ADR-031
+    // fixed the *policy* version of this (a DENIAL must not skip the form);
+    // this is the *crash* version (an ATT platform throw must not skip it
+    // either). Without it, a missing app_tracking_transparency channel or a
+    // missing NSUserTrackingUsageDescription meant: no consent info update, no
+    // GDPR form, no privacy-options entry point and zero ads for the session.
+    var attDenied = false;
+    try {
+      attDenied = await _maybeRunAtt();
+    } catch (e) {
+      _lastError = asAdFlowError(e, AdFlowErrorKind.consent);
+    }
     try {
       // Step 2 — consent info update (unchanged; still runs even when ATT was
       // denied, because canRequestAds()/privacy status depend on it).
@@ -174,8 +189,23 @@ class UmpConsentGateway implements ConsentGateway {
         'Consent info update timed out after '
         '${_infoUpdateTimeout.inSeconds}s.',
       );
-    } on AdFlowError catch (e) {
-      _lastError = e;
+    } catch (e) {
+      // Any error kind, not just AdFlowError — the UMP channel can throw raw
+      // PlatformExceptions, and one must not take the whole flow (and every
+      // ad load behind it) down with it.
+      _lastError = asAdFlowError(e, AdFlowErrorKind.consent);
+    } finally {
+      // ALWAYS re-read the privacy-options requirement, even when the flow
+      // above failed. We still degrade to `canRequestAds()` below, so a
+      // returning EEA user whose info update merely failed offline KEEPS
+      // SERVING ADS from cached consent — and an app serving ads to an EEA
+      // user must surface the "Manage consent" entry point (invariant 2).
+      // Refreshing only on the success path meant a failed/timed-out update
+      // left `privacyOptionsRequired` false while ads ran: a silent GDPR gap
+      // on exactly the weak-network launches this package must survive. The
+      // call reads cached UMP state and is itself best-effort (it swallows
+      // its own errors), so it is safe here.
+      await _refreshPrivacyRequirement();
     }
     // Degrade to the SDK's own answer: consent obtained on a previous
     // launch (or not required at all) keeps serving ads through transient
@@ -198,8 +228,8 @@ class UmpConsentGateway implements ConsentGateway {
     final AttStatus status;
     try {
       status = await _sdk.getTrackingAuthorizationStatus();
-    } on AdFlowError catch (e) {
-      _lastError = e;
+    } catch (e) {
+      _lastError = asAdFlowError(e, AdFlowErrorKind.consent);
       return false;
     }
     // Only iOS 14+ with an undetermined status can show the system prompt.
@@ -213,8 +243,8 @@ class UmpConsentGateway implements ConsentGateway {
     try {
       final result = await _sdk.requestTrackingAuthorization();
       return result == AttStatus.denied;
-    } on AdFlowError catch (e) {
-      _lastError = e;
+    } catch (e) {
+      _lastError = asAdFlowError(e, AdFlowErrorKind.consent);
       return false;
     }
   }
@@ -241,7 +271,7 @@ class UmpConsentGateway implements ConsentGateway {
       final status = await _sdk.getConsentStatus();
       if (status != AdConsentStatus.required) return false;
       return await _sdk.isConsentFormAvailable();
-    } on AdFlowError {
+    } catch (_) {
       return false;
     }
   }
@@ -258,10 +288,18 @@ class UmpConsentGateway implements ConsentGateway {
   Future<void> _refreshPrivacyRequirement() async {
     try {
       final status = await _sdk.getPrivacyOptionsRequirementStatus();
+      // The consent flow is network-bound and runs in the BACKGROUND
+      // (ADR-032), so the app can dispose the whole graph while we are still
+      // awaiting the seam above. Writing a changed value into a disposed
+      // ValueNotifier throws a FlutterError into the background zone, so
+      // re-check after every await, not just at entry.
+      if (_disposed) return;
       _privacyOptionsRequired.value =
           status == PrivacyOptionsRequirement.required;
-    } on AdFlowError {
-      // Keep the previous value; requirement status is best-effort.
+    } catch (_) {
+      // Keep the previous value; requirement status is best-effort. Catches
+      // everything (not just AdFlowError) because this now runs in _run's
+      // `finally` — a throw here would replace the real consent outcome.
     }
   }
 
@@ -275,5 +313,9 @@ class UmpConsentGateway implements ConsentGateway {
   Future<void> reset() => _sdk.resetConsent();
 
   @override
-  void dispose() => _privacyOptionsRequired.dispose();
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _privacyOptionsRequired.dispose();
+  }
 }

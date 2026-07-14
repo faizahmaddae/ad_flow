@@ -58,3 +58,15 @@ class AdFlowError implements Exception {
       '${code != null ? ', code: $code' : ''}'
       '${domain != null ? ', domain: $domain' : ''})';
 }
+
+/// Normalizes any thrown object into an [AdFlowError] of [fallbackKind].
+///
+/// The seam's documented contract is that it only ever throws [AdFlowError],
+/// but a platform channel does not honour contracts: `MissingPluginException`,
+/// `PlatformException` and plain `StateError`s all reach us from the plugin in
+/// the wild. Every layer that must DEGRADE rather than wedge (controller loads
+/// and shows, the consent flow) funnels its catches through this, so an
+/// unexpected type becomes a normal `AdFailed`/`lastError` instead of an
+/// escaping async error that leaves a slot pinned forever.
+AdFlowError asAdFlowError(Object error, AdFlowErrorKind fallbackKind) =>
+    error is AdFlowError ? error : AdFlowError(fallbackKind, '$error');

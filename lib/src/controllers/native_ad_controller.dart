@@ -99,9 +99,12 @@ class NativeAdController implements AdController {
       _paidSub = handle.paidEvents.listen(_onPaid ?? (_) {});
       _attempts = 0;
       _state.value = const AdLoaded();
-    } on AdFlowError catch (e) {
+    } catch (e) {
+      // See BannerAdController.load: catch everything, not just AdFlowError —
+      // a raw platform exception must degrade to AdFailed + retry, never pin
+      // the slot at AdLoading forever.
       if (_disposed) return;
-      _state.value = AdFailed(e);
+      _state.value = AdFailed(asAdFlowError(e, AdFlowErrorKind.loadFailed));
       _scheduleRetry();
     }
   }

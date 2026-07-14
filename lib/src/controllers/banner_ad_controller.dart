@@ -152,9 +152,13 @@ class BannerAdController implements AdController {
       _attempts = 0;
       _state.value = const AdLoaded();
       _scheduleRefresh();
-    } on AdFlowError catch (e) {
+    } catch (e) {
+      // Not just AdFlowError: a MissingPluginException/PlatformException from
+      // the channel used to escape this catch and pin the banner at AdLoading
+      // with no retry armed — a permanently blank banner, on exactly the weak
+      // devices/networks this package targets.
       if (_disposed) return;
-      _state.value = AdFailed(e);
+      _state.value = AdFailed(asAdFlowError(e, AdFlowErrorKind.loadFailed));
       _scheduleRetry();
     }
   }

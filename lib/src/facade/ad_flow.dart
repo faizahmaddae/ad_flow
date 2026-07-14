@@ -313,7 +313,12 @@ class AdFlow {
   Future<bool> _start(ConsentDebugOptions? debug) async {
     // Consent (UMP) is independent of the Ads SDK and safe to run in
     // parallel with everything below.
-    final consent = _consent.ensureCanRequestAds(debug: debug);
+    //
+    // This call is INSIDE the try below (not before it): AdGate.canLoad awaits
+    // _configApplied, so any throw that escapes before the `finally` runs
+    // would hang EVERY ad load in the app forever. An injected ConsentGateway
+    // whose ensureCanRequestAds throws synchronously is enough to trigger it.
+    final Future<bool> consent;
 
     // Initialize the Ads SDK FIRST, and let it finish, BEFORE touching the
     // request configuration. This ordering is load-bearing, not cosmetic:
@@ -345,6 +350,8 @@ class AdFlow {
     // forever on a startup hiccup (worst on weak internet). The timeouts bound
     // a *hung* init/config; the `finally` covers any *thrown* path.
     try {
+      consent = _consent.ensureCanRequestAds(debug: debug);
+
       await _sdk.initialize().timeout(_initTimeout).catchError((Object _) {});
 
       // Now that the Ads SDK is initialized, apply request configuration.
