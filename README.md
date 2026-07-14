@@ -45,7 +45,7 @@ Set up the ad_flow Flutter package (AdMob) in my project. Do it idiomatically �
    • If you find any: show me what it is, then REPLACE it with ad_flow equivalents and remove the
      old implementation (and the direct google_mobile_ads dependency if nothing else uses it).
    • If none: do a clean fresh integration.
-3. Add ad_flow: ^2.0.0 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
+3. Add ad_flow: ^2.1.0 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
    Android minSdk 24 / compileSdk 36). Platform setup: Android APPLICATION_ID meta-data, iOS
    GADApplicationIdentifier + NSUserTrackingUsageDescription. Remind me to publish & verify app-ads.txt.
 4. Ask me which formats I want and for my ad unit IDs (or use AdFlowConfig.test() for now).
@@ -57,13 +57,13 @@ Set up the ad_flow Flutter package (AdMob) in my project. Do it idiomatically �
 Ask me anything you need (formats, IDs, EEA/iOS) before writing code. Keep changes minimal and explained.
 ```
 
-### 🔁 Migrate — upgrade from ad_flow 1.x to 2.0.0
+### 🔁 Migrate — upgrade from ad_flow 1.x to 2.1.0
 
 ```
-Migrate my project from ad_flow 1.x to 2.0.0 (a ground-up rewrite). Be careful — the API changed a lot.
+Migrate my project from ad_flow 1.x to 2.1.0 (a ground-up rewrite). Be careful — the API changed a lot.
 
-1. FIRST read ad_flow's MIGRATION.md plus the 2.0.0 README and public API. Use only real v2 symbols.
-2. Bump ad_flow to ^2.0.0 and meet v2's min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
+1. FIRST read ad_flow's MIGRATION.md plus the 2.1.0 README and public API. Use only real v2 symbols.
+2. Bump ad_flow to ^2.1.0 and meet v2's min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
    Android minSdk 24 / compileSdk 36; adopt the iOS UISceneDelegate lifecycle if I have a custom AppDelegate).
 3. Find EVERY v1 ad_flow usage (AdFlow.instance, initialize / initializeWithExplainer, EasyBannerAd,
    the old managers/widgets, the broad google_mobile_ads re-export). List them, then migrate each to
@@ -86,7 +86,7 @@ the GDPR consent form even if they denied ATT).
 
 ```yaml
 dependencies:
-  ad_flow: ^2.0.0
+  ad_flow: ^2.1.0
 ```
 
 Requirements (from `google_mobile_ads` 9.x): Flutter ≥ 3.38.1, Dart ≥ 3.10,
@@ -304,6 +304,14 @@ await ads.rewarded.show(onReward: (reward) {
 
 High-value rewards: set `RewardedConfig.ssv` for server-side verification.
 
+A rewarded ad is one the user **asked for**, so the global frequency cap never
+blocks it (ADR-039) — a user who taps "watch an ad for 100 coins" must never be
+silently refused because an interstitial happened to fire moments earlier. Its
+impression is still *recorded* globally, so an involuntary interstitial cannot
+fire straight after one. Both rewarded formats are uncapped by default; set
+`RewardedConfig.cap` / `RewardedInterstitialConfig.cap` if you want a per-format
+limit.
+
 ### Rewarded interstitial
 
 ```dart
@@ -441,6 +449,29 @@ ads.onPaidEvent = (e) =>
 
 await ads.openAdInspector(); // debug overlay on a test device
 ```
+
+### "Why aren't my ads showing?"
+
+A blocked slot sits at `AdIdle` — which is also what "nothing requested yet"
+looks like. To tell them apart, ad_flow reports **why** it refused a load or a
+show:
+
+```dart
+ads.onAdBlocked = (slot, reason) =>
+    log.info('ad_flow: $slot blocked — ${reason.name}');
+
+ads.interstitial.lastBlockReason; // AdBlockReason? — per-slot snapshot
+```
+
+`AdBlockReason` is one of `adsDisabled` (Remove-Ads on), `consentNotGranted`
+(the user declined, or consent hasn't succeeded yet — e.g. offline),
+`frequencyCapped`, `otherAdShowing`, `notReady` (nothing warm yet),
+`userActionPacing`, `expired` (a stale app-open ad), `introSkipped` (the user
+skipped the rewarded intro).
+
+Most reasons are **normal** — a cap doing its job, a user declining an ad. This
+is a diagnostic channel, not an error channel. Wire it to your logger during a
+rollout and you can see, per app, exactly why a slot is quiet.
 
 ## 7. Testing your integration
 

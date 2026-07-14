@@ -194,8 +194,8 @@ class _HomeScreenState extends State<HomeScreen> {
           _StateTile(
             title: 'App open',
             subtitle:
-                'Background the app, then return — it shows on the warm '
-                'start (never on cold launch).',
+                'Background the app, then return ONCE — it shows on that first '
+                'warm return (never on a cold launch).',
             state: ads.appOpenController.state,
           ),
           const SizedBox(height: 8),
