@@ -19,6 +19,7 @@ export 'src/controllers/interstitial_ad_controller.dart';
 export 'src/controllers/native_ad_controller.dart';
 export 'src/controllers/rewarded_ad_controller.dart';
 export 'src/controllers/rewarded_interstitial_ad_controller.dart';
+export 'src/core/ad_block_reason.dart';
 export 'src/core/ad_controller.dart';
 export 'src/core/ad_flow_error.dart';
 export 'src/core/ad_load_state.dart';

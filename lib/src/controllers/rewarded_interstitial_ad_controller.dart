@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../config/ad_flow_config.dart';
+import '../core/ad_block_reason.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
 import 'full_screen_ad_controller_base.dart';
@@ -32,6 +33,7 @@ class RewardedInterstitialAdController extends FullScreenAdControllerBase {
     required RewardedIntroPresenter showIntro,
     super.retry,
     super.onPaid,
+    super.onBlocked,
   }) : _config = config,
        _showIntro = showIntro,
        super(slot: slotName);
@@ -54,6 +56,7 @@ class RewardedInterstitialAdController extends FullScreenAdControllerBase {
   Future<bool> show({OnUserEarnedReward? onReward}) async {
     // Only bother the user with the intro when an ad is actually warm.
     if (!isReady) {
+      noteBlocked(AdBlockReason.notReady);
       unawaited(load());
       return false;
     }
@@ -61,7 +64,11 @@ class RewardedInterstitialAdController extends FullScreenAdControllerBase {
     _introShowing = true;
     try {
       final proceed = await _showIntro(_config.intro);
-      if (!proceed) return false; // skipped — policy satisfied, no ad
+      if (!proceed) {
+        // Skipped — policy working as intended, not a fault.
+        noteBlocked(AdBlockReason.introSkipped);
+        return false;
+      }
     } finally {
       _introShowing = false;
     }

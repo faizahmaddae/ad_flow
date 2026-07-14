@@ -12,6 +12,7 @@ import '../controllers/interstitial_ad_controller.dart';
 import '../controllers/native_ad_controller.dart';
 import '../controllers/rewarded_ad_controller.dart';
 import '../controllers/rewarded_interstitial_ad_controller.dart';
+import '../core/ad_block_reason.dart';
 import '../core/ad_flow_error.dart';
 import '../lifecycle/app_open_ad_manager.dart';
 import '../policy/ad_gate.dart';
@@ -94,6 +95,7 @@ class AdFlow {
         adUnitId: interstitialId,
         retry: _retry,
         onPaid: _dispatchPaid,
+        onBlocked: _dispatchBlocked,
       );
     }
 
@@ -108,6 +110,7 @@ class AdFlow {
         adUnitId: rewardedId,
         retry: _retry,
         onPaid: _dispatchPaid,
+        onBlocked: _dispatchBlocked,
       );
     }
 
@@ -133,6 +136,7 @@ class AdFlow {
         showIntro: rewardedIntroPresenter,
         retry: _retry,
         onPaid: _dispatchPaid,
+        onBlocked: _dispatchBlocked,
       );
     }
 
@@ -147,6 +151,7 @@ class AdFlow {
         adUnitId: appOpenId,
         retry: _retry,
         onPaid: _dispatchPaid,
+        onBlocked: _dispatchBlocked,
       );
       _appOpenController = appOpenController;
       _appOpen = AppOpenAdManager(
@@ -350,6 +355,27 @@ class AdFlow {
   void Function(AdPaidEvent event)? onPaidEvent;
 
   void _dispatchPaid(AdPaidEvent event) => onPaidEvent?.call(event);
+
+  /// Called whenever a load or show is REFUSED, with the slot name and the
+  /// reason (ADR-045). Assignable at any time.
+  ///
+  /// This is the answer to "why aren't my ads showing?". A refused load leaves
+  /// the controller at `AdIdle` — identical to "nothing requested yet" — so
+  /// consent never gathered, Remove-Ads still on, and a frequency cap quietly
+  /// doing its job all looked the same, and the package logs nothing
+  /// (`avoid_print` is on). Wire this to your logger during a rollout:
+  ///
+  /// ```dart
+  /// ads.onAdBlocked = (slot, reason) => log.info('ad_flow: \$slot blocked: \${reason.name}');
+  /// ```
+  ///
+  /// A per-slot snapshot is also available as `controller.lastBlockReason`.
+  /// Most reasons are NORMAL (a cap doing its job, a user who skipped the
+  /// rewarded intro) — this is a diagnostic, not an error channel.
+  void Function(String slot, AdBlockReason reason)? onAdBlocked;
+
+  void _dispatchBlocked(String slot, AdBlockReason reason) =>
+      onAdBlocked?.call(slot, reason);
 
   /// Bounds [AdSdk.initialize] the same way [UmpConsentGateway] bounds its
   /// own network-bound step. RESEARCH.md documents the native SDK's own
@@ -571,6 +597,7 @@ class AdFlow {
       coordinator: _coordinator,
       retry: RetryPolicy(_config.retry),
       onPaid: _dispatchPaid,
+      onBlocked: _dispatchBlocked,
     );
   }
 
@@ -602,6 +629,7 @@ class AdFlow {
       coordinator: _coordinator,
       retry: RetryPolicy(_config.retry),
       onPaid: _dispatchPaid,
+      onBlocked: _dispatchBlocked,
     );
   }
 

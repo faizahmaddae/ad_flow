@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../config/ad_flow_config.dart';
+import '../core/ad_block_reason.dart';
 import '../core/ad_controller.dart';
 import '../core/ad_flow_error.dart';
 import '../core/ad_load_state.dart';
@@ -37,13 +38,15 @@ class BannerAdController implements AdController {
     FullScreenAdCoordinator? coordinator,
     RetryPolicy? retry,
     void Function(AdPaidEvent event)? onPaid,
+    void Function(String slot, AdBlockReason reason)? onBlocked,
   }) : _sdk = sdk,
        _gate = gate,
        _config = config,
        _adUnitId = adUnitId,
        _coordinator = coordinator,
        _retry = retry ?? RetryPolicy(const RetryConfig()),
-       _onPaid = onPaid;
+       _onPaid = onPaid,
+       _onBlocked = onBlocked;
 
   /// The gate/cap slot name for banners.
   static const slot = 'banner';
@@ -59,6 +62,19 @@ class BannerAdController implements AdController {
   final FullScreenAdCoordinator? _coordinator;
   final RetryPolicy _retry;
   final void Function(AdPaidEvent event)? _onPaid;
+  final void Function(String slot, AdBlockReason reason)? _onBlocked;
+
+  AdBlockReason? _lastBlockReason;
+
+  /// Why this slot last refused to load, or null if nothing is blocking it
+  /// (ADR-045). A gate-blocked load reports [AdIdle], which is also what "not
+  /// requested yet" looks like — this is what tells them apart.
+  AdBlockReason? get lastBlockReason => _lastBlockReason;
+
+  void _noteBlocked(AdBlockReason reason) {
+    _lastBlockReason = reason;
+    _onBlocked?.call(slot, reason);
+  }
 
   final ValueNotifier<AdLoadState> _state = ValueNotifier(const AdIdle());
   final ValueNotifier<int> _revision = ValueNotifier(0);
@@ -166,9 +182,10 @@ class BannerAdController implements AdController {
     // loser's banner).
     _state.value = const AdLoading();
 
-    final allowed = await _gate.canLoad(slot);
+    final blocked = await _gate.loadBlockReason(slot);
     if (_disposed) return;
-    if (!allowed) {
+    if (blocked != null) {
+      _noteBlocked(blocked);
       _state.value = const AdIdle();
       _scheduleGateRecheck();
       return;
@@ -219,6 +236,7 @@ class BannerAdController implements AdController {
       _eventSub = handle.events.listen(_onViewEvent);
       _attempts = 0;
       _gateAttempts = 0;
+      _lastBlockReason = null;
       _loadedWidth = requestWidth;
       _state.value = const AdLoaded();
       _scheduleRefresh();

@@ -1,3 +1,4 @@
+import '../core/ad_block_reason.dart';
 import 'frequency_cap_policy.dart';
 import 'full_screen_ad_coordinator.dart';
 
@@ -44,8 +45,15 @@ class AdGate {
   final Future<void> Function()? _settleConsent;
 
   /// Whether [slot] may load an ad now.
-  Future<bool> canLoad(String slot) async {
-    if (!_isEnabled()) return false;
+  Future<bool> canLoad(String slot) async =>
+      await loadBlockReason(slot) == null;
+
+  /// Why [slot] may not load right now, or null if it may (ADR-045).
+  ///
+  /// [canLoad] is this, collapsed to a bool. Controllers keep the reason so an
+  /// app can tell a gate-blocked slot apart from an idle one.
+  Future<AdBlockReason?> loadBlockReason(String slot) async {
+    if (!_isEnabled()) return AdBlockReason.adsDisabled;
     // Never request an ad before request configuration is applied — an
     // on-demand banner/native mounted on the first frame (ADR-032) can reach
     // here while the background init/config is still in flight; loading now
@@ -67,7 +75,9 @@ class AdGate {
     // (see AdFlow._settleConsent), which is what lets an offline launch start
     // serving ads once the network returns instead of staying dead all session.
     await _settleConsent?.call();
-    return _isEnabled() && await _canRequestAds();
+    if (!_isEnabled()) return AdBlockReason.adsDisabled;
+    if (!await _canRequestAds()) return AdBlockReason.consentNotGranted;
+    return null;
   }
 
   /// Whether [slot] could show a full-screen ad right now — a best-effort,

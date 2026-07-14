@@ -1,4 +1,5 @@
 import '../config/ad_flow_config.dart';
+import '../core/ad_block_reason.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
 import 'full_screen_ad_controller_base.dart';
@@ -22,6 +23,7 @@ class AppOpenAdController extends FullScreenAdControllerBase {
     required super.adUnitId,
     super.retry,
     super.onPaid,
+    super.onBlocked,
     DateTime Function()? now,
   }) : _config = config,
        _now = now ?? DateTime.now,
@@ -53,6 +55,7 @@ class AppOpenAdController extends FullScreenAdControllerBase {
   Future<bool> show({OnUserEarnedReward? onReward}) async {
     if (isReady && isExpired) {
       // Stale inventory: discard, keep a fresh one warm, show nothing.
+      noteBlocked(AdBlockReason.expired);
       discardCurrentAd();
       return false;
     }

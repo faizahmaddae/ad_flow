@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../config/ad_flow_config.dart';
+import '../core/ad_block_reason.dart';
 import '../core/ad_controller.dart';
 import '../core/ad_flow_error.dart';
 import '../core/ad_load_state.dart';
@@ -36,12 +37,14 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     required this.adUnitId,
     RetryPolicy? retry,
     void Function(AdPaidEvent event)? onPaid,
+    void Function(String slot, AdBlockReason reason)? onBlocked,
   }) : _sdk = sdk,
        _gate = gate,
        _caps = caps,
        _coordinator = coordinator,
        _retry = retry ?? RetryPolicy(const RetryConfig()),
-       _onPaid = onPaid;
+       _onPaid = onPaid,
+       _onBlocked = onBlocked;
 
   /// The gate/cap slot name of this format.
   final String slot;
@@ -60,6 +63,23 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   final FullScreenAdCoordinator _coordinator;
   final RetryPolicy _retry;
   final void Function(AdPaidEvent event)? _onPaid;
+  final void Function(String slot, AdBlockReason reason)? _onBlocked;
+
+  AdBlockReason? _lastBlockReason;
+
+  /// Why this slot last refused to load or show, or null if nothing is
+  /// blocking it (ADR-045). A gate-blocked load reports [AdIdle], which is also
+  /// what "not requested yet" looks like — this is what tells them apart, and
+  /// it is the only way an app can learn that (say) a rewarded show was refused
+  /// by a frequency cap rather than by a missing ad.
+  AdBlockReason? get lastBlockReason => _lastBlockReason;
+
+  /// Records a refusal and notifies `AdFlow.onAdBlocked`.
+  @protected
+  void noteBlocked(AdBlockReason reason) {
+    _lastBlockReason = reason;
+    _onBlocked?.call(slot, reason);
+  }
 
   final ValueNotifier<AdLoadState> _state = ValueNotifier(const AdIdle());
   FullScreenAdHandle? _handle;
@@ -129,9 +149,10 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     // the loser's ad).
     _state.value = const AdLoading();
 
-    final allowed = await _gate.canLoad(slot);
+    final blocked = await _gate.loadBlockReason(slot);
     if (_disposed) return;
-    if (!allowed) {
+    if (blocked != null) {
+      noteBlocked(blocked);
       _state.value = const AdIdle();
       _scheduleGateRecheck();
       return;
@@ -148,6 +169,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       _paidSub = handle.paidEvents.listen(_onPaid ?? (_) {});
       _attempts = 0;
       _gateAttempts = 0;
+      _lastBlockReason = null;
       _state.value = const AdLoaded();
       onLoaded();
     } catch (e) {
@@ -170,6 +192,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     if (_state.value is AdShowing) return false; // never double-show
     final handle = _handle;
     if (handle == null || _state.value is! AdLoaded) {
+      noteBlocked(AdBlockReason.notReady);
       unawaited(load()); // warm one up for the next natural break
       return false;
     }
@@ -182,7 +205,10 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     // proceed, so this bypasses gate.canShow's coordinator check and does
     // its own atomic one instead. gate.canLoad + caps.canShow cover the
     // remaining (consent/enabled/frequency-cap) checks.
-    if (!_coordinator.tryEnter()) return false;
+    if (!_coordinator.tryEnter()) {
+      noteBlocked(AdBlockReason.otherAdShowing);
+      return false;
+    }
     _enteredCoordinator = true;
     // Set Showing synchronously, in the same turn as the coordinator
     // claim above, so a concurrent show() call on THIS controller also
@@ -205,11 +231,21 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     // app-open) for the rest of the session. Review finding #1 fixed only the
     // symmetric hole around `handle.show()`; this is the other half.
     try {
-      if (!await _gate.canLoad(slot)) return rejectAndRollBack();
+      final blocked = await _gate.loadBlockReason(slot);
+      if (blocked != null) {
+        noteBlocked(blocked);
+        return rejectAndRollBack();
+      }
       if (_disposed) return false; // dispose() already rolled everything back
-      if (!await _caps.canShow(slot)) return rejectAndRollBack();
+      if (!await _caps.canShow(slot)) {
+        noteBlocked(AdBlockReason.frequencyCapped);
+        return rejectAndRollBack();
+      }
       if (_disposed) return false;
-      if (!canShowExtra()) return rejectAndRollBack();
+      if (!canShowExtra()) {
+        noteBlocked(AdBlockReason.userActionPacing);
+        return rejectAndRollBack();
+      }
     } catch (_) {
       // Degrade to "don't show", never to "wedged forever".
       return rejectAndRollBack();
@@ -243,6 +279,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       }
       return false;
     }
+    _lastBlockReason = null;
     onShown();
     return true;
   }

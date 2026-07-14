@@ -23,6 +23,7 @@ class InterstitialAdController extends FullScreenAdControllerBase {
     required super.adUnitId,
     super.retry,
     super.onPaid,
+    super.onBlocked,
   }) : _config = config,
        super(slot: slotName);
 
