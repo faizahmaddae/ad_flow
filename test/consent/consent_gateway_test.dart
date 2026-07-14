@@ -4,6 +4,7 @@ import 'package:ad_flow/src/consent/consent_gateway.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/seam/ad_sdk_types.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -185,5 +186,249 @@ void main() {
   test('reset delegates to the seam', () async {
     await gateway.reset();
     expect(sdk.resetConsentCalls, 1);
+  });
+
+  group('explainer / ATT flow (slice 3)', () {
+    test(
+      'no presenters: today\'s behaviour exactly — no ATT, no primer '
+      '(regression guard)',
+      () async {
+        sdk.consentStatus = AdConsentStatus.required;
+        sdk.consentFormAvailable = true;
+        sdk.canRequestAdsResult = true;
+
+        await gateway.ensureCanRequestAds(); // default gateway, no explainers
+
+        expect(sdk.requestTrackingAuthorizationCalls, 0); // no ATT at all
+        expect(sdk.loadAndShowConsentFormCalls, 1); // form as before
+      },
+    );
+
+    group('ATT', () {
+      test('the explainer runs before requestTrackingAuthorization', () async {
+        var callsAtPrimer = -1;
+        sdk.attStatus = AttStatus.notDetermined;
+        sdk.attRequestResult = AttStatus.authorized;
+        sdk.canRequestAdsResult = true;
+        gateway = UmpConsentGateway(
+          sdk,
+          attExplainer: (_) async {
+            callsAtPrimer = sdk.requestTrackingAuthorizationCalls;
+          },
+        );
+
+        await gateway.ensureCanRequestAds();
+
+        expect(callsAtPrimer, 0); // prompt had not fired when the primer ran
+        expect(sdk.requestTrackingAuthorizationCalls, 1); // it fired after
+      });
+
+      test('the step is skipped when status is already authorized', () async {
+        final events = <String>[];
+        sdk.attStatus = AttStatus.authorized;
+        sdk.canRequestAdsResult = true;
+        gateway = UmpConsentGateway(
+          sdk,
+          attExplainer: (_) async => events.add('primer'),
+        );
+
+        await gateway.ensureCanRequestAds();
+
+        expect(events, isEmpty);
+        expect(sdk.requestTrackingAuthorizationCalls, 0);
+      });
+
+      test('the step is skipped when status is already denied', () async {
+        final events = <String>[];
+        sdk.attStatus = AttStatus.denied;
+        sdk.canRequestAdsResult = true;
+        gateway = UmpConsentGateway(
+          sdk,
+          attExplainer: (_) async => events.add('primer'),
+        );
+
+        await gateway.ensureCanRequestAds();
+
+        expect(events, isEmpty);
+        expect(sdk.requestTrackingAuthorizationCalls, 0);
+      });
+
+      test('non-iOS (notSupported) skips the ATT step even with an explainer '
+          '(Android)', () async {
+        final events = <String>[];
+        sdk.attStatus = AttStatus.notSupported;
+        sdk.canRequestAdsResult = true;
+        gateway = UmpConsentGateway(
+          sdk,
+          attExplainer: (_) async => events.add('primer'),
+        );
+
+        await gateway.ensureCanRequestAds();
+
+        expect(events, isEmpty);
+        expect(sdk.requestTrackingAuthorizationCalls, 0);
+      });
+
+      test('attPromptDelay is respected (fakeAsync)', () {
+        fakeAsync((async) {
+          sdk.attStatus = AttStatus.notDetermined;
+          sdk.attRequestResult = AttStatus.authorized;
+          sdk.canRequestAdsResult = true;
+          gateway = UmpConsentGateway(
+            sdk,
+            attExplainer: (_) async {},
+            attPromptDelay: const Duration(milliseconds: 200),
+          );
+
+          var done = false;
+          gateway.ensureCanRequestAds().then((_) => done = true);
+
+          async.flushMicrotasks(); // run the primer future to completion
+          // The delay has NOT elapsed yet, so the prompt must not have fired.
+          expect(sdk.requestTrackingAuthorizationCalls, 0);
+
+          async.elapse(const Duration(milliseconds: 200));
+          async.flushMicrotasks();
+          expect(sdk.requestTrackingAuthorizationCalls, 1);
+          expect(done, isTrue);
+        });
+      });
+
+      test('a throwing ATT explainer still proceeds to the system prompt '
+          'and records lastError', () async {
+        sdk.attStatus = AttStatus.notDetermined;
+        sdk.attRequestResult = AttStatus.authorized;
+        sdk.canRequestAdsResult = true;
+        gateway = UmpConsentGateway(
+          sdk,
+          attExplainer: (_) async => throw StateError('boom'),
+        );
+
+        await gateway.ensureCanRequestAds();
+
+        expect(sdk.requestTrackingAuthorizationCalls, 1); // prompt still fired
+        expect(gateway.lastError, isNotNull);
+        expect(gateway.lastError!.kind, AdFlowErrorKind.consent);
+      });
+    });
+
+    group('skipGdprConsentIfAttDenied', () {
+      void armEeaWithAtt(AttStatus requestResult, {bool skip = true}) {
+        sdk.attStatus = AttStatus.notDetermined;
+        sdk.attRequestResult = requestResult;
+        sdk.consentStatus = AdConsentStatus.required;
+        sdk.consentFormAvailable = true;
+        gateway = UmpConsentGateway(
+          sdk,
+          attExplainer: (_) async {},
+          skipGdprConsentIfAttDenied: skip,
+        );
+      }
+
+      test('ATT denied → consent form NOT shown (default true)', () async {
+        armEeaWithAtt(AttStatus.denied);
+        await gateway.ensureCanRequestAds();
+        expect(sdk.loadAndShowConsentFormCalls, 0);
+      });
+
+      test('ATT authorized → consent form shown', () async {
+        armEeaWithAtt(AttStatus.authorized);
+        await gateway.ensureCanRequestAds();
+        expect(sdk.loadAndShowConsentFormCalls, 1);
+      });
+
+      test('ATT denied but skip=false → consent form still shown', () async {
+        armEeaWithAtt(AttStatus.denied, skip: false);
+        await gateway.ensureCanRequestAds();
+        expect(sdk.loadAndShowConsentFormCalls, 1);
+      });
+
+      test('the consent info update still runs when ATT denial skips the '
+          'form', () async {
+        armEeaWithAtt(AttStatus.denied);
+        await gateway.ensureCanRequestAds();
+        expect(sdk.consentUpdateCalls, hasLength(1)); // update not skipped
+        expect(sdk.loadAndShowConsentFormCalls, 0); // only the form is
+      });
+    });
+
+    group('consent primer', () {
+      test('runs before loadAndShowConsentFormIfRequired', () async {
+        final events = <String>[];
+        sdk.consentStatus = AdConsentStatus.required;
+        sdk.consentFormAvailable = true;
+        sdk.onConsentFormShown = () => events.add('form');
+        gateway = UmpConsentGateway(
+          sdk,
+          consentExplainer: (_) async => events.add('primer'),
+        );
+
+        await gateway.ensureCanRequestAds();
+
+        expect(events, ['primer', 'form']);
+      });
+
+      test('is skipped for non-EEA (no form will appear)', () async {
+        final events = <String>[];
+        sdk.consentStatus = AdConsentStatus.notRequired;
+        sdk.canRequestAdsResult = true;
+        gateway = UmpConsentGateway(
+          sdk,
+          consentExplainer: (_) async => events.add('primer'),
+        );
+
+        await gateway.ensureCanRequestAds();
+
+        expect(events, isEmpty); // primer skipped
+        expect(sdk.loadAndShowConsentFormCalls, 1); // form call still made
+      });
+
+      test('is skipped when required but no form is available', () async {
+        final events = <String>[];
+        sdk.consentStatus = AdConsentStatus.required;
+        sdk.consentFormAvailable = false;
+        gateway = UmpConsentGateway(
+          sdk,
+          consentExplainer: (_) async => events.add('primer'),
+        );
+
+        await gateway.ensureCanRequestAds();
+
+        expect(events, isEmpty);
+      });
+
+      test('a throwing consent primer still proceeds to the form and '
+          'records lastError', () async {
+        sdk.consentStatus = AdConsentStatus.required;
+        sdk.consentFormAvailable = true;
+        gateway = UmpConsentGateway(
+          sdk,
+          consentExplainer: (_) async => throw StateError('boom'),
+        );
+
+        await gateway.ensureCanRequestAds();
+
+        expect(sdk.loadAndShowConsentFormCalls, 1); // form still shown
+        expect(gateway.lastError, isNotNull);
+      });
+    });
+
+    test('full ATT→GDPR order: ATT primer, then consent primer, then form', () async {
+      final events = <String>[];
+      sdk.attStatus = AttStatus.notDetermined;
+      sdk.attRequestResult = AttStatus.authorized;
+      sdk.consentStatus = AdConsentStatus.required;
+      sdk.consentFormAvailable = true;
+      sdk.onConsentFormShown = () => events.add('form');
+      gateway = UmpConsentGateway(
+        sdk,
+        attExplainer: (_) async => events.add('att-primer'),
+        consentExplainer: (_) async => events.add('consent-primer'),
+      );
+
+      await gateway.ensureCanRequestAds();
+
+      expect(events, ['att-primer', 'consent-primer', 'form']);
+    });
   });
 }
