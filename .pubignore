@@ -24,4 +24,5 @@ legacy/
 # Internal planning docs and agent skills
 docs/
 .claude/
+CLAUDE.md
 START_HERE_ad_flow_v2.md
