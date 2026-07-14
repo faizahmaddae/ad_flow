@@ -2,6 +2,27 @@ import 'package:ad_flow/ad_flow.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+// ad_flow example — every ad format over Google's sample IDs, in BOTH of the
+// two initialization modes:
+//
+//   • SIMPLE (useExplainer = false): the minimal drop-in. UMP handles the whole
+//     consent flow, and — if you configure the IDFA message in the AdMob
+//     console — the iOS ATT prompt too. No client-side priming screens.
+//
+//   • WITH EXPLAINER (useExplainer = true): the same, PLUS opt-in priming
+//     screens — your own ATT primer before Apple's system prompt (client-driven
+//     ATT, iOS) and your own consent primer before the UMP GDPR form (EEA).
+//     Recommended for EEA audiences and iOS: a soft explainer lifts opt-in rates.
+//
+// BOTH modes are NON-BLOCKING (ADR-032): AdFlow.initialize() builds the graph
+// and returns immediately; consent, ATT and SDK init all run in the BACKGROUND.
+// We render HomeScreen on the first frame and the consent / ATT / explainer
+// screens appear OVER the already-visible app — never a splash gate.
+//
+// Flip the flag below to switch modes. (Non-const on purpose, so BOTH init
+// helpers stay referenced and the example analyzes clean either way.)
+bool useExplainer = true;
+
 /// Global navigator key so the consent/ATT/rewarded-intro presenters can push
 /// screens from outside the widget tree (the package never holds a
 /// BuildContext).
@@ -10,28 +31,62 @@ final navigatorKey = GlobalKey<NavigatorState>();
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // NON-BLOCKING startup (ADR-032): AdFlow.initialize() builds the graph and
-  // returns immediately — consent, ATT and the Ads SDK init all run in the
-  // BACKGROUND. The `await` below resolves on the next microtask (graph
-  // construction only); it NEVER waits on the network. So we render the real
-  // UI on the first frame and the consent/ATT/explainer screens appear OVER
-  // the already-visible app. NEVER gate your first frame on AdFlow.initialize()
-  // (that was v1's splash-hang pain on weak connections).
-  final ads = await AdFlow.initialize(
+  // NON-BLOCKING: initialize() returns on the next microtask — BEFORE consent /
+  // ATT / SDK init, which run in the background. The `await` here only waits on
+  // synchronous graph construction, never the network, so the first frame is
+  // instant. NEVER gate your UI on this Future (that was v1's splash hang).
+  final ads = await (useExplainer ? _initWithExplainer() : _initSimple());
+
+  // Impression-level revenue (allowlisted AdMob accounts only). Assignable any
+  // time — set it right after init so no paid event is missed.
+  ads.onPaidEvent = (event) => debugPrint(
+    '[ad_flow] paid: ${event.adUnitId} '
+    '${event.valueMicros / 1e6} ${event.currencyCode} '
+    '(${event.precision.name})',
+  );
+
+  runApp(ExampleApp(ads: ads));
+}
+
+/// SIMPLE mode — the minimal drop-in. UMP drives the whole consent flow (and
+/// iOS ATT if you set the console IDFA message); no client-side priming.
+///
+/// `rewardedIntroPresenter` is still required because this config includes the
+/// rewarded-interstitial format, whose intro + skip screen must always show
+/// first (AdMob policy). Drop the `rewardedInterstitial` slot and you can drop
+/// the presenter too.
+Future<AdFlow> _initSimple() {
+  return AdFlow.initialize(
     // Google sample ads everywhere. Replace with your production config:
-    //   AdFlowConfig(banner: BannerConfig(adUnitId: PlatformAdUnitId(...)))
+    //   AdFlowConfig(banner: BannerConfig(adUnitId: PlatformAdUnitId(...)), ...)
     AdFlowConfig.test(),
     rewardedIntroPresenter: (content) async {
       final context = navigatorKey.currentContext;
       if (context == null || !context.mounted) return false;
       return RewardedIntroScreen.show(context, content);
     },
-    // Opt-in priming screens (the v2 equivalent of v1's initializeWithExplainer).
-    // Each presenter checks the navigatorKey's context itself, so the package
-    // never holds a BuildContext. On iOS the ATT primer runs before Apple's
-    // system prompt (client-driven ATT); the consent primer runs before the UMP
-    // GDPR form (EEA only). In this client-driven ATT mode, do NOT also
-    // configure the UMP IDFA message in the AdMob console — it would double-prompt.
+  );
+}
+
+/// WITH-EXPLAINER mode — everything in [_initSimple], PLUS opt-in priming
+/// screens. Each presenter resolves the navigatorKey's context itself, so the
+/// package never holds a BuildContext.
+///
+/// - `attExplainer` shows your ATT primer, then (after a 200 ms delay) Apple's
+///   system tracking prompt — client-driven ATT (iOS; a no-op elsewhere). In
+///   this mode do NOT also configure the UMP IDFA message in the AdMob console,
+///   or the user sees two prompts.
+/// - `consentExplainer` shows your consent primer before the UMP GDPR form, and
+///   only when a form will actually appear (EEA users only — non-EEA users
+///   never see it).
+Future<AdFlow> _initWithExplainer() {
+  return AdFlow.initialize(
+    AdFlowConfig.test(),
+    rewardedIntroPresenter: (content) async {
+      final context = navigatorKey.currentContext;
+      if (context == null || !context.mounted) return false;
+      return RewardedIntroScreen.show(context, content);
+    },
     attExplainer: (content) async {
       final context = navigatorKey.currentContext;
       if (context == null || !context.mounted) return;
@@ -43,13 +98,6 @@ Future<void> main() async {
       await ConsentExplainerScreen.show(context, content);
     },
   );
-  ads.onPaidEvent = (event) => debugPrint(
-    '[ad_flow] paid: ${event.adUnitId} '
-    '${event.valueMicros / 1e6} ${event.currencyCode} '
-    '(${event.precision.name})',
-  );
-
-  runApp(ExampleApp(ads: ads));
 }
 
 class ExampleApp extends StatelessWidget {
