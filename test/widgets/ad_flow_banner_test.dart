@@ -242,4 +242,116 @@ void main() {
       await tester.pumpWidget(host(const SizedBox()));
     },
   );
+
+  group('orientation / fold: an adaptive banner must follow the width', () {
+    // An anchored adaptive banner is requested FOR a specific width. Rotate to
+    // landscape and that width roughly doubles: an ad still sized for portrait
+    // sits letterboxed in the slot — poor viewability, lost revenue, and the
+    // wrong creative size for every subsequent refresh too, because the
+    // controller cached the stale width. Google's own guidance is to reload the
+    // adaptive banner when the orientation changes.
+
+    testWidgets('rotating reloads the banner at the new width', (tester) async {
+      final c = controller();
+
+      await tester.pumpWidget(
+        Center(
+          child: SizedBox(
+            width: 400,
+            child: Directionality(
+              textDirection: TextDirection.ltr,
+              child: AdFlowBanner(controller: c),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        sdk.bannerSpecs.single.size,
+        isA<AnchoredAdaptiveSizeSpec>().having((s) => s.width, 'width', 400),
+      );
+
+      // Rotate: the same placement is now 800 logical px wide.
+      await tester.pumpWidget(
+        Center(
+          child: SizedBox(
+            width: 800,
+            child: Directionality(
+              textDirection: TextDirection.ltr,
+              child: AdFlowBanner(controller: c),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        sdk.bannerSpecs,
+        hasLength(2),
+        reason: 'the banner must be re-requested at the new width on rotation',
+      );
+      expect(
+        sdk.bannerSpecs.last.size,
+        isA<AnchoredAdaptiveSizeSpec>().having((s) => s.width, 'width', 800),
+      );
+      expect(
+        sdk.banners.first.disposed,
+        isTrue,
+        reason: 'the stale-width ad must be released, not leaked',
+      );
+      c.dispose();
+    });
+
+    testWidgets('a rebuild at the SAME width does not re-request (that would '
+        'be an ad-request storm / invalid traffic)', (tester) async {
+      final c = controller();
+
+      Widget host() => Center(
+        child: SizedBox(
+          width: 400,
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: AdFlowBanner(controller: c),
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(host());
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+
+      expect(sdk.bannerSpecs, hasLength(1));
+      c.dispose();
+    });
+
+    testWidgets('a FIXED-size banner ignores width changes (its size is not '
+        'width-derived)', (tester) async {
+      final c = controller(
+        config: const BannerConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-b'),
+          kind: BannerKind.fixed,
+        ),
+      );
+
+      Widget host(double width) => Center(
+        child: SizedBox(
+          width: width,
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: AdFlowBanner(controller: c),
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(host(400));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(host(800));
+      await tester.pumpAndSettle();
+
+      expect(sdk.bannerSpecs, hasLength(1));
+      c.dispose();
+    });
+  });
 }

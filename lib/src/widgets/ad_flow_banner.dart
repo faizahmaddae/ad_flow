@@ -42,6 +42,7 @@ class AdFlowBanner extends StatefulWidget {
 
 class _AdFlowBannerState extends State<AdFlowBanner> {
   bool _loadRequested = false;
+  int? _requestedWidth;
 
   @override
   void didUpdateWidget(AdFlowBanner oldWidget) {
@@ -54,6 +55,7 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
     if (!identical(oldWidget.controller, widget.controller)) {
       if (oldWidget.ownsController) oldWidget.controller.dispose();
       _loadRequested = false;
+      _requestedWidth = null;
     }
   }
 
@@ -67,10 +69,23 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (!_loadRequested && constraints.maxWidth.isFinite) {
-          _loadRequested = true;
-          // Kick off the first load with the real layout width.
-          widget.controller.load(width: constraints.maxWidth.truncate());
+        if (constraints.maxWidth.isFinite) {
+          final width = constraints.maxWidth.truncate();
+          if (!_loadRequested) {
+            _loadRequested = true;
+            _requestedWidth = width;
+            // Kick off the first load with the real layout width.
+            widget.controller.load(width: width);
+          } else if (width != _requestedWidth) {
+            // The placement got wider or narrower — a rotation, an unfolding
+            // device, or a resizable/split-screen window. An adaptive banner is
+            // requested FOR a width, so the ad we have is now the wrong size:
+            // re-request at the new one. Guarded on an ACTUAL width change, so a
+            // plain rebuild (or a keyboard opening, which changes height only)
+            // never re-requests an ad — that would be an ad-request storm.
+            _requestedWidth = width;
+            widget.controller.resize(width);
+          }
         }
         return ValueListenableBuilder(
           valueListenable: widget.controller.state,

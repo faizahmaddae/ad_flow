@@ -59,6 +59,7 @@ class BannerAdController implements AdController {
   int _attempts = 0;
   int _gateAttempts = 0;
   int? _width;
+  int? _loadedWidth;
   bool _disposed = false;
 
   @override
@@ -91,6 +92,46 @@ class BannerAdController implements AdController {
     BannerKind.anchoredAdaptive || BannerKind.inlineAdaptive => 50,
   };
 
+  /// The width the currently loaded ad was actually REQUESTED at, or null if
+  /// nothing is loaded. [AdFlowBanner] compares this to its layout width to
+  /// detect a rotation/fold and drive [resize].
+  int? get loadedWidth => _loadedWidth;
+
+  /// Re-requests the banner at a new layout [width] after a rotation, fold or
+  /// window resize.
+  ///
+  /// An anchored/inline adaptive banner is requested FOR a specific width, so
+  /// after a rotation an ad sized for the old width sits letterboxed in the
+  /// slot — poor viewability, lost revenue — and, because the controller
+  /// cached the stale width, EVERY subsequent refresh re-requested that wrong
+  /// size too. Google's guidance is to reload an adaptive banner when the
+  /// orientation changes.
+  ///
+  /// A no-op for [BannerKind.fixed] (its size is not width-derived) and when
+  /// the width has not actually changed — a plain rebuild must never re-request
+  /// an ad (that would be an ad-request storm, i.e. invalid traffic).
+  Future<void> resize(int width) async {
+    if (_disposed || _config.kind == BannerKind.fixed) return;
+    if (_width == width) return;
+    _width = width;
+    // A load is already in flight for the OLD width: let it finish (resetting
+    // to AdIdle here would defeat load()'s synchronous re-entry guard and race
+    // two SDK loads — review finding #4). load() re-checks the width when it
+    // completes and re-requests then, so rapid rotation coalesces instead of
+    // firing a request per frame.
+    if (_state.value is AdLoading) return;
+    await _reloadAtCurrentWidth();
+  }
+
+  /// Drops the current (wrong-width) ad and requests a fresh one at [_width].
+  Future<void> _reloadAtCurrentWidth() {
+    _timer?.cancel();
+    _dropHandle();
+    _loadedWidth = null;
+    _state.value = const AdIdle();
+    return load();
+  }
+
   /// Loads the banner. [width] (logical px) is required the first time for
   /// adaptive kinds — `AdFlowBanner` passes its layout width; later calls
   /// (refresh, re-arm) reuse the last width.
@@ -112,6 +153,11 @@ class BannerAdController implements AdController {
       _scheduleGateRecheck();
       return;
     }
+
+    // The width this request is being made AT. _width can change underneath us
+    // while the load is in flight (the user rotates), so capture it here and
+    // reconcile after the load completes rather than mislabelling the ad.
+    final requestWidth = _width;
 
     final BannerSizeSpec size;
     switch (_config.kind) {
@@ -152,8 +198,13 @@ class BannerAdController implements AdController {
       _paidSub = handle.paidEvents.listen(_onPaid ?? (_) {});
       _attempts = 0;
       _gateAttempts = 0;
+      _loadedWidth = requestWidth;
       _state.value = const AdLoaded();
       _scheduleRefresh();
+      // The layout width changed while this request was in flight (the user
+      // rotated mid-load): the ad we just got is already the wrong size, so
+      // re-request at the current width.
+      if (_width != requestWidth) unawaited(_reloadAtCurrentWidth());
     } catch (e) {
       // Not just AdFlowError: a MissingPluginException/PlatformException from
       // the channel used to escape this catch and pin the banner at AdLoading
