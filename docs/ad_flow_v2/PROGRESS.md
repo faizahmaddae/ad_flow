@@ -129,13 +129,15 @@
   5. Example: `attExplainer`/`consentExplainer` wired via the existing `navigatorKey` (`908cdbb`).
   6. Docs (README §5 rewrite, MIGRATION mapping, ADR-030, SKILL §6 traps) + this update.
   263 tests green, analyze clean. **Still opt-in: no presenter → today's exact behaviour (regression-guarded at both gateway and facade level).**
+  - **On-device iOS verification DONE** (iPhone 17 Pro Max simulator, iOS 26.3, fresh install + forced-EEA debug geography — temp `consentDebug` added then reverted, tree clean). Drove the full sequence via computer-use and confirmed each step visually: **`AttExplainerScreen` (my ATT primer) → Apple's system ATT prompt (with the `NSUserTrackingUsageDescription` copy) → `ConsentExplainerScreen` (my consent primer) → UMP GDPR form → HomeScreen** with all formats `ready`, the AdMob native validator reporting "No implementation issues found", the adaptive banner showing a test ad, and `[ad_flow] paid:` revenue events firing. No exceptions in the run log. The iOS `app_tracking_transparency` pod integrated cleanly (`pod install` 808ms; committed `example/ios/Podfile.lock`).
+  - **Android build re-verified green** with the new dependency (`cd example && flutter build apk --debug` → `✓ Built app-debug.apk`); the ATT plugin's Android side is a no-op and the gateway unit test proves ATT is skipped off iOS (`notSupported`).
 
 ## In progress
-- **Docs slice (6) of the explainer-v2 feature: on-device verification pending.** README/MIGRATION/DECISIONS/SKILL updated and committed; the very next concrete step is: run the example on iOS with a forced-EEA debug geography and a fresh install to see the ATT primer → system prompt → consent primer → GDPR form order in the flesh (spec §7 slice 6). Code + unit tests are complete and green.
+- Nothing. **The explainer-v2 feature is complete: 6 slices shipped + committed, 263 tests green, analyze clean, iOS on-device flow visually verified end-to-end, Android build green.**
 
 ## Next (ordered)
-1. On-device: `cd example && flutter run` on iOS (fresh install for ATT; add a `consentDebug: ConsentDebugOptions(geography: eea, testIdentifiers: [...])` temporarily, or force EEA) → confirm ATT primer, then Apple prompt, then consent primer, then UMP form; confirm Android shows no ATT step. Re-verify Android build still green.
-- Optional future work (unchanged): extend `test/seam/gma_ad_sdk_test.dart` to rewarded/rewarded-interstitial/app-open/native; a real-device/CI smoke test.
+- None outstanding for this feature.
+- Optional future work (unchanged): extend `test/seam/gma_ad_sdk_test.dart` to rewarded/rewarded-interstitial/app-open/native; a real-device/CI smoke test; before publishing, bump `pubspec.yaml` to a real version and re-run `dart pub publish --dry-run` + `pana` (a new runtime dependency was added, so re-score).
 
 ## How to verify the current state
 `flutter analyze && flutter test` (root: 263 tests; use `--concurrency=2` if the machine OOM-kills the runner) · `cd example && flutter analyze && flutter build apk --debug` · `dart pub publish --dry-run` · `pana` (was 160/160; re-run after these changes + the new `app_tracking_transparency` dep if publishing). **If `flutter test` throws `Unsupported runtime stages format version. Expected 2, got 1` on a widget test, that's a stale `ink_sparkle.frag` shader cache — `flutter clean && flutter pub get` and re-run (SKILL.md §6), not a real failure.**
