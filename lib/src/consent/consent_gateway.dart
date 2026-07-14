@@ -76,9 +76,13 @@ class UmpConsentGateway implements ConsentGateway {
   ///   the respective presenters (localize by overriding).
   /// - [attPromptDelay] — brief pause between the ATT primer and the system
   ///   prompt (Apple's guidance; default 200 ms).
-  /// - [skipGdprConsentIfAttDenied] — when the user is prompted for ATT and
-  ///   denies it, skip showing the GDPR form (default true, matching v1).
-  ///   The consent info update still runs; only the form is skipped.
+  /// - [skipConsentPrimerIfAttDenied] — when the user is prompted for ATT and
+  ///   denies it, skip the optional consent *primer* (default true). A
+  ///   **required** GDPR form (EEA/UK/CH) is ALWAYS shown regardless: ATT
+  ///   (Apple tracking) and GDPR (EU privacy) are independent regimes, so
+  ///   denying tracking never satisfies — and never suppresses — a required
+  ///   consent form. This flag is a UX optimization on the primer only; it
+  ///   cannot override a required form.
   UmpConsentGateway(
     this._sdk, {
     bool? tagForUnderAgeOfConsent,
@@ -89,7 +93,7 @@ class UmpConsentGateway implements ConsentGateway {
         const ConsentExplainerContent(),
     AttExplainerContent attExplainerContent = const AttExplainerContent(),
     Duration attPromptDelay = const Duration(milliseconds: 200),
-    bool skipGdprConsentIfAttDenied = true,
+    bool skipConsentPrimerIfAttDenied = true,
   }) : _tagForUnderAgeOfConsent = tagForUnderAgeOfConsent,
        _infoUpdateTimeout = infoUpdateTimeout,
        _consentExplainer = consentExplainer,
@@ -97,7 +101,7 @@ class UmpConsentGateway implements ConsentGateway {
        _consentExplainerContent = consentExplainerContent,
        _attExplainerContent = attExplainerContent,
        _attPromptDelay = attPromptDelay,
-       _skipGdprConsentIfAttDenied = skipGdprConsentIfAttDenied;
+       _skipConsentPrimerIfAttDenied = skipConsentPrimerIfAttDenied;
 
   final AdSdk _sdk;
   final bool? _tagForUnderAgeOfConsent;
@@ -107,7 +111,7 @@ class UmpConsentGateway implements ConsentGateway {
   final ConsentExplainerContent _consentExplainerContent;
   final AttExplainerContent _attExplainerContent;
   final Duration _attPromptDelay;
-  final bool _skipGdprConsentIfAttDenied;
+  final bool _skipConsentPrimerIfAttDenied;
 
   Future<bool>? _inFlight;
   final ValueNotifier<bool> _privacyOptionsRequired = ValueNotifier(false);
@@ -135,7 +139,7 @@ class UmpConsentGateway implements ConsentGateway {
     _lastError = null;
     // Step 1 — client-driven ATT (opt-in; iOS only in practice). Runs before
     // GDPR, matching v1. Returns whether the user was just prompted and
-    // denied, so we can optionally skip the GDPR form below.
+    // denied, so we can optionally skip the consent PRIMER below.
     final attDenied = await _maybeRunAtt();
     try {
       // Step 2 — consent info update (unchanged; still runs even when ATT was
@@ -147,17 +151,23 @@ class UmpConsentGateway implements ConsentGateway {
           )
           .timeout(_infoUpdateTimeout);
       await _refreshPrivacyRequirement();
-      // Step 3 — GDPR consent form, unless ATT-denial suppressed it.
-      if (!(attDenied && _skipGdprConsentIfAttDenied)) {
+      // Step 3a — the OPTIONAL consent primer. This soft screen is the only
+      // thing an ATT denial may suppress (a UX optimization). It never gates
+      // the form below.
+      if (!(attDenied && _skipConsentPrimerIfAttDenied)) {
         // Prime only when a form will actually appear (v2 improvement over
         // v1's blanket flag: non-EEA users never see a pointless dialog).
         await _maybeShowConsentPrimer();
-        // The plugin no-ops internally when no form is required, so this is
-        // safe to call unconditionally (mirrors Google's sample flow).
-        await _sdk.loadAndShowConsentFormIfRequired();
-        // Form dismissal can change both statuses.
-        await _refreshPrivacyRequirement();
       }
+      // Step 3b — the GDPR form itself. ALWAYS called: the plugin no-ops when
+      // no form is required, and shows the REQUIRED form (EEA/UK/CH) otherwise.
+      // This must never be gated on ATT — GDPR (EU) and ATT (Apple) are
+      // independent regimes, so denying tracking neither satisfies nor
+      // suppresses a required consent form. This line is the compliance
+      // guarantee (ADR-031).
+      await _sdk.loadAndShowConsentFormIfRequired();
+      // Form dismissal can change both statuses.
+      await _refreshPrivacyRequirement();
     } on TimeoutException {
       _lastError = AdFlowError(
         AdFlowErrorKind.timeout,

@@ -163,8 +163,10 @@ class AdFlow {
   ///   GDPR form, only when a form will actually appear.
   /// - [consentExplainerContent] / [attExplainerContent] — the copy for the
   ///   presenters (localize by overriding).
-  /// - [skipGdprConsentIfAttDenied] — skip the GDPR form when the user just
-  ///   denied ATT (default true, matching v1).
+  /// - [skipConsentPrimerIfAttDenied] — skip the optional consent *primer*
+  ///   (not the form) when the user just denied ATT (default true). A required
+  ///   GDPR form always shows regardless — ATT and GDPR are independent
+  ///   regimes (ADR-031).
   ///
   /// These apply only to a gateway this facade creates. If you inject your
   /// own [consent], construct it with these options yourself.
@@ -181,7 +183,7 @@ class AdFlow {
     ConsentExplainerContent consentExplainerContent =
         const ConsentExplainerContent(),
     AttExplainerContent attExplainerContent = const AttExplainerContent(),
-    bool skipGdprConsentIfAttDenied = true,
+    bool skipConsentPrimerIfAttDenied = true,
   }) async {
     final resolvedSdk = sdk ?? GmaAdSdk();
     final flow = AdFlow._(
@@ -196,7 +198,7 @@ class AdFlow {
             attExplainer: attExplainer,
             consentExplainerContent: consentExplainerContent,
             attExplainerContent: attExplainerContent,
-            skipGdprConsentIfAttDenied: skipGdprConsentIfAttDenied,
+            skipConsentPrimerIfAttDenied: skipConsentPrimerIfAttDenied,
           ),
       // Only dispose a consent gateway this facade created itself — an
       // injected one may be shared/reused by the caller beyond dispose().

@@ -81,6 +81,8 @@ Future<AttStatus> requestTrackingAuthorization();      // iOS system prompt; els
 - Also add `Future<bool> isConsentFormAvailable()` (or `getConsentStatus()`) to the seam **if not already present**, so the gateway can show the consent primer *only* when a form will appear.
 
 ## 3. ConsentGateway flow (the orchestration)
+
+> **⚠️ SUPERSEDED IN PART BY DECISIONS ADR-031.** This section's original design let ATT-denial skip the GDPR *form* (`skipGdprConsentIfAttDenied` → "skip step 3 form", and §5's "ATT denied → consent form NOT shown"). That is a GDPR-compliance bug: a **required** consent form must ALWAYS show regardless of ATT (independent regimes). As shipped, the flag is renamed `skipConsentPrimerIfAttDenied` and gates only the optional *primer*; `loadAndShowConsentFormIfRequired()` always runs. Read the pseudocode below with that correction in mind.
 Extend `UmpConsentGateway` constructor with optional injected `consentExplainer`, `attExplainer`, `consentExplainerContent` (default `const ConsentExplainerContent()`), `attExplainerContent` (default `const AttExplainerContent()`), `attPromptDelay = const Duration(milliseconds: 200)`, and `skipGdprConsentIfAttDenied` (default **true**, matching v1). New `_run` order (ATT first, then GDPR — like v1):
 
 ```

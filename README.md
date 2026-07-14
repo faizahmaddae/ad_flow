@@ -277,8 +277,11 @@ final ads = await AdFlow.initialize(
 
 `AttExplainerScreen` and `ConsentExplainerScreen` are ready-made; pass your
 own presenter to use custom UI, keeping it context-safe (the package never
-holds a `BuildContext` — the callback resolves it). `skipGdprConsentIfAttDenied`
-(default true) skips the GDPR form when the user just denied ATT.
+holds a `BuildContext` — the callback resolves it). `skipConsentPrimerIfAttDenied`
+(default true) skips the optional consent *primer* when the user just denied
+ATT. It never suppresses the GDPR form itself: a required consent form
+(EEA/UK/CH) is always shown, because ATT (Apple) and GDPR (EU) are independent
+regimes — denying tracking does not satisfy GDPR consent.
 
 Testing EEA behavior:
 

@@ -33,7 +33,7 @@ final ads = await AdFlow.initialize(
 
 | v1 | v2 |
 |---|---|
-| `initializeWithExplainer(context:, consentTexts:, attTexts:)` | `initialize(attExplainer:, consentExplainer:, attExplainerContent:, consentExplainerContent:, skipGdprConsentIfAttDenied:)` |
+| `initializeWithExplainer(context:, consentTexts:, attTexts:)` | `initialize(attExplainer:, consentExplainer:, attExplainerContent:, consentExplainerContent:, skipConsentPrimerIfAttDenied:)` |
 
 The `context:` parameter is gone: the app supplies the UI through a presenter callback (exactly like `rewardedIntroPresenter`), so the package never holds a `BuildContext`. Supplying `attExplainer` opts into **client-driven ATT** (re-adds `app_tracking_transparency` behind the seam, iOS only) — in that mode do **not** also set the UMP IDFA message in the AdMob console (double prompt). Pass nothing and behaviour is exactly today's (UMP-driven).
 
