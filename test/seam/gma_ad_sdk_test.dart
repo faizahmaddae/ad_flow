@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/seam/ad_sdk.dart';
 import 'package:ad_flow/src/seam/ad_sdk_types.dart';
@@ -7,7 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 // ignore: implementation_imports
 import 'package:google_mobile_ads/src/ad_containers.dart'
-    show AdSize, LoadAdError;
+    show AdSize, LoadAdError, RewardItem;
 import 'package:google_mobile_ads/src/ad_instance_manager.dart';
 
 /// Drives the real `google_mobile_ads` plugin's platform channel against
@@ -67,6 +69,11 @@ void main() {
               return platformAdSizeResult;
             case 'loadBannerAd':
             case 'loadInterstitialAd':
+            case 'loadRewardedAd':
+            case 'loadRewardedInterstitialAd':
+            case 'loadAppOpenAd':
+            case 'loadNativeAd':
+            case 'setServerSideVerificationOptions':
             case 'disposeAd':
               return null;
             default:
@@ -275,6 +282,112 @@ void main() {
 
       expect(handle.size, const AdDimensions(width: 320, height: 150));
       expect(notified, 1);
+    });
+  });
+
+  group('remaining formats through the REAL plugin channel (2026-07 audit — '
+      'gma_ad_sdk was the least-covered file in the package)', () {
+    test('rewarded: SSV is attached BEFORE the load completes, and the '
+        'reward callback maps through', () async {
+      final sdk = GmaAdSdk();
+      final future = sdk.loadRewarded(
+        'unit-r',
+        const AdRequestOptions(),
+        ssv: const ServerSideVerification(userId: 'u-1', customData: 'm-7'),
+      );
+      await pumpEventQueue();
+      await sendAdEvent(0, 'onAdLoaded');
+      final handle = await future;
+      await pumpEventQueue();
+
+      final methods = log.map((c) => c.method).toList();
+      expect(methods, contains('setServerSideVerificationOptions'));
+      expect(
+        methods.indexOf('setServerSideVerificationOptions'),
+        greaterThan(methods.indexOf('loadRewardedAd')),
+        reason: 'SSV attaches to the LOADED ad, before any show',
+      );
+
+      final rewards = <RewardEarned>[];
+      unawaited(handle.show(onUserEarnedReward: rewards.add));
+      await pumpEventQueue();
+      // The codec expects a real RewardItem, mirroring the plugin's own
+      // onRewardedAdUserEarnedReward test.
+      await sendAdEvent(0, 'onRewardedAdUserEarnedReward', {
+        'rewardItem': RewardItem(10, 'coins'),
+      });
+      await pumpEventQueue();
+      expect(rewards, [const RewardEarned(amount: 10, type: 'coins')]);
+    });
+
+    test('runtime SSV update reaches the channel', () async {
+      final sdk = GmaAdSdk();
+      final future = sdk.loadRewarded('unit-r', const AdRequestOptions());
+      await pumpEventQueue();
+      await sendAdEvent(0, 'onAdLoaded');
+      final handle = await future;
+
+      await handle.updateServerSideVerification(
+        const ServerSideVerification(userId: 'late-user'),
+      );
+      expect(
+        log.map((c) => c.method),
+        contains('setServerSideVerificationOptions'),
+      );
+    });
+
+    test(
+      'rewarded interstitial: loads and dismisses through the channel',
+      () async {
+        final sdk = GmaAdSdk();
+        final future = sdk.loadRewardedInterstitial(
+          'unit-ri',
+          const AdRequestOptions(),
+        );
+        await pumpEventQueue();
+        await sendAdEvent(0, 'onAdLoaded');
+        final handle = await future;
+
+        final events = <FullScreenAdEvent>[];
+        handle.contentEvents.listen(events.add);
+        await pumpEventQueue();
+        await sendAdEvent(0, 'onAdDismissedFullScreenContent');
+        await pumpEventQueue();
+        expect(events.single, isA<AdDismissedEvent>());
+      },
+    );
+
+    test('app open: loads through the channel', () async {
+      final sdk = GmaAdSdk();
+      final future = sdk.loadAppOpen('unit-ao', const AdRequestOptions());
+      await pumpEventQueue();
+      await sendAdEvent(0, 'onAdLoaded');
+      final handle = await future;
+      expect(handle.adUnitId, 'unit-ao');
+      expect(log.map((c) => c.method), contains('loadAppOpenAd'));
+    });
+
+    test('native: loads, and a load FAILURE maps to AdFlowError', () async {
+      final sdk = GmaAdSdk();
+      final future = sdk.loadNative(
+        const NativeLoadSpec(adUnitId: 'unit-n', factoryId: 'f'),
+      );
+      final expectation = expectLater(
+        future,
+        throwsA(
+          isA<AdFlowError>().having(
+            (e) => e.kind,
+            'kind',
+            AdFlowErrorKind.loadFailed,
+          ),
+        ),
+      );
+      await pumpEventQueue();
+      // ignore: invalid_use_of_protected_member
+      final loadAdError = LoadAdError(3, 'admob', 'no fill', null);
+      await sendAdEvent(0, 'onAdFailedToLoad', {'loadAdError': loadAdError});
+      await expectation;
+      expect(log.map((c) => c.method), contains('disposeAd'));
     });
   });
 

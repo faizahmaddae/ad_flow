@@ -505,6 +505,12 @@ class FakeFullScreenAdHandle
   }
 
   /// Emits [AdImpressionEvent].
+  /// Emits [AdFailedToShowEvent] directly — e.g. a mid-display failure
+  /// AFTER the ad already showed (use [showError] for one that fails the
+  /// show dispatch itself).
+  void simulateShowFailed(AdFlowError error) =>
+      _content.add(AdFailedToShowEvent(error));
+
   void simulateImpression() => _content.add(const AdImpressionEvent());
 
   /// Emits [AdClickedEvent].

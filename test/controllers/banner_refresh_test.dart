@@ -324,6 +324,50 @@ void main() {
       });
     });
 
+    test('revenue reporting CONTINUES from the new handle after a swap '
+        '(paid events must not die with the old subscriptions)', () {
+      fakeAsync((async) {
+        final paid = <AdPaidEvent>[];
+        final c = BannerAdController(
+          sdk: sdk,
+          gate: AdGate(
+            canRequestAds: sdk.canRequestAds,
+            isEnabled: () => true,
+            caps: StoredFrequencyCapPolicy(
+              store: InMemoryKeyValueStore(),
+              slotCaps: const {},
+              globalCap: const FrequencyCap(),
+            ),
+            coordinator: coordinator,
+          ),
+          config: const BannerConfig(
+            adUnitId: PlatformAdUnitId(android: 'unit-b'),
+            minRefresh: Duration(seconds: 60),
+          ),
+          adUnitId: 'unit-b',
+          retry: RetryPolicy(const RetryConfig(), random: () => 0.5),
+          onPaid: paid.add,
+        );
+        c.load(width: 320);
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 60)); // swap
+        async.flushMicrotasks();
+        expect(sdk.banners, hasLength(2));
+
+        const event = AdPaidEvent(
+          adUnitId: 'unit-b',
+          valueMicros: 500,
+          currencyCode: 'USD',
+          precision: AdRevenuePrecision.precise,
+        );
+        sdk.banners.last.simulatePaid(event);
+
+        expect(paid, hasLength(1));
+        expect(paid.single.slot, BannerAdController.slot);
+        c.dispose();
+      });
+    });
+
     test('dispose() during an in-flight refresh leaks nothing', () {
       fakeAsync((async) {
         final c = refreshing();
