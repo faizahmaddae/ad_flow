@@ -9,6 +9,17 @@
 	<string>ca-app-pub-3940256099942544~1458002511</string>
 	<key>NSUserTrackingUsageDescription</key>
 	<string>This identifier will be used to deliver personalized ads to you.</string>
+	<!-- SKAdNetwork: how iOS attributes ad-driven installs. Google's own
+	     identifier below is the minimum; when you add mediation partners, add
+	     each partner's identifiers too (missing entries silently cost paid
+	     installs). See README §2 and doc/MEDIATION_SETUP.md. -->
+	<key>SKAdNetworkItems</key>
+	<array>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>cstr6suwn9.skadnetwork</string>
+		</dict>
+	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

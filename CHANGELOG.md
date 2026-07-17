@@ -1,3 +1,93 @@
+## 2.2.0
+
+Production-hardening release from a deep 2026-07 multi-agent audit (25
+confirmed findings, all fixed) plus my own core review. **No breaking API
+changes for apps** — every existing call site compiles. Several defaults and
+behaviours changed deliberately; implementers of the seam/testing interfaces
+have additive members to implement. See MIGRATION.md.
+
+### Fixed (correctness / revenue)
+
+- **Banner refresh/resize races**: a rotation during an in-flight opt-in
+  refresh could leak a live `BannerAd` (a native view), destroy a fresher
+  right-width ad, corrupt the recorded width, or cancel the slot's only
+  recovery timer (wedging it blank). `resize()` now defers to an in-flight
+  refresh; the refresh completion re-validates state and reconciles a
+  mid-flight width change; the failure path backs off only while a current ad
+  exists.
+- **Refresh swaps now actually reach the screen**: the plugin's `AdWidget`
+  cannot re-point its platform view at a new ad, so an unkeyed rebuild after
+  a swap kept hosting the DISPOSED ad — a permanently dead slot that still
+  requested (and paid for) fresh ads. `AdFlowBanner`/`AdFlowNativeAd` now key
+  the hosted subtree by handle identity, forcing a correct remount.
+- **Inline-adaptive auto-refresh**: a failed post-refresh size query tore
+  down the LIVE mounted banner and silently ended its revenue reporting; it
+  now only fails the initial load. A refresh that resolves a *different*
+  height updates the widget via the new `BannerHandle.dimensions`
+  listenable (inline adaptive creatives vary per refresh).
+- **Preloaded full-screen ads expire** (Google documents ~1 hour): new
+  `maxAdAge` on interstitial/rewarded/rewarded-interstitial configs (default
+  55 min; null disables) — stale warm ads are proactively replaced and never
+  shown. App-open's 4h expiry now runs through the same shared mechanism and
+  also replaces proactively.
+- **Ads come DOWN when no longer permitted**: `disableAds()` (Remove-Ads),
+  `dispose()`, a re-`initialize`, and a consent withdrawal through
+  `ads.consent` now DROP live banner/native ads and warm full-screen
+  inventory (previously only future loads were blocked — a mounted banner
+  kept serving and auto-refreshing). `enableAds()` re-warms at once. New
+  `AdController.recheckGate()`.
+- **show() no longer holds the shared coordinator across a consent settle**:
+  a network-bound consent retry could freeze every full-screen format behind
+  one `show()` call for up to 30s. The show path now uses cheap live checks
+  only (`AdGate.showBlockReason`).
+- **View-ad click latch can no longer be stranded**: an iOS in-app overlay
+  click (open→close with no foreground event) used to eat the NEXT genuine
+  warm return's app-open ad. `onAdClosed` now starts a 3s grace clock;
+  Android's external-browser return ordering stays suppressed.
+- Raw platform-channel throws from the load *dispatch* are normalized to
+  `AdFlowError` and no longer leak the constructed ad + stream controllers.
+- `SharedPrefsKeyValueStore` reads type-corrupt data as absent instead of
+  throwing (a throwing cap read blocked every full-screen show, with no
+  self-heal).
+- Consent/ATT primers wait (bounded) for the first frame, so a fast launch
+  no longer silently drops the primer before the navigator mounts.
+- `PrivacyOptionsButton` failures default to `FlutterError.reportError`
+  instead of a silent swallow.
+
+### Added
+
+- **Runtime SSV**: `setServerSideVerification(ssv)` on both rewarded
+  controllers — set `userId` after login and per-show `customData`; applies
+  to the warm ad and future loads; throws if attaching fails.
+- **Mediation observability**: `AdResponseSummary` (`handle.response` /
+  `controller.response`) — winning ad source, adapter class, response ID.
+  `AdPaidEvent` gains `slot` and `adSourceName` for analytics-ready
+  impression logging.
+- `AdFlowConfig.validate()` (run automatically): empty ad-unit strings and
+  nonsensical durations fail fast at init.
+- Null-safe slot getters: `interstitialOrNull`, `rewardedOrNull`,
+  `rewardedInterstitialOrNull`, `appOpenOrNull`, `appOpenControllerOrNull`.
+- Testing surface: `FakeBannerHandle.simulateResize`/`responseSummary`,
+  `FakeFullScreenAdHandle.simulateShowFailed`/`ssvUpdates`/`ssvUpdateError`,
+  `FakeAdSdk.onPrivacyOptionsFormShown`.
+
+### Changed
+
+- `AdFlow.consent` now returns a thin graph-aware wrapper: consent-mutating
+  calls trigger a permission re-check across every controller (this is what
+  makes withdrawal drop live ads). Read-only members delegate unchanged.
+- Docs: `doc/MEDIATION_SETUP.md` and `doc/NATIVE_ADS_SETUP.md` rewritten for
+  v2 (they still described the removed v1 API); README documents the
+  emergency kill-switch pattern, the Families app-open prohibition, and
+  both-platform ad unit configuration.
+
+### For implementers of the seam interfaces (rare)
+
+`BannerHandle` gained `dimensions`; all handles gained `response`; the
+rewarded handles gained `updateServerSideVerification`; `AdController`
+gained `recheckGate()`. The in-package fakes implement all of these — custom
+implementations must add them.
+
 ## 2.1.1
 
 Docs: README updated to 2.1.x; documented the diagnostic surface

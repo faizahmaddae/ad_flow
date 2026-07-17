@@ -38,12 +38,21 @@ Future<void> main() async {
   final ads = await (useExplainer ? _initWithExplainer() : _initSimple());
 
   // Impression-level revenue (allowlisted AdMob accounts only). Assignable any
-  // time — set it right after init so no paid event is missed.
+  // time — set it right after init so no paid event is missed. `slot` and
+  // `adSourceName` (2.2.0) carry the format and the winning mediation network,
+  // ready for an analytics ad_impression event.
   ads.onPaidEvent = (event) => debugPrint(
-    '[ad_flow] paid: ${event.adUnitId} '
+    '[ad_flow] paid: ${event.slot}/${event.adUnitId} '
     '${event.valueMicros / 1e6} ${event.currencyCode} '
-    '(${event.precision.name})',
+    '(${event.precision.name}'
+    '${event.adSourceName == null ? '' : ', via ${event.adSourceName}'})',
   );
+
+  // "Why aren't my ads showing?" — every refused load/show reports its reason
+  // (consent pending, Remove-Ads, frequency cap, expiry…). Most reasons are
+  // NORMAL; wire this to your logger during rollout (2.1.0, ADR-045).
+  ads.onAdBlocked = (slot, reason) =>
+      debugPrint('[ad_flow] $slot blocked: ${reason.name}');
 
   runApp(ExampleApp(ads: ads));
 }

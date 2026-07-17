@@ -225,17 +225,29 @@ final ads = await AdFlow.initialize(
       adUnitId: PlatformAdUnitId(android: 'ca-app-pub-…/1', ios: 'ca-app-pub-…/2'),
     ),
     interstitial: const InterstitialConfig(
-      adUnitId: PlatformAdUnitId(android: 'ca-app-pub-…/3'),
+      adUnitId: PlatformAdUnitId(android: 'ca-app-pub-…/3', ios: 'ca-app-pub-…/4'),
       cap: FrequencyCap(minGap: Duration(seconds: 30), maxPerHour: 6),
       minActionsBetween: 2,
     ),
-    rewarded: const RewardedConfig(adUnitId: PlatformAdUnitId(android: 'ca-app-pub-…/4')),
-    appOpen: const AppOpenConfig(adUnitId: PlatformAdUnitId(android: 'ca-app-pub-…/5')),
+    rewarded: const RewardedConfig(
+      adUnitId: PlatformAdUnitId(android: 'ca-app-pub-…/5', ios: 'ca-app-pub-…/6'),
+    ),
+    appOpen: const AppOpenConfig(
+      adUnitId: PlatformAdUnitId(android: 'ca-app-pub-…/7', ios: 'ca-app-pub-…/8'),
+    ),
     globalFrequencyCap: const FrequencyCap(minGap: Duration(seconds: 15)),
     testDeviceIds: ['YOUR-HASHED-DEVICE-ID'],
   ),
 );
 ```
+
+Configure BOTH platforms' IDs for every slot you use on both platforms. A slot
+missing the current platform's ID is simply **unconfigured there**: its
+throwing getter (`ads.interstitial`) throws, and `ads.interstitialOrNull`
+returns null — use the `…OrNull` getters in shared cross-platform code that
+should degrade rather than crash. `initialize` also validates the config
+(empty ID strings, negative durations, …) and fails fast with
+`AdFlowError(invalidConfig)` instead of silently no-filling in production.
 
 Set `testMode: true` (or use `AdFlowConfig.test()`) during development —
 it swaps every **configured** slot to Google's sample IDs. Never ship it.
@@ -302,7 +314,24 @@ await ads.rewarded.show(onReward: (reward) {
 });
 ```
 
-High-value rewards: set `RewardedConfig.ssv` for server-side verification.
+High-value rewards: set `RewardedConfig.ssv` for server-side verification —
+and update it at runtime as your app learns more (2.2.0):
+
+```dart
+// After login, and again right before showing (e.g. which mission this is):
+await ads.rewarded.setServerSideVerification(
+  ServerSideVerification(userId: user.id, customData: 'mission-7'),
+);
+```
+
+The update applies to the already-loaded ad AND every future load, and
+**throws** if attaching fails — when you grant high-value rewards, you want to
+know your verification payload did not make it.
+
+Preloaded full-screen ads also **expire** (Google documents ~1 hour): ad_flow
+timestamps every load, proactively replaces a warm ad that goes stale
+(`maxAdAge`, default 55 minutes for interstitial/rewarded formats, 4 hours for
+app-open) and never shows an expired one.
 
 A rewarded ad is one the user **asked for**, so the global frequency cap never
 blocks it (ADR-039) — a user who taps "watch an ad for 100 coins" must never be
@@ -344,10 +373,14 @@ and use `NativeConfig(factoryId: 'yourFactoryId')`.
 Nothing to call. The `AppOpenAdManager` (started by `initialize`) shows a
 preloaded ad when the app returns to the foreground — never on cold launch,
 never over another full-screen ad, never past the 4-hour expiry (stale ads
-are discarded and reloaded). To show on cold start from a dedicated splash
-gate: app-open ads show on the first genuine warm return of a session.
-`AppOpenConfig.showOnColdStart` is deprecated and ignored — a cold launch emits no
-foreground event, so it never did anything.
+are discarded and proactively replaced). App-open ads show on the first
+genuine warm return of a session; a cold launch emits no foreground event, so
+there is nothing to show on one (`AppOpenConfig.showOnColdStart` is
+deprecated and ignored for the same reason).
+
+> **Policy note:** Google prohibits app-open ads in "Designed for Families"
+> apps. If your app is in the Families program, leave the `appOpen` slot
+> unconfigured.
 
 An app-open ad is never shown when the user returns from a banner/native ad they
 clicked. If a screen shows a large, *blocking* banner or native ad, tell ad_flow
@@ -437,17 +470,41 @@ await AdFlow.initialize(config, consentDebug: const ConsentDebugOptions(
 ));
 ```
 
-## 6. Remove-Ads, revenue, inspector
+## 6. Remove-Ads, kill switch, revenue, inspector
 
 ```dart
-ads.disableAds();   // user bought Remove-Ads: every load/show is blocked
-ads.enableAds();
+ads.disableAds();   // user bought Remove-Ads: live/warm ads are DROPPED
+                    // (mounted banner/native widgets fall back to their
+                    // placeholder) and every future load/show is blocked
+ads.enableAds();    // re-warms inventory at once
 ads.adsEnabled;     // ValueListenable<bool> — hide ad widgets reactively
 
-ads.onPaidEvent = (e) =>
-    analytics.logAdRevenue(e.valueMicros / 1e6, e.currencyCode);
+ads.onPaidEvent = (e) => analytics.logAdImpression(
+  value: e.valueMicros / 1e6,
+  currency: e.currencyCode,
+  adFormat: e.slot,          // 'banner', 'interstitial', … (2.2.0)
+  adSource: e.adSourceName,  // winning mediation network, when known (2.2.0)
+);
+
+ads.interstitial.response;   // AdResponseSummary? — which network filled the
+                             // warm ad (mediation diagnostics, 2.2.0)
 
 await ads.openAdInspector(); // debug overlay on a test device
+```
+
+### Emergency kill switch
+
+`disableAds()` is also your remote kill switch: gate it on a remote flag so
+you can stop serving ads fleet-wide without an app update (an AdMob policy
+review, a broken mediation adapter, a bad creative):
+
+```dart
+// e.g. Firebase Remote Config, at startup and on config refresh:
+if (remoteConfig.getBool('ads_kill_switch')) {
+  ads.disableAds();
+} else {
+  ads.enableAds();
+}
 ```
 
 ### "Why aren't my ads showing?"

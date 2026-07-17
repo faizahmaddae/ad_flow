@@ -1,3 +1,41 @@
+# Upgrading 2.1.x → 2.2.0
+
+**No breaking API changes for apps** — everything compiles. Behaviour changed
+deliberately in five places; check these:
+
+1. **Preloaded interstitial/rewarded/rewarded-interstitial ads now expire**
+   (`maxAdAge`, default 55 minutes, per Google's documented ~1-hour window).
+   A stale warm ad is proactively replaced and never shown. Pass
+   `maxAdAge: null` on the format config to restore the old keep-forever
+   behaviour (not recommended — an expired ad may display but not count).
+
+2. **`disableAds()` now DROPS live ads** — mounted banner/native widgets fall
+   back to their placeholder and warm full-screen inventory is released,
+   instead of only blocking future loads. If you relied on the old "the
+   mounted ad stays until I hide it" behaviour, hide the widget first. The
+   same drop now happens on `dispose()`, on a re-`initialize`, and when the
+   user withdraws consent through the privacy-options form.
+
+3. **A consent withdrawal is now acted on**: use `ads.consent` (not a
+   directly-constructed `UmpConsentGateway`) for `PrivacyOptionsButton` /
+   `showPrivacyOptions()` so the graph can react. `AdFlow.consent` returns a
+   thin wrapper with identical behaviour otherwise.
+
+4. **`initialize` validates the config** and throws
+   `AdFlowError(invalidConfig)` on nonsense (empty ad-unit strings, negative
+   durations). If this fires for you, the config was already broken — it was
+   silently no-filling.
+
+5. **Custom implementers of the seam/testing interfaces** (rare; the shipped
+   fakes are updated): `BannerHandle.dimensions`, `*Handle.response`,
+   rewarded handles' `updateServerSideVerification`, and
+   `AdController.recheckGate()` are new interface members you must add.
+
+New opt-in APIs you may want: runtime SSV
+(`ads.rewarded.setServerSideVerification`), mediation observability
+(`controller.response`, `AdPaidEvent.slot`/`adSourceName`), null-safe slot
+getters (`ads.interstitialOrNull` …), and the kill-switch recipe in README §6.
+
 # Upgrading 2.0.x → 2.1.0
 
 **No breaking API changes** — everything still compiles. But several defaults and
