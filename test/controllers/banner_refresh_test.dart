@@ -195,4 +195,158 @@ void main() {
       });
     });
   });
+
+  group('refresh/resize interleaving (2026-07 audit)', () {
+    BannerAdController refreshing() => controller(
+      config: const BannerConfig(
+        adUnitId: PlatformAdUnitId(android: 'unit-b'),
+        minRefresh: Duration(seconds: 60),
+      ),
+    );
+
+    /// Every fake banner the SDK ever produced must either be the one the
+    /// controller currently holds, or be disposed — anything else is a leaked
+    /// live `BannerAd` (a native ad view the plugin requires disposing).
+    void expectNoLeaks(BannerAdController c) {
+      final live = sdk.banners.where((b) => !b.disposed).toList();
+      expect(
+        live,
+        c.handle == null ? isEmpty : [same(c.handle)],
+        reason:
+            'every non-current banner handle must be disposed — a live '
+            'orphan is a leaked native ad view',
+      );
+    }
+
+    test(
+      'resize() during an in-flight refresh leaks nothing and ends at the '
+      'new width',
+      () {
+        fakeAsync((async) {
+          final c = refreshing();
+          c.load(width: 320);
+          async.flushMicrotasks();
+
+          // Park the refresh mid-flight, then rotate.
+          sdk.loadHold = Completer<void>();
+          async.elapse(const Duration(seconds: 60));
+          async.flushMicrotasks();
+          c.resize(800);
+          async.flushMicrotasks();
+
+          // Everything lands.
+          sdk.loadHold!.complete();
+          sdk.loadHold = null;
+          async.flushMicrotasks();
+          async.elapse(const Duration(minutes: 2));
+          async.flushMicrotasks();
+
+          expect(c.state.value, const AdLoaded());
+          expect(
+            c.loadedWidth,
+            800,
+            reason: 'the rotation must not be silently dropped',
+          );
+          expect(
+            (sdk.bannerSpecs.last.size as AnchoredAdaptiveSizeSpec).width,
+            800,
+            reason: 'the last SDK request must be for the new width',
+          );
+          expectNoLeaks(c);
+          c.dispose();
+          expect(sdk.banners.every((b) => b.disposed), isTrue);
+        });
+      },
+    );
+
+    test(
+      'a stale refresh completion must not destroy a fresher right-width ad',
+      () {
+        fakeAsync((async) {
+          final c = refreshing();
+          c.load(width: 320);
+          async.flushMicrotasks();
+
+          // Park the refresh mid-flight...
+          final refreshHold = Completer<void>();
+          sdk.loadHold = refreshHold;
+          async.elapse(const Duration(seconds: 60));
+          async.flushMicrotasks();
+          // ...but let anything requested AFTER this point complete at once,
+          // so if a resize starts a concurrent load it lands FIRST and the
+          // stale refresh continuation runs LAST.
+          sdk.loadHold = null;
+          c.resize(800);
+          async.flushMicrotasks();
+
+          // The stale (320px) refresh finally lands, LAST. On the old code
+          // this ordering let a resize-driven load land first with a correct
+          // 800px ad, which the stale continuation then destroyed and
+          // replaced with the 320px one — letterboxed in the slot for a full
+          // refresh interval. Whichever mechanism prevents that (resize
+          // deferral + continuation re-validation), the settled outcome must
+          // be: current ad at the NEW width, nothing leaked. Assert with NO
+          // elapse — a later refresh cycle would mask the damage.
+          refreshHold.complete();
+          async.flushMicrotasks();
+
+          expect(c.state.value, const AdLoaded());
+          expect(c.loadedWidth, 800);
+          expect(
+            (sdk.bannerSpecs.last.size as AnchoredAdaptiveSizeSpec).width,
+            800,
+          );
+          expectNoLeaks(c);
+          c.dispose();
+        });
+      },
+    );
+
+    test('rotate while the FIRST load is in flight reconciles to the new '
+        'width without a leak (regression guard)', () {
+      fakeAsync((async) {
+        final c = refreshing();
+        sdk.loadHold = Completer<void>();
+        c.load(width: 320);
+        async.flushMicrotasks();
+        c.resize(800);
+        async.flushMicrotasks();
+
+        sdk.loadHold!.complete();
+        sdk.loadHold = null;
+        async.flushMicrotasks();
+
+        expect(c.state.value, const AdLoaded());
+        expect(c.loadedWidth, 800);
+        expect(
+          (sdk.bannerSpecs.last.size as AnchoredAdaptiveSizeSpec).width,
+          800,
+        );
+        expectNoLeaks(c);
+        c.dispose();
+      });
+    });
+
+    test('dispose() during an in-flight refresh leaks nothing', () {
+      fakeAsync((async) {
+        final c = refreshing();
+        c.load(width: 320);
+        async.flushMicrotasks();
+
+        sdk.loadHold = Completer<void>();
+        async.elapse(const Duration(seconds: 60));
+        async.flushMicrotasks();
+        c.dispose();
+        sdk.loadHold!.complete();
+        sdk.loadHold = null;
+        async.flushMicrotasks();
+
+        expect(
+          sdk.banners.every((b) => b.disposed),
+          isTrue,
+          reason: 'a replacement that lands after dispose must be released',
+        );
+      });
+    });
+  });
 }

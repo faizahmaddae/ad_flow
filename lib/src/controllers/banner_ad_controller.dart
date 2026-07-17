@@ -150,12 +150,15 @@ class BannerAdController implements AdController {
     if (_disposed || _config.kind == BannerKind.fixed) return;
     if (_width == width) return;
     _width = width;
-    // A load is already in flight for the OLD width: let it finish (resetting
-    // to AdIdle here would defeat load()'s synchronous re-entry guard and race
-    // two SDK loads — review finding #4). load() re-checks the width when it
-    // completes and re-requests then, so rapid rotation coalesces instead of
-    // firing a request per frame.
-    if (_state.value is AdLoading) return;
+    // A load OR a background refresh is already in flight for the OLD width:
+    // let it finish (resetting to AdIdle here would defeat load()'s
+    // synchronous re-entry guard and race two SDK loads — review finding #4;
+    // and dropping the handle under an in-flight _refresh() would let its
+    // completion swap a stale-width ad over whatever the concurrent load
+    // installed, leaking a live BannerAd — 2026-07 audit). Both paths
+    // re-check `_width` when they complete and re-request then, so rapid
+    // rotation coalesces instead of firing a request per frame.
+    if (_state.value is AdLoading || _refreshing) return;
     await _reloadAtCurrentWidth();
   }
 
@@ -305,7 +308,13 @@ class BannerAdController implements AdController {
           collapsible: _config.collapsible,
         ),
       );
-      if (_disposed) {
+      if (_disposed || _state.value is! AdLoaded) {
+        // The world changed while the replacement was loading: the controller
+        // was disposed, or the ad this refresh set out to replace is gone (the
+        // gate closed and dropped it, or a resize-driven reload took over).
+        // Installing the replacement now would stomp the newer state and leak
+        // whatever it overwrote — release it and let the current owner of the
+        // slot carry on (2026-07 audit).
         unawaited(handle.dispose());
         return;
       }
@@ -326,11 +335,24 @@ class BannerAdController implements AdController {
       _revision.value++;
       _attempts = 0;
       _scheduleRefresh();
+      // The layout width changed while this replacement was in flight (a
+      // rotation during the refresh — resize() defers to us): the ad just
+      // swapped in is already the wrong size, so re-request at the current
+      // width, exactly as load() reconciles after a mid-load rotation
+      // (2026-07 audit).
+      if (_width != requestWidth) unawaited(_reloadAtCurrentWidth());
     } catch (_) {
       // A failed refresh (no-fill, network) must NOT take down the ad that is
       // already on screen — that was the old behaviour's worst property. Keep
       // it, back off, and try again.
       if (_disposed) return;
+      // Only back off if there IS still a current ad to keep. If the slot
+      // moved on while this refresh was in flight (a gate-closed drop, a
+      // resize-driven reload), the shared `_timer` now belongs to THAT path's
+      // recovery — cancelling it here and arming a refresh timer (whose
+      // callback no-ops outside AdLoaded) would destroy the slot's only
+      // re-arm and wedge it blank forever (2026-07 audit).
+      if (_state.value is! AdLoaded) return;
       _attempts++;
       _timer?.cancel();
       _timer = Timer(
