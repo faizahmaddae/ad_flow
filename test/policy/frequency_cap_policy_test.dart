@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/policy/frequency_cap_policy.dart';
 import 'package:ad_flow/src/policy/key_value_store.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -243,4 +246,139 @@ void main() {
       );
     });
   });
+
+  group('memory-authoritative decisions (4.0 audit)', () {
+    test('a recorded impression binds the very NEXT check, even while the '
+        'store write is still in flight', () async {
+      // Controllers fire recordImpression un-awaited (dismiss handler). If
+      // minGap/hourly state lives in the store, another already-loaded
+      // controller's canShow can slip through before the write lands —
+      // two full-screen ads back to back, the exact thing the global gap
+      // exists to prevent.
+      final slowWrites = _SlowWriteStore(store);
+      final caps = StoredFrequencyCapPolicy(
+        store: slowWrites,
+        slotCaps: const {},
+        globalCap: const FrequencyCap(minGap: Duration(seconds: 15)),
+        now: () => now,
+      );
+      // Settle hydration so this models the steady state (mid-session).
+      await caps.canShow('interstitial');
+
+      unawaited(caps.recordImpression('interstitial'));
+      expect(
+        await caps.canShow('app_open'),
+        isFalse,
+        reason:
+            'the in-process decision must be immediately authoritative — '
+            'persistence is write-behind, never the source of truth',
+      );
+      slowWrites.releaseAll();
+    });
+
+    test('write-behind persistence is serialized: concurrent records lose '
+        'nothing across a restart', () async {
+      final caps = policy(
+        slotCaps: {'interstitial': const FrequencyCap(maxPerHour: 2)},
+      );
+      await caps.canShow('interstitial'); // settle hydration
+      // Two impressions racing their persistence (e.g. dismiss + the
+      // dispose-time safety net). Un-awaited, like the controllers do.
+      unawaited(caps.recordImpression('interstitial'));
+      advance(const Duration(seconds: 1));
+      unawaited(caps.recordImpression('interstitial'));
+      await pumpEventQueue();
+
+      // A fresh policy over the same store (an app restart) must see BOTH.
+      final restarted = policy(
+        slotCaps: {'interstitial': const FrequencyCap(maxPerHour: 2)},
+      );
+      expect(
+        await restarted.canShow('interstitial'),
+        isFalse,
+        reason:
+            'read-modify-write races between two un-awaited records used to '
+            'lose one impression on disk — the hourly cap then under-counts '
+            'after a restart',
+      );
+    });
+
+    test('a HANGING store cannot hang the decision (bounded hydration, '
+        'degrade open)', () {
+      fakeAsync((async) {
+        final caps = StoredFrequencyCapPolicy(
+          store: _HangingStore(),
+          slotCaps: const {},
+          globalCap: const FrequencyCap(minGap: Duration(seconds: 15)),
+          now: () => now,
+        );
+        bool? answer;
+        unawaited(caps.canShow('interstitial').then((v) => answer = v));
+        async.elapse(const Duration(seconds: 6));
+        expect(
+          answer,
+          isTrue,
+          reason:
+              'a broken persistence backend must degrade to session-only '
+              'capping, never block every full-screen ad forever',
+        );
+      });
+    });
+  });
+}
+
+/// Delegates reads instantly but parks every WRITE until released — models
+/// `SharedPreferencesAsync`'s channel round trip being slow while an
+/// un-awaited `recordImpression` is still persisting.
+class _SlowWriteStore implements KeyValueStore {
+  _SlowWriteStore(this._inner);
+  final KeyValueStore _inner;
+  final List<Completer<void>> _pending = [];
+
+  void releaseAll() {
+    for (final completer in _pending) {
+      completer.complete();
+    }
+    _pending.clear();
+  }
+
+  Future<void> _park() {
+    final completer = Completer<void>();
+    _pending.add(completer);
+    return completer.future;
+  }
+
+  @override
+  Future<int?> getInt(String key) => _inner.getInt(key);
+
+  @override
+  Future<List<int>> getHistory(String key) => _inner.getHistory(key);
+
+  @override
+  Future<void> setInt(String key, int value) async {
+    await _park();
+    await _inner.setInt(key, value);
+  }
+
+  @override
+  Future<void> setHistory(String key, List<int> values) async {
+    await _park();
+    await _inner.setHistory(key, values);
+  }
+}
+
+/// A store whose every operation never completes — a wedged platform channel.
+class _HangingStore implements KeyValueStore {
+  @override
+  Future<int?> getInt(String key) => Completer<int?>().future;
+
+  @override
+  Future<List<int>> getHistory(String key) => Completer<List<int>>().future;
+
+  @override
+  Future<void> setInt(String key, int value) => Completer<void>().future;
+
+  @override
+  Future<void> setHistory(String key, List<int> values) =>
+      Completer<void>().future;
 }
