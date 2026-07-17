@@ -452,6 +452,50 @@ void main() {
       expect(live.disposed, isTrue);
       ads.dispose();
     });
+
+    testWidgets('an EQUAL-but-not-identical inline config on rebuild must '
+        'not re-mint the controller (value equality, not identity)', (
+      tester,
+    ) async {
+      final ads = await AdFlow.initialize(
+        const AdFlowConfig(
+          banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
+        ),
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+      );
+      await ads.whenReady;
+
+      // Deliberately NON-const, so each build produces a new instance — the
+      // realistic shape of `config: BannerConfig(...)` inline in build().
+      // ignore: prefer_const_constructors
+      BannerConfig makeConfig() => BannerConfig(
+        // ignore: prefer_const_constructors
+        adUnitId: PlatformAdUnitId(android: 'override'),
+      );
+      await tester.pumpWidget(
+        host(AdFlowBanner(adFlow: ads, config: makeConfig())),
+      );
+      await tester.pumpAndSettle();
+      expect(sdk.banners, hasLength(1));
+
+      await tester.pumpWidget(
+        host(AdFlowBanner(adFlow: ads, config: makeConfig())),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        sdk.banners,
+        hasLength(1),
+        reason:
+            'identity comparison would re-mint the controller (and '
+            're-request an ad) on EVERY rebuild — the exact footgun '
+            'widget-first mode exists to remove',
+      );
+      await tester.pumpWidget(host(const SizedBox()));
+      ads.dispose();
+    });
   });
 
   testWidgets('an adopted controller swap remounts the native ad subtree too', (

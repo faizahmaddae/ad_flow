@@ -192,6 +192,31 @@ class BannerConfig {
   /// When set, a refresh never blanks the slot: the current ad keeps rendering
   /// until its replacement has actually loaded (ADR-041).
   final Duration? minRefresh;
+
+  // Value equality (3.0): the widget-first ad widgets compare configs in
+  // didUpdateWidget to decide whether to re-mint their controller — identity
+  // comparison would re-mint (and re-request an ad!) on every rebuild that
+  // passes a non-const inline config, which is the exact footgun the
+  // widget-first mode exists to remove.
+  @override
+  bool operator ==(Object other) =>
+      other is BannerConfig &&
+      other.adUnitId == adUnitId &&
+      other.kind == kind &&
+      other.fixedSize == fixedSize &&
+      other.maxInlineHeight == maxInlineHeight &&
+      other.collapsible == collapsible &&
+      other.minRefresh == minRefresh;
+
+  @override
+  int get hashCode => Object.hash(
+    adUnitId,
+    kind,
+    fixedSize,
+    maxInlineHeight,
+    collapsible,
+    minRefresh,
+  );
 }
 
 /// Configuration for the interstitial slot.
@@ -317,6 +342,29 @@ class NativeConfig {
 
   /// Options passed through to a platform factory.
   final Map<String, Object>? factoryExtras;
+
+  // Value equality (3.0) — see BannerConfig's operator== note. factoryExtras
+  // is compared shallowly by entry.
+  @override
+  bool operator ==(Object other) {
+    if (other is! NativeConfig) return false;
+    final otherExtras = other.factoryExtras;
+    final extras = factoryExtras;
+    final extrasEqual =
+        identical(otherExtras, extras) ||
+        (otherExtras != null &&
+            extras != null &&
+            otherExtras.length == extras.length &&
+            otherExtras.entries.every((e) => extras[e.key] == e.value));
+    return other.adUnitId == adUnitId &&
+        other.templateKind == templateKind &&
+        other.factoryId == factoryId &&
+        extrasEqual;
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(adUnitId, templateKind, factoryId, factoryExtras?.length);
 }
 
 /// Configuration for the app open slot.
