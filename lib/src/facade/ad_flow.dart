@@ -13,6 +13,7 @@ import '../controllers/native_ad_controller.dart';
 import '../controllers/rewarded_ad_controller.dart';
 import '../controllers/rewarded_interstitial_ad_controller.dart';
 import '../core/ad_block_reason.dart';
+import '../core/ad_controller.dart';
 import '../core/ad_flow_error.dart';
 import '../lifecycle/app_open_ad_manager.dart';
 import '../policy/ad_gate.dart';
@@ -77,7 +78,12 @@ class AdFlow {
     );
     _gate = AdGate(
       canRequestAds: _sdk.canRequestAds,
-      isEnabled: () => _adsEnabled.value,
+      // `!_disposed` first: widget-owned banner/native controllers minted via
+      // [banner]/[native] outlive this graph's dispose() (ADR-044 replaces
+      // the graph; widgets dispose their controllers on their own schedule).
+      // A dead graph's gate must refuse every load, or those leftovers would
+      // keep serving ads wired to disposed collaborators (2026-07 audit).
+      isEnabled: () => !_disposed && _adsEnabled.value,
       caps: _caps,
       coordinator: _coordinator,
       configReady: _configApplied.future,
@@ -307,6 +313,38 @@ class AdFlow {
   bool _disposed = false;
   late final Future<bool> _ready;
 
+  /// Widget-owned banner/native controllers minted via [banner]/[native],
+  /// tracked so gate-relevant changes (Remove-Ads, consent mutations,
+  /// dispose) can DROP their live ads — with `minRefresh` off by default
+  /// (ADR-041) nothing else ever re-checks a mounted view ad's permission
+  /// (2026-07 audit). Controllers deregister themselves on dispose.
+  final Set<AdController> _mintedViewControllers = {};
+
+  /// Re-evaluates every controller's permission — see
+  /// [AdController.recheckGate].
+  void _recheckAll() {
+    unawaited(_interstitial?.recheckGate());
+    unawaited(_rewarded?.recheckGate());
+    unawaited(_rewardedInterstitial?.recheckGate());
+    unawaited(_appOpenController?.recheckGate());
+    // Copy: a controller disposed mid-iteration mutates the set.
+    for (final controller in List.of(_mintedViewControllers)) {
+      unawaited(controller.recheckGate());
+    }
+  }
+
+  /// Called by the [consent] wrapper after any consent-mutating call
+  /// completes (a privacy-options form the user may have used to withdraw,
+  /// an app-driven `ensureCanRequestAds`, a test `reset`) so ads that are no
+  /// longer permitted come down and newly-permitted slots load (2026-07
+  /// audit; a withdrawal used to be entirely unobservable — nothing dropped
+  /// a mounted banner, while AdMob's server-side auto-refresh kept
+  /// requesting ads for it).
+  void _afterConsentMutation() {
+    if (_disposed) return;
+    _recheckAll();
+  }
+
   // ── Consent, and its retry ────────────────────────────────────────────────
   //
   // The consent flow is the single gate every ad load waits behind, and it is
@@ -526,17 +564,39 @@ class AdFlow {
   }
 
   /// The consent gateway (privacy options, lastError, re-runs).
-  ConsentGateway get consent => _consent;
+  ///
+  /// Returned through a thin wrapper: after any consent-MUTATING call
+  /// completes ([ConsentGateway.showPrivacyOptions],
+  /// [ConsentGateway.ensureCanRequestAds], [ConsentGateway.reset]), the
+  /// graph re-checks every controller so a withdrawal drops live/warm ads
+  /// and a newly-opened gate loads idle slots (2026-07 audit). Use this —
+  /// not a directly-constructed gateway — for the `PrivacyOptionsButton`.
+  ConsentGateway get consent => _consentView;
+  late final ConsentGateway _consentView = _GraphAwareConsentGateway(
+    _consent,
+    this,
+  );
 
   /// Whether ads are enabled (Remove-Ads state). Reactive for widgets.
   ValueListenable<bool> get adsEnabled => _adsEnabled;
 
-  /// Re-enables ad loading after [disableAds].
-  void enableAds() => _adsEnabled.value = true;
+  /// Re-enables ad loading after [disableAds] and re-warms inventory at
+  /// once (no gate-recheck backoff wait).
+  void enableAds() {
+    _adsEnabled.value = true;
+    _recheckAll();
+  }
 
-  /// Blocks every future ad load/show (e.g. the user bought Remove-Ads).
-  /// Hide any mounted ad widgets in response to [adsEnabled].
-  void disableAds() => _adsEnabled.value = false;
+  /// Blocks every future ad load/show (e.g. the user bought Remove-Ads) and
+  /// DROPS every live/warm ad, including mounted banner/native ads minted
+  /// via [banner]/[native] (their widgets fall back to the placeholder;
+  /// also hide them via [adsEnabled] for a clean layout). Before this
+  /// dropped live ads, a Remove-Ads purchaser kept seeing — and AdMob kept
+  /// server-side refreshing — the already-mounted banner (2026-07 audit).
+  void disableAds() {
+    _adsEnabled.value = false;
+    _recheckAll();
+  }
 
   T _require<T>(T? controller, String format) {
     final resolved = controller;
@@ -589,7 +649,8 @@ class AdFlow {
         'The banner slot has no ad unit ID for ${_platform.name}.',
       );
     }
-    return BannerAdController(
+    late final BannerAdController controller;
+    controller = BannerAdController(
       sdk: _sdk,
       gate: _gate,
       config: config,
@@ -598,7 +659,10 @@ class AdFlow {
       retry: RetryPolicy(_config.retry),
       onPaid: _dispatchPaid,
       onBlocked: _dispatchBlocked,
+      onDisposed: () => _mintedViewControllers.remove(controller),
     );
+    _mintedViewControllers.add(controller);
+    return controller;
   }
 
   /// Creates a fresh native controller (one per placement; give it to an
@@ -621,7 +685,8 @@ class AdFlow {
         'The native slot has no ad unit ID for ${_platform.name}.',
       );
     }
-    return NativeAdController(
+    late final NativeAdController controller;
+    controller = NativeAdController(
       sdk: _sdk,
       gate: _gate,
       config: config,
@@ -630,7 +695,10 @@ class AdFlow {
       retry: RetryPolicy(_config.retry),
       onPaid: _dispatchPaid,
       onBlocked: _dispatchBlocked,
+      onDisposed: () => _mintedViewControllers.remove(controller),
     );
+    _mintedViewControllers.add(controller);
+    return controller;
   }
 
   /// Tells ad_flow that a **blocking** banner or native ad currently occupies
@@ -667,10 +735,18 @@ class AdFlow {
   Future<AdInspectorResult> openAdInspector() => _sdk.openAdInspector();
 
   /// Tears down the whole graph. Banner/native controllers created via
-  /// [banner]/[native] are owned by their widgets and disposed there.
+  /// [banner]/[native] are owned by their widgets and disposed there — but
+  /// their ads are DROPPED here (the dead graph's gate refuses everything
+  /// from now on), so a leftover widget shows its placeholder rather than an
+  /// ad served through disposed collaborators (2026-07 audit).
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    // With _disposed set, the gate reads closed: this drop-recheck brings
+    // down every minted view controller's live ad. Runs before the owned
+    // controllers are disposed below (their own dispose is the stronger
+    // teardown; the recheck they get is a harmless no-op afterwards).
+    _recheckAll();
     _consentRetryTimer?.cancel();
     _consentRetryTimer = null;
     // Release any load parked in AdGate.canLoad awaiting config (a background
@@ -688,4 +764,59 @@ class AdFlow {
     if (_ownsConsent) _consent.dispose();
     if (identical(_instance, this)) _instance = null;
   }
+}
+
+/// Thin [ConsentGateway] wrapper the facade hands out via [AdFlow.consent]:
+/// after any consent-MUTATING call completes it re-checks every controller,
+/// so a consent withdrawal in the privacy-options form drops live/warm ads
+/// and a newly-opened gate loads idle slots (2026-07 audit). Read-only
+/// members delegate untouched.
+class _GraphAwareConsentGateway implements ConsentGateway {
+  _GraphAwareConsentGateway(this._inner, this._owner);
+
+  final ConsentGateway _inner;
+  final AdFlow _owner;
+
+  @override
+  Future<bool> ensureCanRequestAds({ConsentDebugOptions? debug}) async {
+    try {
+      return await _inner.ensureCanRequestAds(debug: debug);
+    } finally {
+      _owner._afterConsentMutation();
+    }
+  }
+
+  @override
+  bool get isPrivacyOptionsRequired => _inner.isPrivacyOptionsRequired;
+
+  @override
+  ValueListenable<bool> get privacyOptionsRequired =>
+      _inner.privacyOptionsRequired;
+
+  @override
+  AdFlowError? get lastError => _inner.lastError;
+
+  @override
+  Future<void> showPrivacyOptions() async {
+    try {
+      // Rethrows on failure, per the ConsentGateway contract — but the
+      // recheck runs either way (the form may have committed a change
+      // before erroring).
+      await _inner.showPrivacyOptions();
+    } finally {
+      _owner._afterConsentMutation();
+    }
+  }
+
+  @override
+  Future<void> reset() async {
+    try {
+      await _inner.reset();
+    } finally {
+      _owner._afterConsentMutation();
+    }
+  }
+
+  @override
+  void dispose() => _inner.dispose();
 }

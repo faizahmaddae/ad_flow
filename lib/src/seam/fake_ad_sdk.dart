@@ -154,6 +154,11 @@ class FakeAdSdk implements AdSdk {
   /// form dismissal would.
   void Function()? onConsentFormShown;
 
+  /// Invoked when [showPrivacyOptionsForm] runs (after the error knob) —
+  /// mutate consent state here to simulate the user changing (or
+  /// withdrawing) consent in the privacy-options form.
+  void Function()? onPrivacyOptionsFormShown;
+
   /// Invoked by [requestConsentInfoUpdate] when it does NOT throw. Use it to
   /// flip [canRequestAdsResult] the way a real UMP info update does once the
   /// network is reachable — e.g. to model an offline launch (set
@@ -352,6 +357,7 @@ class FakeAdSdk implements AdSdk {
     showPrivacyOptionsFormCalls++;
     final error = privacyOptionsFormError;
     if (error != null) throw error;
+    onPrivacyOptionsFormShown?.call();
   }
 
   @override

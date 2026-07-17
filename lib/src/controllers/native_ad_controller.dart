@@ -33,6 +33,7 @@ class NativeAdController implements AdController {
     RetryPolicy? retry,
     void Function(AdPaidEvent event)? onPaid,
     void Function(String slot, AdBlockReason reason)? onBlocked,
+    void Function()? onDisposed,
   }) : _sdk = sdk,
        _gate = gate,
        _config = config,
@@ -40,7 +41,8 @@ class NativeAdController implements AdController {
        _coordinator = coordinator,
        _retry = retry ?? RetryPolicy(const RetryConfig()),
        _onPaid = onPaid,
-       _onBlocked = onBlocked;
+       _onBlocked = onBlocked,
+       _onDisposed = onDisposed;
 
   /// The gate/cap slot name for native ads.
   static const slot = 'native';
@@ -53,6 +55,10 @@ class NativeAdController implements AdController {
   final RetryPolicy _retry;
   final void Function(AdPaidEvent event)? _onPaid;
   final void Function(String slot, AdBlockReason reason)? _onBlocked;
+
+  /// Notified exactly once, when [dispose] runs — lets the minting `AdFlow`
+  /// drop this controller from its recheck registry (2026-07 audit).
+  final void Function()? _onDisposed;
 
   AdBlockReason? _lastBlockReason;
 
@@ -156,6 +162,28 @@ class NativeAdController implements AdController {
     await load();
   }
 
+  @override
+  Future<void> recheckGate() async {
+    if (_disposed) return;
+    final state = _state.value;
+    if (state is AdLoaded) {
+      final blocked = await _gate.loadBlockReason(slot);
+      if (_disposed || blocked == null) return;
+      if (_state.value is! AdLoaded) return; // changed while awaiting
+      // No longer permitted (Remove-Ads, consent withdrawn, graph disposed):
+      // native ads have no refresh loop at all, so nothing else would ever
+      // drop a mounted ad (2026-07 audit).
+      _timer?.cancel();
+      _dropHandle();
+      _noteBlocked(blocked);
+      _state.value = const AdIdle();
+      _scheduleGateRecheck();
+    } else if (state is AdIdle || state is AdFailed) {
+      if (state is AdFailed) _state.value = const AdIdle();
+      await load();
+    }
+  }
+
   void _scheduleRetry() {
     _attempts++;
     _timer?.cancel();
@@ -227,6 +255,7 @@ class NativeAdController implements AdController {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _onDisposed?.call();
     _timer?.cancel();
     _timer = null;
     _dropHandle();

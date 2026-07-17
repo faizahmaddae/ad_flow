@@ -187,6 +187,32 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   }
 
   @override
+  Future<void> recheckGate() async {
+    if (_disposed) return;
+    final state = _state.value;
+    if (state is AdLoaded) {
+      // Cheap current checks only (enabled + live canRequestAds) — the warm
+      // ad already passed the full load gate; this asks "is it STILL
+      // permitted?" (Remove-Ads bought, consent withdrawn, graph disposed).
+      final blocked = await _gate.showBlockReason(slot);
+      if (_disposed || blocked == null) return;
+      if (_state.value is! AdLoaded) return; // changed while awaiting
+      _timer?.cancel();
+      _dropHandle();
+      noteBlocked(blocked);
+      _state.value = const AdIdle();
+      _scheduleGateRecheck();
+    } else if (state is AdIdle || state is AdFailed) {
+      // The gate may have just (re)opened — load() re-checks it itself, so
+      // this simply short-circuits the pending backoff.
+      if (state is AdFailed) _state.value = const AdIdle();
+      await load();
+    }
+    // AdLoading resolves on its own; AdShowing is on screen — the dismiss
+    // path reloads through the gate anyway.
+  }
+
+  @override
   Future<bool> show({OnUserEarnedReward? onReward}) async {
     if (_disposed) return false;
     if (_state.value is AdShowing) return false; // never double-show

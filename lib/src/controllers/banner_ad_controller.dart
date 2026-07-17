@@ -39,6 +39,7 @@ class BannerAdController implements AdController {
     RetryPolicy? retry,
     void Function(AdPaidEvent event)? onPaid,
     void Function(String slot, AdBlockReason reason)? onBlocked,
+    void Function()? onDisposed,
   }) : _sdk = sdk,
        _gate = gate,
        _config = config,
@@ -46,7 +47,8 @@ class BannerAdController implements AdController {
        _coordinator = coordinator,
        _retry = retry ?? RetryPolicy(const RetryConfig()),
        _onPaid = onPaid,
-       _onBlocked = onBlocked;
+       _onBlocked = onBlocked,
+       _onDisposed = onDisposed;
 
   /// The gate/cap slot name for banners.
   static const slot = 'banner';
@@ -63,6 +65,10 @@ class BannerAdController implements AdController {
   final RetryPolicy _retry;
   final void Function(AdPaidEvent event)? _onPaid;
   final void Function(String slot, AdBlockReason reason)? _onBlocked;
+
+  /// Notified exactly once, when [dispose] runs — lets the minting `AdFlow`
+  /// drop this controller from its recheck registry (2026-07 audit).
+  final void Function()? _onDisposed;
 
   AdBlockReason? _lastBlockReason;
 
@@ -255,6 +261,30 @@ class BannerAdController implements AdController {
       if (_disposed) return;
       _state.value = AdFailed(asAdFlowError(e, AdFlowErrorKind.loadFailed));
       _scheduleRetry();
+    }
+  }
+
+  @override
+  Future<void> recheckGate() async {
+    if (_disposed) return;
+    final state = _state.value;
+    if (state is AdLoaded) {
+      final blocked = await _gate.loadBlockReason(slot);
+      if (_disposed || blocked == null) return;
+      if (_state.value is! AdLoaded) return; // changed while awaiting
+      // The mounted ad is no longer PERMITTED (Remove-Ads bought, consent
+      // withdrawn, the owning graph disposed). With minRefresh off by
+      // default (ADR-041) nothing else ever re-checks the gate for a live
+      // banner — while AdMob's server-side auto-refresh keeps requesting
+      // fresh ads for the mounted view. Drop it (2026-07 audit).
+      _timer?.cancel();
+      _dropHandle();
+      _noteBlocked(blocked);
+      _state.value = const AdIdle();
+      _scheduleGateRecheck();
+    } else if (state is AdIdle || state is AdFailed) {
+      if (state is AdFailed) _state.value = const AdIdle();
+      await load();
     }
   }
 
@@ -463,6 +493,7 @@ class BannerAdController implements AdController {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _onDisposed?.call();
     _timer?.cancel();
     _timer = null;
     _dropHandle();
