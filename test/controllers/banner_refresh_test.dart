@@ -218,46 +218,43 @@ void main() {
       );
     }
 
-    test(
-      'resize() during an in-flight refresh leaks nothing and ends at the '
-      'new width',
-      () {
-        fakeAsync((async) {
-          final c = refreshing();
-          c.load(width: 320);
-          async.flushMicrotasks();
+    test('resize() during an in-flight refresh leaks nothing and ends at the '
+        'new width', () {
+      fakeAsync((async) {
+        final c = refreshing();
+        c.load(width: 320);
+        async.flushMicrotasks();
 
-          // Park the refresh mid-flight, then rotate.
-          sdk.loadHold = Completer<void>();
-          async.elapse(const Duration(seconds: 60));
-          async.flushMicrotasks();
-          c.resize(800);
-          async.flushMicrotasks();
+        // Park the refresh mid-flight, then rotate.
+        sdk.loadHold = Completer<void>();
+        async.elapse(const Duration(seconds: 60));
+        async.flushMicrotasks();
+        c.resize(800);
+        async.flushMicrotasks();
 
-          // Everything lands.
-          sdk.loadHold!.complete();
-          sdk.loadHold = null;
-          async.flushMicrotasks();
-          async.elapse(const Duration(minutes: 2));
-          async.flushMicrotasks();
+        // Everything lands.
+        sdk.loadHold!.complete();
+        sdk.loadHold = null;
+        async.flushMicrotasks();
+        async.elapse(const Duration(minutes: 2));
+        async.flushMicrotasks();
 
-          expect(c.state.value, const AdLoaded());
-          expect(
-            c.loadedWidth,
-            800,
-            reason: 'the rotation must not be silently dropped',
-          );
-          expect(
-            (sdk.bannerSpecs.last.size as AnchoredAdaptiveSizeSpec).width,
-            800,
-            reason: 'the last SDK request must be for the new width',
-          );
-          expectNoLeaks(c);
-          c.dispose();
-          expect(sdk.banners.every((b) => b.disposed), isTrue);
-        });
-      },
-    );
+        expect(c.state.value, const AdLoaded());
+        expect(
+          c.loadedWidth,
+          800,
+          reason: 'the rotation must not be silently dropped',
+        );
+        expect(
+          (sdk.bannerSpecs.last.size as AnchoredAdaptiveSizeSpec).width,
+          800,
+          reason: 'the last SDK request must be for the new width',
+        );
+        expectNoLeaks(c);
+        c.dispose();
+        expect(sdk.banners.every((b) => b.disposed), isTrue);
+      });
+    });
 
     test(
       'a stale refresh completion must not destroy a fresher right-width ad',

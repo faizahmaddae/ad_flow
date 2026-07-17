@@ -6,7 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 // ignore: implementation_imports
-import 'package:google_mobile_ads/src/ad_containers.dart' show LoadAdError;
+import 'package:google_mobile_ads/src/ad_containers.dart'
+    show AdSize, LoadAdError;
 import 'package:google_mobile_ads/src/ad_instance_manager.dart';
 
 /// Drives the real `google_mobile_ads` plugin's platform channel against
@@ -35,9 +36,21 @@ void main() {
   /// seam instead of assumed).
   Object? showRejectsWith;
 
+  /// If set, the mock handler throws this on any `load*Ad` call —
+  /// simulates a raw platform-channel failure of the load DISPATCH itself
+  /// (as opposed to the SDK's own onAdFailedToLoad callback).
+  Object? loadDispatchRejectsWith;
+
+  /// What the mock handler answers for `getAdSize` (an inline adaptive
+  /// banner's post-load platform size query). Null simulates the query
+  /// failing to produce a size.
+  Object? platformAdSizeResult;
+
   setUp(() {
     log = <MethodCall>[];
     showRejectsWith = null;
+    loadDispatchRejectsWith = null;
+    platformAdSizeResult = null;
     instanceManager = AdInstanceManager('plugins.flutter.io/google_mobile_ads');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(instanceManager.channel, (call) async {
@@ -46,11 +59,16 @@ void main() {
             case 'showAdWithoutView':
               final rejectsWith = showRejectsWith;
               if (rejectsWith != null) throw rejectsWith;
-              return Future<void>.value();
+              return null;
+            case 'loadBannerAd' || 'loadInterstitialAd'
+                when loadDispatchRejectsWith != null:
+              throw loadDispatchRejectsWith!;
+            case 'getAdSize':
+              return platformAdSizeResult;
             case 'loadBannerAd':
             case 'loadInterstitialAd':
             case 'disposeAd':
-              return Future<void>.value();
+              return null;
             default:
               throw UnimplementedError(
                 'gma_ad_sdk_test does not mock ${call.method}',
@@ -168,6 +186,136 @@ void main() {
         reason:
             'closing the paid stream would silently stop all revenue '
             'reporting for this placement for the rest of the session',
+      );
+    });
+  });
+
+  group('inline adaptive refresh (2026-07 audit)', () {
+    Future<BannerHandle> loadInline(GmaAdSdk sdk) async {
+      final future = sdk.loadBanner(
+        const BannerLoadSpec(
+          adUnitId: 'unit-b',
+          size: InlineAdaptiveSizeSpec(width: 320, maxHeight: 200),
+        ),
+      );
+      await pumpEventQueue();
+      await sendAdEvent(0, 'onAdLoaded');
+      await pumpEventQueue();
+      return future;
+    }
+
+    test('a refresh whose getPlatformAdSize fails must NOT tear down the '
+        'live banner (symmetric to review finding #2)', () async {
+      final sdk = GmaAdSdk();
+      platformAdSizeResult = AdSize(width: 320, height: 100);
+      final handle = await loadInline(sdk);
+      expect(handle.size, const AdDimensions(width: 320, height: 100));
+
+      // AdMob auto-refresh re-fires onAdLoaded for the SAME ad; this time
+      // the platform size query produces nothing. On the initial load that
+      // is rightly a failed load — but on a refresh the ad on screen is
+      // live, mounted and earning: destroying it (and closing the handle's
+      // streams) turns one failed size query into a permanently dead slot.
+      platformAdSizeResult = null;
+      await sendAdEvent(0, 'onAdLoaded');
+      await pumpEventQueue();
+
+      expect(
+        log.map((c) => c.method),
+        isNot(contains('disposeAd')),
+        reason: 'the live banner must survive a refresh size-query failure',
+      );
+      expect(
+        handle.size,
+        const AdDimensions(width: 320, height: 100),
+        reason: 'keep the last known size when the query fails',
+      );
+    });
+
+    test('the FIRST load still fails cleanly when no platform size resolves '
+        '(zero-height box = a billable impression nobody can see)', () async {
+      final sdk = GmaAdSdk();
+      platformAdSizeResult = null;
+      final future = sdk.loadBanner(
+        const BannerLoadSpec(
+          adUnitId: 'unit-b',
+          size: InlineAdaptiveSizeSpec(width: 320, maxHeight: 200),
+        ),
+      );
+      final expectation = expectLater(
+        future,
+        throwsA(
+          isA<AdFlowError>().having(
+            (e) => e.kind,
+            'kind',
+            AdFlowErrorKind.loadFailed,
+          ),
+        ),
+      );
+      await pumpEventQueue();
+      await sendAdEvent(0, 'onAdLoaded');
+      await expectation;
+      expect(log.map((c) => c.method), contains('disposeAd'));
+    });
+
+    test('a refresh that resolves a NEW size updates the handle and '
+        'notifies dimensions listeners', () async {
+      final sdk = GmaAdSdk();
+      platformAdSizeResult = AdSize(width: 320, height: 100);
+      final handle = await loadInline(sdk);
+
+      var notified = 0;
+      handle.dimensions.addListener(() => notified++);
+
+      // Inline adaptive creatives legitimately vary in height per refresh;
+      // the widget sizes its box from the handle, so it must be told.
+      platformAdSizeResult = AdSize(width: 320, height: 150);
+      await sendAdEvent(0, 'onAdLoaded');
+      await pumpEventQueue();
+
+      expect(handle.size, const AdDimensions(width: 320, height: 150));
+      expect(notified, 1);
+    });
+  });
+
+  group('load-dispatch failures are normalized (2026-07 audit)', () {
+    test('a raw platform throw from the banner load dispatch surfaces as '
+        'AdFlowError, upholding the seam contract', () async {
+      final sdk = GmaAdSdk();
+      loadDispatchRejectsWith = PlatformException(
+        code: 'channel-error',
+        message: 'native failure constructing the ad',
+      );
+      await expectLater(
+        sdk.loadBanner(
+          const BannerLoadSpec(
+            adUnitId: 'unit-b',
+            size: FixedSizeSpec(FixedBannerSize.banner),
+          ),
+        ),
+        throwsA(
+          isA<AdFlowError>().having(
+            (e) => e.kind,
+            'kind',
+            AdFlowErrorKind.loadFailed,
+          ),
+        ),
+      );
+    });
+
+    test('a raw platform throw from the interstitial load dispatch surfaces '
+        'as AdFlowError', () async {
+      final sdk = GmaAdSdk();
+      loadDispatchRejectsWith = PlatformException(code: 'channel-error');
+      await expectLater(
+        sdk.loadInterstitial('unit-i', const AdRequestOptions()),
+        throwsA(
+          isA<AdFlowError>().having(
+            (e) => e.kind,
+            'kind',
+            AdFlowErrorKind.loadFailed,
+          ),
+        ),
       );
     });
   });

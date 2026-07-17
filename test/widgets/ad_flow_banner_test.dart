@@ -400,6 +400,34 @@ void main() {
     },
   );
 
+  testWidgets(
+    'the hosted box follows a live size change (server-side auto-refresh of '
+    'an inline adaptive banner can resolve a different height)',
+    (tester) async {
+      sdk.bannerSize = const AdDimensions(width: 360, height: 100);
+      final c = controller();
+      await tester.pumpWidget(
+        host(AdFlowBanner(controller: c, ownsController: true)),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.getSize(find.byType(AdFlowBanner)).height, 100);
+
+      // The SAME handle resolves a new creative height on the platform side.
+      (sdk.banners.single).simulateResize(
+        const AdDimensions(width: 360, height: 150),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getSize(find.byType(AdFlowBanner)).height,
+        150,
+        reason:
+            'without following handle.dimensions the new creative renders '
+            'clipped in the old box',
+      );
+    },
+  );
+
   testWidgets('an adopted controller swap remounts the native ad subtree too', (
     tester,
   ) async {

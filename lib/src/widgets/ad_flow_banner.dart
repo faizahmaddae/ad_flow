@@ -99,9 +99,14 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
             final state = widget.controller.state.value;
             final handle = widget.controller.handle;
             if (state is AdLoaded && handle != null) {
-              return SizedBox(
-                width: handle.size.width,
-                height: handle.size.height,
+              // The box follows `handle.dimensions`, not a one-shot size
+              // read: AdMob's server-side auto-refresh can resolve a
+              // DIFFERENT inline adaptive height for the SAME handle, and
+              // without a subscription the new creative would render in the
+              // old box (2026-07 audit). ValueListenableBuilder re-subscribes
+              // whenever the handle (and so the listenable) changes.
+              return ValueListenableBuilder(
+                valueListenable: handle.dimensions,
                 // Keyed by HANDLE IDENTITY, so a refresh swap (ADR-041)
                 // unmounts the old AdWidget element and mounts a fresh one.
                 // The plugin's AdWidget has no didUpdateWidget: its platform
@@ -116,6 +121,11 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
                 child: KeyedSubtree(
                   key: ObjectKey(handle),
                   child: handle.buildWidget(),
+                ),
+                builder: (context, size, child) => SizedBox(
+                  width: size.width,
+                  height: size.height,
+                  child: child,
                 ),
               );
             }

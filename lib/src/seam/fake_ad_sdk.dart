@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import '../core/ad_flow_error.dart';
@@ -517,15 +518,25 @@ class FakeBannerHandle implements BannerHandle {
   /// Creates a fake banner handle.
   FakeBannerHandle(
     this.adUnitId, {
-    this.size = const AdDimensions(width: 320, height: 50),
+    AdDimensions size = const AdDimensions(width: 320, height: 50),
     this.isCollapsible = false,
-  });
+  }) : _dimensions = ValueNotifier(size);
 
   @override
   final String adUnitId;
 
+  final ValueNotifier<AdDimensions> _dimensions;
+
   @override
-  final AdDimensions size;
+  AdDimensions get size => _dimensions.value;
+
+  @override
+  ValueListenable<AdDimensions> get dimensions => _dimensions;
+
+  /// Simulates the platform resolving a new size for the SAME live ad —
+  /// what an AdMob server-side auto-refresh of an inline adaptive banner
+  /// does (the real seam updates the handle and notifies listeners).
+  void simulateResize(AdDimensions size) => _dimensions.value = size;
 
   @override
   final bool isCollapsible;

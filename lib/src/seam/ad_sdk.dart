@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import 'ad_sdk_types.dart';
@@ -70,7 +71,18 @@ abstract interface class ViewAdHandle {
 /// A loaded banner ad.
 abstract interface class BannerHandle implements ViewAdHandle {
   /// The resolved on-screen size, known once loaded.
+  ///
+  /// Shorthand for `dimensions.value`.
   AdDimensions get size;
+
+  /// Reactive view of [size].
+  ///
+  /// AdMob's server-side auto-refresh replaces the creative in place, and an
+  /// inline adaptive replacement can legitimately resolve to a DIFFERENT
+  /// height — the hosting widget sizes its box from the handle, so it must be
+  /// told or the new creative renders clipped/letterboxed in the old box
+  /// (2026-07 audit). Fixed and anchored sizes never change after load.
+  ValueListenable<AdDimensions> get dimensions;
 
   /// Whether the loaded ad is a collapsible banner.
   bool get isCollapsible;

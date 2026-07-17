@@ -39,13 +39,15 @@ class GmaAdSdk implements AdSdk {
     AdRequestOptions options,
   ) async {
     final completer = Completer<InterstitialHandle>();
-    await gma.InterstitialAd.load(
-      adUnitId: adUnitId,
-      request: toGmaAdRequest(options),
-      adLoadCallback: gma.InterstitialAdLoadCallback(
-        onAdLoaded: (ad) =>
-            completer.complete(_GmaInterstitialHandle(adUnitId, ad)),
-        onAdFailedToLoad: (e) => completer.completeError(loadErrorFrom(e)),
+    await _dispatchFullScreenLoad(
+      () => gma.InterstitialAd.load(
+        adUnitId: adUnitId,
+        request: toGmaAdRequest(options),
+        adLoadCallback: gma.InterstitialAdLoadCallback(
+          onAdLoaded: (ad) =>
+              completer.complete(_GmaInterstitialHandle(adUnitId, ad)),
+          onAdFailedToLoad: (e) => completer.completeError(loadErrorFrom(e)),
+        ),
       ),
     );
     return completer.future;
@@ -58,20 +60,22 @@ class GmaAdSdk implements AdSdk {
     ServerSideVerification? ssv,
   }) async {
     final completer = Completer<RewardedHandle>();
-    await gma.RewardedAd.load(
-      adUnitId: adUnitId,
-      request: toGmaAdRequest(options),
-      rewardedAdLoadCallback: gma.RewardedAdLoadCallback(
-        onAdLoaded: (ad) => unawaited(() async {
-          // SSV must be attached before show; failures must not lose the ad.
-          if (ssv != null) {
-            try {
-              await ad.setServerSideOptions(toGmaSsvOptions(ssv));
-            } catch (_) {}
-          }
-          completer.complete(_GmaRewardedHandle(adUnitId, ad));
-        }()),
-        onAdFailedToLoad: (e) => completer.completeError(loadErrorFrom(e)),
+    await _dispatchFullScreenLoad(
+      () => gma.RewardedAd.load(
+        adUnitId: adUnitId,
+        request: toGmaAdRequest(options),
+        rewardedAdLoadCallback: gma.RewardedAdLoadCallback(
+          onAdLoaded: (ad) => unawaited(() async {
+            // SSV must be attached before show; failures must not lose the ad.
+            if (ssv != null) {
+              try {
+                await ad.setServerSideOptions(toGmaSsvOptions(ssv));
+              } catch (_) {}
+            }
+            completer.complete(_GmaRewardedHandle(adUnitId, ad));
+          }()),
+          onAdFailedToLoad: (e) => completer.completeError(loadErrorFrom(e)),
+        ),
       ),
     );
     return completer.future;
@@ -84,37 +88,52 @@ class GmaAdSdk implements AdSdk {
     ServerSideVerification? ssv,
   }) async {
     final completer = Completer<RewardedInterstitialHandle>();
-    await gma.RewardedInterstitialAd.load(
-      adUnitId: adUnitId,
-      request: toGmaAdRequest(options),
-      rewardedInterstitialAdLoadCallback:
-          gma.RewardedInterstitialAdLoadCallback(
-            onAdLoaded: (ad) => unawaited(() async {
-              if (ssv != null) {
-                try {
-                  await ad.setServerSideOptions(toGmaSsvOptions(ssv));
-                } catch (_) {}
-              }
-              completer.complete(_GmaRewardedInterstitialHandle(adUnitId, ad));
-            }()),
-            onAdFailedToLoad: (e) => completer.completeError(loadErrorFrom(e)),
-          ),
+    await _dispatchFullScreenLoad(
+      () => gma.RewardedInterstitialAd.load(
+        adUnitId: adUnitId,
+        request: toGmaAdRequest(options),
+        rewardedInterstitialAdLoadCallback:
+            gma.RewardedInterstitialAdLoadCallback(
+              onAdLoaded: (ad) => unawaited(() async {
+                if (ssv != null) {
+                  try {
+                    await ad.setServerSideOptions(toGmaSsvOptions(ssv));
+                  } catch (_) {}
+                }
+                completer.complete(
+                  _GmaRewardedInterstitialHandle(adUnitId, ad),
+                );
+              }()),
+              onAdFailedToLoad: (e) =>
+                  completer.completeError(loadErrorFrom(e)),
+            ),
+      ),
     );
     return completer.future;
   }
 
+  /// Known upstream limitation (plugin 9.0.0, verified in
+  /// `ad_instance_manager.dart`'s `_invokeOnAdFailedToLoad`): on a FAILED
+  /// load the plugin auto-disposes interstitial/rewarded/rewarded-
+  /// interstitial ads but NOT `AppOpenAd`, and the failure callback carries
+  /// no ad reference — so each failed app-open load leaks one plugin-side ad
+  /// entry that this seam cannot release. Re-check when bumping the plugin;
+  /// see RESEARCH.md §3.
   @override
   Future<AppOpenHandle> loadAppOpen(
     String adUnitId,
     AdRequestOptions options,
   ) async {
     final completer = Completer<AppOpenHandle>();
-    await gma.AppOpenAd.load(
-      adUnitId: adUnitId,
-      request: toGmaAdRequest(options),
-      adLoadCallback: gma.AppOpenAdLoadCallback(
-        onAdLoaded: (ad) => completer.complete(_GmaAppOpenHandle(adUnitId, ad)),
-        onAdFailedToLoad: (e) => completer.completeError(loadErrorFrom(e)),
+    await _dispatchFullScreenLoad(
+      () => gma.AppOpenAd.load(
+        adUnitId: adUnitId,
+        request: toGmaAdRequest(options),
+        adLoadCallback: gma.AppOpenAdLoadCallback(
+          onAdLoaded: (ad) =>
+              completer.complete(_GmaAppOpenHandle(adUnitId, ad)),
+          onAdFailedToLoad: (e) => completer.completeError(loadErrorFrom(e)),
+        ),
       ),
     );
     return completer.future;
@@ -175,8 +194,43 @@ class GmaAdSdk implements AdSdk {
       ),
     );
     handle = _GmaBannerHandle(spec.adUnitId, ad);
-    await ad.load();
+    await _dispatchViewLoad(ad, handle._events, handle._paid);
     return completer.future;
+  }
+
+  /// Dispatches `ad.load()` for a view ad, normalizing a raw channel throw.
+  ///
+  /// The load DISPATCH itself is a method-channel invoke that can reject with
+  /// a raw `PlatformException` (a native error constructing the ad) — a path
+  /// the `onAdFailedToLoad` callback mapping never sees. The seam contract
+  /// says load failures are `AdFlowError`s, and the handle's two eagerly
+  /// constructed stream controllers must not be dropped unclosed (the same
+  /// leak ADR-026 nit #13 closed on the callback path). 2026-07 audit.
+  Future<void> _dispatchViewLoad(
+    gma.AdWithView ad,
+    StreamController<ViewAdEvent> events,
+    StreamController<AdPaidEvent> paid,
+  ) async {
+    try {
+      await ad.load();
+    } catch (e) {
+      unawaited(ad.dispose());
+      unawaited(events.close());
+      unawaited(paid.close());
+      throw asAdFlowError(e, AdFlowErrorKind.loadFailed);
+    }
+  }
+
+  /// Normalizes a raw channel throw from a full-screen static `load` call
+  /// (`InterstitialAd.load` etc. can reject with a raw `PlatformException`
+  /// before any callback fires). The plugin holds no caller-visible ad
+  /// reference on this path, so normalization is all the seam can do.
+  static Future<T> _dispatchFullScreenLoad<T>(Future<T> Function() call) async {
+    try {
+      return await call();
+    } catch (e) {
+      throw asAdFlowError(e, AdFlowErrorKind.loadFailed);
+    }
   }
 
   Future<void> _finishBannerLoad(
@@ -206,24 +260,29 @@ class GmaAdSdk implements AdSdk {
         // Fall through to the failure path below.
       }
       if (resolved == null || resolved.height <= 0) {
-        // We cannot size the container, and the requested size's height is 0.
-        // Rendering the ad anyway would put a LOADED, BILLABLE creative in a
-        // zero-height box: an impression the user can never see. Google's own
-        // guidance is to use getPlatformAdSize() to size the container, so if
-        // it will not tell us, treat this as a failed load — dispose the ad
-        // (no impression) and let the controller's normal retry path run.
+        // On an AUTO-REFRESH (completer already completed) the ad on screen
+        // is live, mounted and earning: a failed size query must keep the
+        // last known size, never tear the ad down — the symmetric hole to
+        // the onAdFailedToLoad refresh guard above (review finding #2,
+        // 2026-07 audit).
+        if (completer.isCompleted) return;
+        // On the INITIAL load we cannot size the container, and the
+        // requested size's height is 0. Rendering the ad anyway would put a
+        // LOADED, BILLABLE creative in a zero-height box: an impression the
+        // user can never see. Google's own guidance is to use
+        // getPlatformAdSize() to size the container, so if it will not tell
+        // us, treat this as a failed load — dispose the ad (no impression)
+        // and let the controller's normal retry path run.
         unawaited(handle._ad.dispose());
         unawaited(handle._events.close());
         unawaited(handle._paid.close());
-        if (!completer.isCompleted) {
-          completer.completeError(
-            const AdFlowError(
-              AdFlowErrorKind.loadFailed,
-              'Could not resolve the inline adaptive banner height '
-              '(getPlatformAdSize returned no size).',
-            ),
-          );
-        }
+        completer.completeError(
+          const AdFlowError(
+            AdFlowErrorKind.loadFailed,
+            'Could not resolve the inline adaptive banner height '
+            '(getPlatformAdSize returned no size).',
+          ),
+        );
         return;
       }
       size = resolved;
@@ -236,7 +295,10 @@ class GmaAdSdk implements AdSdk {
         collapsible = false;
       }
     }
-    handle._size = size;
+    // A ValueNotifier write: a refresh that resolves a DIFFERENT size (inline
+    // adaptive creatives vary per refresh) notifies the hosting widget so it
+    // can resize its box; an unchanged size no-ops.
+    handle._dimensions.value = size;
     handle._isCollapsible = collapsible;
     // BannerAdListener.onAdLoaded fires on every AdMob-driven auto-refresh
     // of this BannerAd, not just the first load — still refresh the
@@ -328,7 +390,7 @@ class GmaAdSdk implements AdSdk {
       ),
     );
     handle = _GmaNativeHandle(spec.adUnitId, ad);
-    await ad.load();
+    await _dispatchViewLoad(ad, handle._events, handle._paid);
     return completer.future;
   }
 
@@ -730,14 +792,22 @@ class _GmaBannerHandle extends _GmaViewAdHandle implements BannerHandle {
 
   final gma.BannerAd _ad;
 
-  AdDimensions _size = const AdDimensions(width: 0, height: 0);
+  // Deliberately never disposed: the hosting widget may still be subscribed
+  // when the controller swaps handles (it unsubscribes on its next build),
+  // and a plain ValueNotifier holds no platform resources.
+  final ValueNotifier<AdDimensions> _dimensions = ValueNotifier(
+    const AdDimensions(width: 0, height: 0),
+  );
   bool _isCollapsible = false;
 
   @override
   gma.AdWithView get _adWithView => _ad;
 
   @override
-  AdDimensions get size => _size;
+  AdDimensions get size => _dimensions.value;
+
+  @override
+  ValueListenable<AdDimensions> get dimensions => _dimensions;
 
   @override
   bool get isCollapsible => _isCollapsible;
