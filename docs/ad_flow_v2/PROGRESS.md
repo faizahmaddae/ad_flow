@@ -26,9 +26,28 @@ invariants, each with fail-first tests:
    MEDIATION_SETUP/README rewritten off the "UMP handles it all" overclaim.
 
 Verify: `flutter analyze && flutter test --concurrency=2` → clean, **448
-tests**. Docs updated: CHANGELOG 4.0.0, MIGRATION 3.x→4.0, README claims
-softened to "policy-aware", NATIVE_ADS_SETUP widget-first, garbled
-`slotName` dartdoc prose fixed, pubspec 4.0.0.
+tests**. Also green this session: `dart format` (committed), `dart pub
+publish --dry-run` (0 warnings), `pana` **160/160**, example
+`flutter build apk --debug` ✓ and `flutter build ios --simulator --debug` ✓,
+coverage **83.9%** (was 81.2%), and an on-simulator smoke run (iPhone 16
+Pro, iOS 18.6): HomeScreen rendered, interstitial/rewarded/RI all `ready`
+through the NEW config-settle machinery, native validator "No
+implementation issues found", live adaptive test banner. NOT re-verified
+on-device this session: the RI intro interactive flow (its presenter is
+unchanged from the 3.0 on-device pass; only the pure-Dart ordering
+changed, which is fakeAsync-covered) and Android runtime. Docs updated:
+CHANGELOG 4.0.0, MIGRATION 3.x→4.0, README claims softened to
+"policy-aware", MEDIATION_SETUP rewritten honest, NATIVE_ADS_SETUP
+widget-first, garbled `slotName` dartdoc prose fixed, pubspec 4.0.0, CI
+gained an iOS example build job.
+
+## Open items for Faiz (4.0.0)
+- Review + merge `production-audit-3.x`; tag `v4.0.0` when ready (tag
+  auto-publishes). The v3.0.0 tag is untouched.
+- Optional on-device sanity: one rewarded-interstitial interactive cycle
+  (intro → watch → reward) and one Android emulator session.
+- If you use mediation partners today: wire `onConsentChanged` per the new
+  doc/MEDIATION_SETUP.md §4 (Unity/Meta/AppLovin signals are yours).
 
 ## Previous phase
 **Phase 18 — 3.0.0 API cleanup (2026-07-17)** — shipped, merged, tagged
