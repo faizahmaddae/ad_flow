@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../core/ad_block_reason.dart';
 
 /// The PERMISSION gate every controller consults: may this slot request
@@ -49,32 +51,48 @@ class AdGate {
   ///
   /// [canLoad] is this, collapsed to a bool. Controllers keep the reason so an
   /// app can tell a gate-blocked slot apart from an idle one.
+  ///
+  /// **Never throws.** The collaborators behind it do throw in the wild — the
+  /// plugin's `canRequestAds()` force-unwraps its channel result, and an
+  /// injected consent gateway can reject through the settle callback. An
+  /// escaping throw used to pin the calling controller at `AdLoading` forever
+  /// (its own re-entry guard then rejects every later load) with an unhandled
+  /// async error on top. Indeterminate permission is now an answer:
+  /// [AdBlockReason.internalError] — blocked for the moment, re-checked on the
+  /// controller's backoff (4.0 audit).
   Future<AdBlockReason?> loadBlockReason(String slot) async {
-    if (!_isEnabled()) return AdBlockReason.adsDisabled;
-    // Never request an ad before request configuration is applied — an
-    // on-demand banner/native mounted on the first frame (ADR-032) can reach
-    // here while the background init/config is still in flight; loading now
-    // would send an untagged/untest-flagged first request (review-fix #5).
-    await _configReady;
-    // Then wait for the consent flow to actually SETTLE, rather than reading a
-    // still-false canRequestAds() and failing fast.
-    //
-    // This closes the gap ADR-032 opened. Startup is non-blocking, so the app
-    // renders and mounts its banner/native on the first frame — but the config
-    // gate above (SDK init, no user interaction, ~1s) always opens well BEFORE
-    // consent (a network-bound info update, and possibly an ATT prompt and a
-    // GDPR form the user must read). So a first-frame view ad used to arrive
-    // here, get a hard `false`, go idle and re-arm only after RetryConfig's
-    // 5-minute cooldown — leaving every new install with blank banner and
-    // native slots for the first five minutes of its first session.
-    //
-    // The callback also RE-ATTEMPTS a consent flow that previously FAILED
-    // (see AdFlow._settleConsent), which is what lets an offline launch start
-    // serving ads once the network returns instead of staying dead all session.
-    await _settleConsent?.call();
-    if (!_isEnabled()) return AdBlockReason.adsDisabled;
-    if (!await _canRequestAds()) return AdBlockReason.consentNotGranted;
-    return null;
+    try {
+      if (!_isEnabled()) return AdBlockReason.adsDisabled;
+      // Never request an ad before request configuration is applied — an
+      // on-demand banner/native mounted on the first frame (ADR-032) can reach
+      // here while the background init/config is still in flight; loading now
+      // would send an untagged/untest-flagged first request (review-fix #5).
+      await _configReady;
+      // Then wait for the consent flow to actually SETTLE, rather than reading
+      // a still-false canRequestAds() and failing fast.
+      //
+      // This closes the gap ADR-032 opened. Startup is non-blocking, so the
+      // app renders and mounts its banner/native on the first frame — but the
+      // config gate above (SDK init, no user interaction, ~1s) always opens
+      // well BEFORE consent (a network-bound info update, and possibly an ATT
+      // prompt and a GDPR form the user must read). So a first-frame view ad
+      // used to arrive here, get a hard `false`, go idle and re-arm only after
+      // RetryConfig's 5-minute cooldown — leaving every new install with blank
+      // banner and native slots for the first five minutes of its first
+      // session.
+      //
+      // The callback also RE-ATTEMPTS a consent flow that previously FAILED
+      // (see AdFlow._settleConsent), which is what lets an offline launch
+      // start serving ads once the network returns instead of staying dead all
+      // session.
+      await _settleConsent?.call();
+      if (!_isEnabled()) return AdBlockReason.adsDisabled;
+      if (!await _canRequestAds()) return AdBlockReason.consentNotGranted;
+      return null;
+    } catch (error, stack) {
+      _reportGateError(error, stack);
+      return AdBlockReason.internalError;
+    }
   }
 
   /// Why [slot] may not SHOW an already-loaded ad right now, or null if it
@@ -89,9 +107,31 @@ class AdGate {
   /// `canRequestAds()` read is still live, so a consent withdrawal between
   /// load and show is still respected.
   Future<AdBlockReason?> showBlockReason(String slot) async {
-    if (!_isEnabled()) return AdBlockReason.adsDisabled;
-    if (!await _canRequestAds()) return AdBlockReason.consentNotGranted;
-    return null;
+    try {
+      if (!_isEnabled()) return AdBlockReason.adsDisabled;
+      if (!await _canRequestAds()) return AdBlockReason.consentNotGranted;
+      return null;
+    } catch (error, stack) {
+      _reportGateError(error, stack);
+      return AdBlockReason.internalError;
+    }
+  }
+
+  /// Surfaces a contained collaborator throw without letting it escape —
+  /// visible in logs/crash reporting via `FlutterError.onError`, never a
+  /// wedged controller or an unhandled async error.
+  static void _reportGateError(Object error, StackTrace stack) {
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: error,
+        stack: stack,
+        library: 'ad_flow',
+        context: ErrorDescription(
+          'while evaluating the ad permission gate (contained; the slot is '
+          'blocked with AdBlockReason.internalError and will re-check)',
+        ),
+      ),
+    );
   }
 }
 

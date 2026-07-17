@@ -7,6 +7,7 @@ import '../core/ad_block_reason.dart';
 import '../core/ad_controller.dart';
 import '../core/ad_flow_error.dart';
 import '../core/ad_load_state.dart';
+import '../core/callback_guard.dart';
 import '../policy/ad_gate.dart';
 import '../policy/frequency_cap_policy.dart';
 import '../policy/full_screen_ad_coordinator.dart';
@@ -82,10 +83,17 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   AdBlockReason? get lastBlockReason => _lastBlockReason;
 
   /// Records a refusal and notifies `AdFlow.onAdBlocked`.
+  ///
+  /// The app callback is ISOLATED: it fires from inside load/show
+  /// transitions, so a throw from it used to corrupt the very transition
+  /// that reported the refusal (4.0 audit).
   @protected
   void noteBlocked(AdBlockReason reason) {
     _lastBlockReason = reason;
-    _onBlocked?.call(slot, reason);
+    final onBlocked = _onBlocked;
+    if (onBlocked != null) {
+      guardedCallback(() => onBlocked(slot, reason), debugName: 'onAdBlocked');
+    }
   }
 
   final ValueNotifier<AdLoadState> _state = ValueNotifier(const AdIdle());
@@ -198,19 +206,24 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     // the loser's ad).
     _state.value = const AdLoading();
 
-    final blocked = await _gate.loadBlockReason(slot);
-    if (_disposed) return;
-    if (blocked != null) {
-      noteBlocked(blocked);
-      // A refused load is a STATE, not a side channel (3.0): consent still
-      // pending, Remove-Ads on and "nothing requested yet" used to be
-      // indistinguishable AdIdle.
-      _state.value = AdBlocked(blocked);
-      _scheduleGateRecheck();
-      return;
-    }
-
+    // ONE try around the whole async body — the gate await included. The gate
+    // itself no longer throws, but the rule stands regardless of collaborator
+    // promises: from the moment AdLoading is written, ANY escape path that is
+    // not a state write + timer arm leaves the slot wedged forever (4.0
+    // audit; the gate await used to sit outside this try).
     try {
+      final blocked = await _gate.loadBlockReason(slot);
+      if (_disposed) return;
+      if (blocked != null) {
+        noteBlocked(blocked);
+        // A refused load is a STATE, not a side channel (3.0): consent still
+        // pending, Remove-Ads on and "nothing requested yet" used to be
+        // indistinguishable AdIdle.
+        _state.value = AdBlocked(blocked);
+        _scheduleGateRecheck();
+        return;
+      }
+
       final handle = await loadHandle();
       if (_disposed) {
         unawaited(handle.dispose());
@@ -218,9 +231,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       }
       _handle = handle;
       _contentSub = handle.contentEvents.listen(_onContentEvent);
-      _paidSub = handle.paidEvents.listen(
-        (event) => _onPaid?.call(event.taggedWithSlot(slot)),
-      );
+      _paidSub = handle.paidEvents.listen(_dispatchPaid);
       _attempts = 0;
       _gateAttempts = 0;
       _lastBlockReason = null;
@@ -252,6 +263,10 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       // permitted?" (Remove-Ads bought, consent withdrawn, graph disposed).
       final blocked = await _gate.showBlockReason(slot);
       if (_disposed || blocked == null) return;
+      // Indeterminate is not "revoked": a transient channel hiccup while
+      // re-checking permission must never destroy the perfectly good warm ad
+      // (4.0 audit). Definite answers (adsDisabled, consentNotGranted) drop.
+      if (blocked == AdBlockReason.internalError) return;
       if (_state.value is! AdLoaded) return; // changed while awaiting
       _timer?.cancel();
       _dropHandle();
@@ -356,12 +371,15 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
 
     OnUserEarnedReward? onRewardOnce;
     if (onReward != null) {
-      // A reward is granted at most once per ad, even if the SDK misfires.
+      // A reward is granted at most once per ad, even if the SDK misfires —
+      // and the app's grant callback is isolated, so an app bug inside it
+      // cannot corrupt the show flow or become an unhandled platform-callback
+      // error (4.0 audit).
       var granted = false;
       onRewardOnce = (reward) {
         if (granted) return;
         granted = true;
-        onReward(reward);
+        guardedCallback(() => onReward(reward), debugName: 'onReward');
       };
     }
     try {
@@ -423,6 +441,17 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       case AdImpressionEvent() || AdClickedEvent():
         break;
     }
+  }
+
+  /// Forwards a paid event to the app with its slot tag, isolated (an
+  /// analytics-hook bug must never surface as an unhandled stream error).
+  void _dispatchPaid(AdPaidEvent event) {
+    final onPaid = _onPaid;
+    if (onPaid == null) return;
+    guardedCallback(
+      () => onPaid(event.taggedWithSlot(slot)),
+      debugName: 'onPaidEvent',
+    );
   }
 
   /// Records the impression for an ad that reached the screen, exactly once.

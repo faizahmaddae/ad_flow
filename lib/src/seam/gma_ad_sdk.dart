@@ -7,6 +7,7 @@ import 'package:flutter/widgets.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart' as gma;
 
 import '../core/ad_flow_error.dart';
+import '../core/callback_guard.dart';
 import 'ad_sdk.dart';
 import 'ad_sdk_types.dart';
 
@@ -732,15 +733,27 @@ abstract class _GmaFullScreenHandle<T extends gma.AdWithoutView> {
 
   gma.OnUserEarnedRewardCallback wrapReward(
     OnUserEarnedReward? onUserEarnedReward,
-  ) =>
-      (ad, item) => onUserEarnedReward?.call(
+  ) => (ad, item) {
+    // Isolated: this fires from inside the plugin's platform callback — an
+    // app bug in the grant handler must not escape into the channel dispatch.
+    if (onUserEarnedReward == null) return;
+    guardedCallback(
+      () => onUserEarnedReward(
         RewardEarned(amount: item.amount, type: item.type),
-      );
+      ),
+      debugName: 'onUserEarnedReward',
+    );
+  };
 
   Future<void> dispose() async {
-    await _ad.dispose();
-    await _content.close();
-    await _paid.close();
+    // The channel dispose can reject (dead engine, torn-down channel); the
+    // stream controllers must still close or their listeners leak.
+    try {
+      await _ad.dispose();
+    } finally {
+      await _content.close();
+      await _paid.close();
+    }
   }
 }
 
@@ -827,9 +840,14 @@ abstract class _GmaViewAdHandle {
   Widget buildWidget() => gma.AdWidget(ad: _adWithView);
 
   Future<void> dispose() async {
-    await _adWithView.dispose();
-    await _events.close();
-    await _paid.close();
+    // See the full-screen handle's dispose: close the streams even when the
+    // channel dispose rejects.
+    try {
+      await _adWithView.dispose();
+    } finally {
+      await _events.close();
+      await _paid.close();
+    }
   }
 }
 

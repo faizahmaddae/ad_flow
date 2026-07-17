@@ -43,4 +43,13 @@ enum AdBlockReason {
   /// The user chose "skip" on the mandatory rewarded-interstitial intro. Not a
   /// fault — policy working as intended.
   introSkipped,
+
+  /// A collaborator failed while answering the permission question — the
+  /// consent channel threw, an injected gateway rejected, or an app-supplied
+  /// hook broke (the underlying error is reported via
+  /// `FlutterError.reportError`). Indeterminate permission blocks NEW loads
+  /// (the controller re-checks on a backoff and recovers when the
+  /// collaborator heals) but never drops a LIVE ad — a transient channel
+  /// hiccup must not destroy revenue already on screen (4.0 audit).
+  internalError,
 }

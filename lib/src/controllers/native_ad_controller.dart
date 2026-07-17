@@ -7,6 +7,7 @@ import '../core/ad_block_reason.dart';
 import '../core/ad_controller.dart';
 import '../core/ad_flow_error.dart';
 import '../core/ad_load_state.dart';
+import '../core/callback_guard.dart';
 import '../policy/ad_gate.dart';
 import '../policy/full_screen_ad_coordinator.dart';
 import '../policy/retry_policy.dart';
@@ -69,7 +70,24 @@ class NativeAdController implements AdController {
 
   void _noteBlocked(AdBlockReason reason) {
     _lastBlockReason = reason;
-    _onBlocked?.call(slotName, reason);
+    final onBlocked = _onBlocked;
+    if (onBlocked != null) {
+      guardedCallback(
+        () => onBlocked(slotName, reason),
+        debugName: 'onAdBlocked',
+      );
+    }
+  }
+
+  /// Forwards a paid event to the app with its slot tag, isolated (an
+  /// analytics-hook bug must never surface as an unhandled stream error).
+  void _dispatchPaid(AdPaidEvent event) {
+    final onPaid = _onPaid;
+    if (onPaid == null) return;
+    guardedCallback(
+      () => onPaid(event.taggedWithSlot(slotName)),
+      debugName: 'onPaidEvent',
+    );
   }
 
   final ValueNotifier<AdLoadState> _state = ValueNotifier(const AdIdle());
@@ -110,17 +128,20 @@ class NativeAdController implements AdController {
     // loser's ad).
     _state.value = const AdLoading();
 
-    final blocked = await _gate.loadBlockReason(slotName);
-    if (_disposed) return;
-    if (blocked != null) {
-      _noteBlocked(blocked);
-      // A refused load is a STATE (3.0) — see AdBlocked.
-      _state.value = AdBlocked(blocked);
-      _scheduleGateRecheck();
-      return;
-    }
-
+    // ONE try around the whole async body, gate await included — any escape
+    // path that is not a state write + timer arm leaves the slot pinned at
+    // AdLoading forever (4.0 audit; the gate await used to sit outside).
     try {
+      final blocked = await _gate.loadBlockReason(slotName);
+      if (_disposed) return;
+      if (blocked != null) {
+        _noteBlocked(blocked);
+        // A refused load is a STATE (3.0) — see AdBlocked.
+        _state.value = AdBlocked(blocked);
+        _scheduleGateRecheck();
+        return;
+      }
+
       final handle = await _sdk.loadNative(
         NativeLoadSpec(
           adUnitId: _adUnitId,
@@ -134,9 +155,7 @@ class NativeAdController implements AdController {
         return;
       }
       _handle = handle;
-      _paidSub = handle.paidEvents.listen(
-        (event) => _onPaid?.call(event.taggedWithSlot(slotName)),
-      );
+      _paidSub = handle.paidEvents.listen(_dispatchPaid);
       _eventSub = handle.events.listen(_onViewEvent);
       _attempts = 0;
       _gateAttempts = 0;
@@ -176,6 +195,9 @@ class NativeAdController implements AdController {
     if (state is AdLoaded) {
       final blocked = await _gate.loadBlockReason(slotName);
       if (_disposed || blocked == null) return;
+      // Indeterminate is not "revoked": a transient collaborator hiccup must
+      // never destroy the live mounted ad (4.0 audit).
+      if (blocked == AdBlockReason.internalError) return;
       if (_state.value is! AdLoaded) return; // changed while awaiting
       // No longer permitted (Remove-Ads, consent withdrawn, graph disposed):
       // native ads have no refresh loop at all, so nothing else would ever
