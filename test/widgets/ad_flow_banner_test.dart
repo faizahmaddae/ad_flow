@@ -354,4 +354,72 @@ void main() {
       c.dispose();
     });
   });
+
+  testWidgets(
+    'a refresh swap REMOUNTS the hosted ad subtree (keyed by handle identity)',
+    (tester) async {
+      // The plugin's AdWidget has no didUpdateWidget: its platform view
+      // captures the ad id at creation, and the framework never recreates a
+      // platform view whose viewType is unchanged. So on a handle swap the
+      // subtree MUST be unmounted and remounted (a fresh element), or the
+      // screen keeps hosting the platform view of the old, disposed ad — a
+      // permanently dead slot. Platform-view identity itself is not
+      // observable in a widget test; keying the subtree by handle identity is
+      // the mechanism that forces the remount, so that is what this pins.
+      final c = controller(
+        config: const BannerConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-b'),
+          minRefresh: Duration(seconds: 60),
+        ),
+      );
+      await tester.pumpWidget(
+        host(AdFlowBanner(controller: c, ownsController: true)),
+      );
+      await tester.pumpAndSettle();
+
+      final first = sdk.banners.single;
+      expect(find.byKey(ObjectKey(first)), findsOneWidget);
+
+      // Fire the opt-in client-side refresh: the controller swaps handles
+      // while state stays AdLoaded (only `revision` bumps).
+      await tester.pump(const Duration(seconds: 61));
+      await tester.pumpAndSettle();
+
+      expect(sdk.banners, hasLength(2));
+      final second = sdk.banners.last;
+      expect(
+        find.byKey(ObjectKey(second)),
+        findsOneWidget,
+        reason: 'the NEW handle must be mounted under its own element',
+      );
+      expect(
+        find.byKey(ObjectKey(first)),
+        findsNothing,
+        reason: 'the old, disposed handle must be fully unmounted',
+      );
+    },
+  );
+
+  testWidgets('an adopted controller swap remounts the native ad subtree too', (
+    tester,
+  ) async {
+    // Same mechanism as the banner remount test, for AdFlowNativeAd's
+    // didUpdateWidget adoption path (ADR-029).
+    final c1 = controller();
+    await tester.pumpWidget(
+      host(AdFlowBanner(controller: c1, ownsController: true)),
+    );
+    await tester.pumpAndSettle();
+    final firstHandle = sdk.banners.single;
+    expect(find.byKey(ObjectKey(firstHandle)), findsOneWidget);
+
+    final c2 = controller();
+    await tester.pumpWidget(
+      host(AdFlowBanner(controller: c2, ownsController: true)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(ObjectKey(firstHandle)), findsNothing);
+    expect(find.byKey(ObjectKey(sdk.banners.last)), findsOneWidget);
+  });
 }

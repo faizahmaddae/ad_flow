@@ -71,8 +71,15 @@ class _AdFlowNativeAdState extends State<AdFlowNativeAd> {
         final handle = widget.controller.handle;
         return SizedBox(
           height: height,
+          // Keyed by handle identity so a handle replacement (reload, adopted
+          // controller) remounts the plugin's AdWidget instead of updating it
+          // in place — see AdFlowBanner for the full mechanism (the plugin's
+          // AdWidget cannot re-point its platform view at a new ad).
           child: state is AdLoaded && handle != null
-              ? handle.buildWidget()
+              ? KeyedSubtree(
+                  key: ObjectKey(handle),
+                  child: handle.buildWidget(),
+                )
               : null,
         );
       },
