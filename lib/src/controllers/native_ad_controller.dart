@@ -114,7 +114,8 @@ class NativeAdController implements AdController {
     if (_disposed) return;
     if (blocked != null) {
       _noteBlocked(blocked);
-      _state.value = const AdIdle();
+      // A refused load is a STATE (3.0) — see AdBlocked.
+      _state.value = AdBlocked(blocked);
       _scheduleGateRecheck();
       return;
     }
@@ -182,9 +183,9 @@ class NativeAdController implements AdController {
       _timer?.cancel();
       _dropHandle();
       _noteBlocked(blocked);
-      _state.value = const AdIdle();
+      _state.value = AdBlocked(blocked);
       _scheduleGateRecheck();
-    } else if (state is AdIdle || state is AdFailed) {
+    } else if (state is AdIdle || state is AdFailed || state is AdBlocked) {
       if (state is AdFailed) _state.value = const AdIdle();
       await load();
     }

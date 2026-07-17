@@ -199,7 +199,8 @@ class BannerAdController implements AdController {
     if (_disposed) return;
     if (blocked != null) {
       _noteBlocked(blocked);
-      _state.value = const AdIdle();
+      // A refused load is a STATE (3.0) — see AdBlocked.
+      _state.value = AdBlocked(blocked);
       _scheduleGateRecheck();
       return;
     }
@@ -286,9 +287,9 @@ class BannerAdController implements AdController {
       _timer?.cancel();
       _dropHandle();
       _noteBlocked(blocked);
-      _state.value = const AdIdle();
+      _state.value = AdBlocked(blocked);
       _scheduleGateRecheck();
-    } else if (state is AdIdle || state is AdFailed) {
+    } else if (state is AdIdle || state is AdFailed || state is AdBlocked) {
       if (state is AdFailed) _state.value = const AdIdle();
       await load();
     }
@@ -323,13 +324,15 @@ class BannerAdController implements AdController {
     _refreshing = true;
     try {
       if (_disposed) return;
-      if (!await _gate.canLoad(slot)) {
+      final blocked = await _gate.loadBlockReason(slot);
+      if (blocked != null) {
         // NOT a failure — ads are no longer PERMITTED (Remove-Ads bought,
         // consent withdrawn). Unlike a failed refresh, the current ad may not
-        // stay: drop it and go idle, then re-check the gate later.
+        // stay: drop it, report why, then re-check the gate later.
         if (_disposed) return;
         _dropHandle();
-        _state.value = const AdIdle();
+        _noteBlocked(blocked);
+        _state.value = AdBlocked(blocked);
         _scheduleGateRecheck();
         return;
       }

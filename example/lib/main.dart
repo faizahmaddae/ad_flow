@@ -282,6 +282,10 @@ class _StateTile extends StatelessWidget {
                   AdLoading() => 'loading…',
                   AdLoaded() => 'ready',
                   AdShowing() => 'showing',
+                  // 3.0: a refused load is a first-class state — consent
+                  // pending, Remove-Ads on, cap active… no more guessing
+                  // from a bare 'idle'.
+                  AdBlocked(:final reason) => 'blocked (${reason.name})',
                   AdFailed(:final error) => 'failed (${error.message})',
                 }}',
                 style: Theme.of(context).textTheme.labelSmall,

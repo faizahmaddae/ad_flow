@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/controllers/banner_ad_controller.dart';
+import 'package:ad_flow/src/core/ad_block_reason.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/core/ad_load_state.dart';
 import 'package:ad_flow/src/policy/ad_gate.dart';
@@ -65,7 +66,7 @@ void main() {
       sdk.canRequestAdsResult = false;
       final c = controller();
       await c.load(width: 320);
-      expect(c.state.value, const AdIdle());
+      expect(c.state.value, const AdBlocked(AdBlockReason.consentNotGranted));
       expect(sdk.loadLog, isEmpty); // enforceConsentGate would throw if hit
       c.dispose();
     });
@@ -342,7 +343,7 @@ void main() {
         enabled = false;
         async.elapse(const Duration(seconds: 60));
         expect(sdk.banners.single.disposed, isTrue);
-        expect(c.state.value, const AdIdle());
+        expect(c.state.value, const AdBlocked(AdBlockReason.adsDisabled));
 
         // Ads re-enabled before the next gate recheck fires.
         enabled = true;

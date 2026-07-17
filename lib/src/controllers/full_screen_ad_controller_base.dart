@@ -202,7 +202,10 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     if (_disposed) return;
     if (blocked != null) {
       noteBlocked(blocked);
-      _state.value = const AdIdle();
+      // A refused load is a STATE, not a side channel (3.0): consent still
+      // pending, Remove-Ads on and "nothing requested yet" used to be
+      // indistinguishable AdIdle.
+      _state.value = AdBlocked(blocked);
       _scheduleGateRecheck();
       return;
     }
@@ -253,9 +256,9 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       _timer?.cancel();
       _dropHandle();
       noteBlocked(blocked);
-      _state.value = const AdIdle();
+      _state.value = AdBlocked(blocked);
       _scheduleGateRecheck();
-    } else if (state is AdIdle || state is AdFailed) {
+    } else if (state is AdIdle || state is AdFailed || state is AdBlocked) {
       // The gate may have just (re)opened — load() re-checks it itself, so
       // this simply short-circuits the pending backoff.
       if (state is AdFailed) _state.value = const AdIdle();

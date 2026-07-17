@@ -61,7 +61,7 @@ void main() {
 
       expect(
         banner.state.value,
-        const AdIdle(),
+        const AdBlocked(AdBlockReason.adsDisabled),
         reason:
             'a paying Remove-Ads user must not keep seeing (and AdMob must '
             'not keep server-side refreshing) an already-mounted ad',
@@ -123,7 +123,7 @@ void main() {
 
         expect(
           banner.state.value,
-          const AdIdle(),
+          const AdBlocked(AdBlockReason.adsDisabled),
           reason: 'the old graph must not keep a live ad on screen',
         );
         expect(live.disposed, isTrue);
@@ -132,7 +132,7 @@ void main() {
         // enforceConsentGate on, a stray load would throw in the fake.
         await banner.load(width: 320);
         await pumpEventQueue();
-        expect(banner.state.value, const AdIdle());
+        expect(banner.state.value, const AdBlocked(AdBlockReason.adsDisabled));
         expect(sdk.banners, hasLength(1));
         banner.dispose();
       },
@@ -154,7 +154,7 @@ void main() {
       await ads2.whenReady;
       await pumpEventQueue();
 
-      expect(oldBanner.state.value, const AdIdle());
+      expect(oldBanner.state.value, const AdBlocked(AdBlockReason.adsDisabled));
       expect(oldLive.disposed, isTrue);
       oldBanner.dispose();
       ads2.dispose();
@@ -178,7 +178,7 @@ void main() {
 
       expect(
         banner.state.value,
-        const AdIdle(),
+        const AdBlocked(AdBlockReason.consentNotGranted),
         reason: 'an ad loaded under withdrawn consent must not stay mounted',
       );
       expect(liveBanner.disposed, isTrue);

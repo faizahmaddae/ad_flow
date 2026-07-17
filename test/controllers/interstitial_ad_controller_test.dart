@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/controllers/app_open_ad_controller.dart';
 import 'package:ad_flow/src/controllers/interstitial_ad_controller.dart';
+import 'package:ad_flow/src/core/ad_block_reason.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/core/ad_load_state.dart';
 import 'package:ad_flow/src/policy/ad_gate.dart';
@@ -69,7 +70,7 @@ void main() {
       final c = controller();
       await c.load();
       expect(sdk.loadLog, isEmpty);
-      expect(c.state.value, const AdIdle());
+      expect(c.state.value, const AdBlocked(AdBlockReason.consentNotGranted));
       c.dispose();
     });
 
