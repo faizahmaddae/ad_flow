@@ -298,8 +298,21 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   /// The full show engine, shared by every format. [onReward] is forwarded
   /// to the handle for the rewarded formats (their public `show(onReward:)`
   /// overrides call this); the base [show] never passes one.
+  ///
+  /// [confirm], when supplied, runs AFTER every policy check has passed and
+  /// WHILE the coordinator claim is held, immediately before the ad is
+  /// dispatched — the rewarded interstitial presents its mandatory intro
+  /// there (4.0 audit). Ordering is the point, twice over: (a) every
+  /// consent/cap/pacing refusal happens BEFORE the user is promised an ad,
+  /// so accepting the intro can no longer end in "no ad, no reward"; (b) the
+  /// claim spans the intro, so a warm-return app-open cannot stack over it.
+  /// Returning false (the user skipped; report the reason yourself before
+  /// returning) or throwing rolls everything back to a warm [AdLoaded].
   @protected
-  Future<bool> showEngine({OnUserEarnedReward? onReward}) async {
+  Future<bool> showEngine({
+    OnUserEarnedReward? onReward,
+    Future<bool> Function()? confirm,
+  }) async {
     if (_disposed) return false;
     if (_state.value is AdShowing) return false; // never double-show
     final handle = _handle;
@@ -373,6 +386,18 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         noteBlocked(AdBlockReason.userActionPacing);
         return rejectAndRollBack();
       }
+      // The confirm hook (the rewarded-interstitial intro) runs LAST, with
+      // every policy check already passed and the claim held. It is
+      // user-facing and unbounded — the state is AdShowing throughout, so
+      // the expiry timer cannot discard the handle mid-intro and re-entrant
+      // show() calls bail on the AdShowing guard.
+      if (confirm != null && !await confirm()) {
+        return rejectAndRollBack();
+      }
+      // The confirm hook can outlive the graph (the user backgrounds the
+      // app on the intro and the screen is popped): dispose() already
+      // released the claim and dropped the handle — do not show.
+      if (_disposed) return false;
     } catch (_) {
       // Degrade to "don't show", never to "wedged forever".
       return rejectAndRollBack();

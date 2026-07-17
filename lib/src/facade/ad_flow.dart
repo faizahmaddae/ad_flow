@@ -64,17 +64,18 @@ class AdFlow {
               config.rewardedInterstitial!.cap,
       },
       globalCap: config.globalFrequencyCap,
-      // The global cap paces INVOLUNTARY ads (interstitial, app-open). The
-      // rewarded formats are reached only by an explicit user action — a tap on
-      // "watch an ad for a reward", and for the rewarded interstitial a tap on
-      // the mandatory intro's continue button — so the global cap must never
-      // block them: the user would get no ad, no reward and no explanation
-      // (ADR-039). Their impressions are still RECORDED globally, so an
-      // interstitial cannot fire straight after one.
-      globalCapExemptSlots: const {
-        RewardedAdController.slotName,
-        RewardedInterstitialAdController.slotName,
-      },
+      // The global cap paces INVOLUNTARY interruptions. Classic rewarded is
+      // exempt: it is reached only by an explicit "watch an ad for a reward"
+      // tap, and refusing that tap means no ad, no reward, no explanation
+      // (ADR-039). The rewarded INTERSTITIAL is NOT exempt (4.0, revising
+      // ADR-039): its intro appears at an app-chosen transition the user did
+      // not ask for — the intro itself is the interruption the global cap
+      // exists to pace — and since the whole sequence is now preflighted
+      // BEFORE the intro (atomic reservation), a capped sequence simply never
+      // starts; the user is never promised an ad and then refused one.
+      // Impressions of BOTH rewarded formats are still recorded globally, so
+      // an interstitial cannot fire straight after either.
+      globalCapExemptSlots: const {RewardedAdController.slotName},
     );
     _gate = AdGate(
       canRequestAds: _sdk.canRequestAds,

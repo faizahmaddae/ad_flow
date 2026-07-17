@@ -318,9 +318,13 @@ class RewardedInterstitialConfig {
   final PlatformAdUnitId adUnitId;
 
   /// Per-slot frequency cap. Unlimited by default — see [RewardedConfig.cap].
-  /// The user reaches this ad only by tapping "continue" on the mandatory
-  /// intro screen, so it too is exempt from
-  /// [AdFlowConfig.globalFrequencyCap] (ADR-039).
+  ///
+  /// Unlike classic rewarded, this slot IS paced by
+  /// [AdFlowConfig.globalFrequencyCap] (4.0, revising ADR-039): the mandatory
+  /// intro appears at an app-chosen transition — an interruption the user did
+  /// not ask for — so it is subject to involuntary-ad pacing. All checks run
+  /// BEFORE the intro is presented, so a capped sequence never starts (the
+  /// user is never promised an ad and then refused one).
   final FrequencyCap cap;
 
   /// Copy for the mandatory intro/skip screen shown before the ad.
