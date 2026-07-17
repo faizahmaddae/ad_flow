@@ -66,5 +66,24 @@ void main() {
       await prefs.setStringList('ad_flow.h', ['123', 'garbage', '456']);
       expect(await store.getHistory('h'), [123, 456]);
     });
+
+    test(
+      'TYPE-corrupt data reads as absent, never throws (2026-07 audit: '
+      'a throwing cap read blocked every full-screen show, forever)',
+      () async {
+        final prefs = SharedPreferencesAsync();
+        // Another writer (or a backend migration) stored the WRONG TYPE under
+        // our keys: SharedPreferencesAsync.getInt/getStringList THROW on that.
+        await prefs.setString('ad_flow.caps.x.last', 'not-an-int');
+        await prefs.setInt('ad_flow.caps.x.history', 5);
+
+        expect(await store.getInt('caps.x.last'), isNull);
+        expect(await store.getHistory('caps.x.history'), isEmpty);
+
+        // The next write self-heals.
+        await store.setInt('caps.x.last', 42);
+        expect(await store.getInt('caps.x.last'), 42);
+      },
+    );
   });
 }

@@ -1,12 +1,13 @@
 import 'package:ad_flow/src/config/ad_flow_config.dart';
+import 'package:ad_flow/src/config/ad_platform.dart';
 import 'package:ad_flow/src/controllers/banner_ad_controller.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/core/ad_load_state.dart';
 import 'package:ad_flow/src/policy/ad_gate.dart';
-import 'package:ad_flow/src/policy/frequency_cap_policy.dart';
 import 'package:ad_flow/src/policy/full_screen_ad_coordinator.dart';
 import 'package:ad_flow/src/policy/key_value_store.dart';
 import 'package:ad_flow/src/policy/retry_policy.dart';
+import 'package:ad_flow/src/facade/ad_flow.dart';
 import 'package:ad_flow/src/seam/ad_sdk_types.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
 import 'package:ad_flow/src/widgets/ad_flow_banner.dart';
@@ -30,16 +31,7 @@ void main() {
 
   BannerAdController controller({BannerConfig? config}) => BannerAdController(
     sdk: sdk,
-    gate: AdGate(
-      canRequestAds: sdk.canRequestAds,
-      isEnabled: () => true,
-      caps: StoredFrequencyCapPolicy(
-        store: InMemoryKeyValueStore(),
-        slotCaps: const {},
-        globalCap: const FrequencyCap(),
-      ),
-      coordinator: coordinator,
-    ),
+    gate: AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true),
     config:
         config ??
         const BannerConfig(adUnitId: PlatformAdUnitId(android: 'unit-b')),
@@ -353,5 +345,179 @@ void main() {
       expect(sdk.bannerSpecs, hasLength(1));
       c.dispose();
     });
+  });
+
+  testWidgets(
+    'a refresh swap REMOUNTS the hosted ad subtree (keyed by handle identity)',
+    (tester) async {
+      // The plugin's AdWidget has no didUpdateWidget: its platform view
+      // captures the ad id at creation, and the framework never recreates a
+      // platform view whose viewType is unchanged. So on a handle swap the
+      // subtree MUST be unmounted and remounted (a fresh element), or the
+      // screen keeps hosting the platform view of the old, disposed ad — a
+      // permanently dead slot. Platform-view identity itself is not
+      // observable in a widget test; keying the subtree by handle identity is
+      // the mechanism that forces the remount, so that is what this pins.
+      final c = controller(
+        config: const BannerConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-b'),
+          minRefresh: Duration(seconds: 60),
+        ),
+      );
+      await tester.pumpWidget(
+        host(AdFlowBanner(controller: c, ownsController: true)),
+      );
+      await tester.pumpAndSettle();
+
+      final first = sdk.banners.single;
+      expect(find.byKey(ObjectKey(first)), findsOneWidget);
+
+      // Fire the opt-in client-side refresh: the controller swaps handles
+      // while state stays AdLoaded (only `revision` bumps).
+      await tester.pump(const Duration(seconds: 61));
+      await tester.pumpAndSettle();
+
+      expect(sdk.banners, hasLength(2));
+      final second = sdk.banners.last;
+      expect(
+        find.byKey(ObjectKey(second)),
+        findsOneWidget,
+        reason: 'the NEW handle must be mounted under its own element',
+      );
+      expect(
+        find.byKey(ObjectKey(first)),
+        findsNothing,
+        reason: 'the old, disposed handle must be fully unmounted',
+      );
+    },
+  );
+
+  testWidgets(
+    'the hosted box follows a live size change (server-side auto-refresh of '
+    'an inline adaptive banner can resolve a different height)',
+    (tester) async {
+      sdk.bannerSize = const AdDimensions(width: 360, height: 100);
+      final c = controller();
+      await tester.pumpWidget(
+        host(AdFlowBanner(controller: c, ownsController: true)),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.getSize(find.byType(AdFlowBanner)).height, 100);
+
+      // The SAME handle resolves a new creative height on the platform side.
+      (sdk.banners.single).simulateResize(
+        const AdDimensions(width: 360, height: 150),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getSize(find.byType(AdFlowBanner)).height,
+        150,
+        reason:
+            'without following handle.dimensions the new creative renders '
+            'clipped in the old box',
+      );
+    },
+  );
+
+  group('widget-first creation (3.0)', () {
+    testWidgets('AdFlowBanner(adFlow:) creates, loads, hosts and DISPOSES its '
+        'own controller — the build()-minted-controller footgun is '
+        'unrepresentable', (tester) async {
+      final ads = await AdFlow.initialize(
+        const AdFlowConfig(
+          banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
+        ),
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+      );
+      await ads.whenReady;
+
+      await tester.pumpWidget(host(AdFlowBanner(adFlow: ads)));
+      await tester.pumpAndSettle();
+
+      expect(sdk.banners, hasLength(1));
+      final live = sdk.banners.single;
+      expect(find.byKey(ObjectKey(live)), findsOneWidget);
+
+      // Rebuilding with the SAME AdFlow must not mint a new controller/load.
+      await tester.pumpWidget(host(AdFlowBanner(adFlow: ads)));
+      await tester.pumpAndSettle();
+      expect(sdk.banners, hasLength(1));
+
+      // Unmount disposes the self-created controller and its ad.
+      await tester.pumpWidget(host(const SizedBox()));
+      await tester.pumpAndSettle();
+      expect(live.disposed, isTrue);
+      ads.dispose();
+    });
+
+    testWidgets('an EQUAL-but-not-identical inline config on rebuild must '
+        'not re-mint the controller (value equality, not identity)', (
+      tester,
+    ) async {
+      final ads = await AdFlow.initialize(
+        const AdFlowConfig(
+          banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
+        ),
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+      );
+      await ads.whenReady;
+
+      // Deliberately NON-const, so each build produces a new instance — the
+      // realistic shape of `config: BannerConfig(...)` inline in build().
+      // ignore: prefer_const_constructors
+      BannerConfig makeConfig() => BannerConfig(
+        // ignore: prefer_const_constructors
+        adUnitId: PlatformAdUnitId(android: 'override'),
+      );
+      await tester.pumpWidget(
+        host(AdFlowBanner(adFlow: ads, config: makeConfig())),
+      );
+      await tester.pumpAndSettle();
+      expect(sdk.banners, hasLength(1));
+
+      await tester.pumpWidget(
+        host(AdFlowBanner(adFlow: ads, config: makeConfig())),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        sdk.banners,
+        hasLength(1),
+        reason:
+            'identity comparison would re-mint the controller (and '
+            're-request an ad) on EVERY rebuild — the exact footgun '
+            'widget-first mode exists to remove',
+      );
+      await tester.pumpWidget(host(const SizedBox()));
+      ads.dispose();
+    });
+  });
+
+  testWidgets('an adopted controller swap remounts the native ad subtree too', (
+    tester,
+  ) async {
+    // Same mechanism as the banner remount test, for AdFlowNativeAd's
+    // didUpdateWidget adoption path (ADR-029).
+    final c1 = controller();
+    await tester.pumpWidget(
+      host(AdFlowBanner(controller: c1, ownsController: true)),
+    );
+    await tester.pumpAndSettle();
+    final firstHandle = sdk.banners.single;
+    expect(find.byKey(ObjectKey(firstHandle)), findsOneWidget);
+
+    final c2 = controller();
+    await tester.pumpWidget(
+      host(AdFlowBanner(controller: c2, ownsController: true)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(ObjectKey(firstHandle)), findsNothing);
+    expect(find.byKey(ObjectKey(sdk.banners.last)), findsOneWidget);
   });
 }

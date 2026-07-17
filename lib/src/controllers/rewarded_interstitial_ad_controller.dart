@@ -34,9 +34,10 @@ class RewardedInterstitialAdController extends FullScreenAdControllerBase {
     super.retry,
     super.onPaid,
     super.onBlocked,
+    super.now,
   }) : _config = config,
        _showIntro = showIntro,
-       super(slot: slotName);
+       super(slot: slotName, maxAdAge: config.maxAdAge);
 
   /// The gate/cap slot name for rewarded interstitials.
   static const slotName = 'rewarded_interstitial';
@@ -44,12 +45,24 @@ class RewardedInterstitialAdController extends FullScreenAdControllerBase {
   final RewardedInterstitialConfig _config;
   final RewardedIntroPresenter _showIntro;
   bool _introShowing = false;
+  ServerSideVerification? _ssvOverride;
+
+  /// Applies [ssv] to the currently warm ad AND every future load,
+  /// replacing [RewardedInterstitialConfig.ssv] — see
+  /// `RewardedAdController.setServerSideVerification`.
+  Future<void> setServerSideVerification(ServerSideVerification ssv) async {
+    _ssvOverride = ssv;
+    final handle = currentHandle;
+    if (handle is RewardedInterstitialHandle) {
+      await handle.updateServerSideVerification(ssv);
+    }
+  }
 
   @override
   Future<FullScreenAdHandle> loadHandle() => sdk.loadRewardedInterstitial(
     adUnitId,
     const AdRequestOptions(),
-    ssv: _config.ssv,
+    ssv: _ssvOverride ?? _config.ssv,
   );
 
   @override
@@ -72,6 +85,6 @@ class RewardedInterstitialAdController extends FullScreenAdControllerBase {
     } finally {
       _introShowing = false;
     }
-    return super.show(onReward: onReward);
+    return showEngine(onReward: onReward);
   }
 }

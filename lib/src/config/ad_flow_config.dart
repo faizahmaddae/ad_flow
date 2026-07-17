@@ -1,3 +1,4 @@
+import '../core/ad_flow_error.dart';
 import '../seam/ad_sdk_types.dart';
 import 'ad_platform.dart';
 
@@ -191,6 +192,31 @@ class BannerConfig {
   /// When set, a refresh never blanks the slot: the current ad keeps rendering
   /// until its replacement has actually loaded (ADR-041).
   final Duration? minRefresh;
+
+  // Value equality (3.0): the widget-first ad widgets compare configs in
+  // didUpdateWidget to decide whether to re-mint their controller — identity
+  // comparison would re-mint (and re-request an ad!) on every rebuild that
+  // passes a non-const inline config, which is the exact footgun the
+  // widget-first mode exists to remove.
+  @override
+  bool operator ==(Object other) =>
+      other is BannerConfig &&
+      other.adUnitId == adUnitId &&
+      other.kind == kind &&
+      other.fixedSize == fixedSize &&
+      other.maxInlineHeight == maxInlineHeight &&
+      other.collapsible == collapsible &&
+      other.minRefresh == minRefresh;
+
+  @override
+  int get hashCode => Object.hash(
+    adUnitId,
+    kind,
+    fixedSize,
+    maxInlineHeight,
+    collapsible,
+    minRefresh,
+  );
 }
 
 /// Configuration for the interstitial slot.
@@ -200,6 +226,7 @@ class InterstitialConfig {
     required this.adUnitId,
     this.cap = const FrequencyCap(minGap: Duration(seconds: 30)),
     this.minActionsBetween = 2,
+    this.maxAdAge = const Duration(minutes: 55),
   }) : assert(minActionsBetween >= 0, 'minActionsBetween must be >= 0');
 
   /// Per-platform interstitial ad unit IDs.
@@ -211,6 +238,16 @@ class InterstitialConfig {
   /// Minimum user actions between two interstitials (AdMob guidance:
   /// at most one ad per two user actions).
   final int minActionsBetween;
+
+  /// How long a preloaded ad stays showable before it is proactively
+  /// discarded and replaced (null = never).
+  ///
+  /// Google documents full-screen ads as expiring **after one hour**: a
+  /// stale ad shown late may fail to display — or display but not count —
+  /// so a long session's warm ad could silently waste its natural break.
+  /// The 55-minute default replaces it just inside the documented window
+  /// (2026-07 audit).
+  final Duration? maxAdAge;
 }
 
 /// Configuration for the rewarded slot.
@@ -220,6 +257,7 @@ class RewardedConfig {
     required this.adUnitId,
     this.cap = const FrequencyCap(),
     this.ssv,
+    this.maxAdAge = const Duration(minutes: 55),
   });
 
   /// Per-platform rewarded ad unit IDs.
@@ -238,6 +276,11 @@ class RewardedConfig {
 
   /// Server-side verification for high-value rewards.
   final ServerSideVerification? ssv;
+
+  /// How long a preloaded ad stays showable before it is proactively
+  /// discarded and replaced (null = never) — see
+  /// [InterstitialConfig.maxAdAge].
+  final Duration? maxAdAge;
 }
 
 /// Configuration for the rewarded interstitial slot.
@@ -248,6 +291,7 @@ class RewardedInterstitialConfig {
     this.cap = const FrequencyCap(),
     this.intro = const RewardIntroContent(),
     this.ssv,
+    this.maxAdAge = const Duration(minutes: 55),
   });
 
   /// Per-platform rewarded interstitial ad unit IDs.
@@ -264,6 +308,11 @@ class RewardedInterstitialConfig {
 
   /// Server-side verification for high-value rewards.
   final ServerSideVerification? ssv;
+
+  /// How long a preloaded ad stays showable before it is proactively
+  /// discarded and replaced (null = never) — see
+  /// [InterstitialConfig.maxAdAge].
+  final Duration? maxAdAge;
 }
 
 /// Configuration for the native slot.
@@ -293,6 +342,29 @@ class NativeConfig {
 
   /// Options passed through to a platform factory.
   final Map<String, Object>? factoryExtras;
+
+  // Value equality (3.0) — see BannerConfig's operator== note. factoryExtras
+  // is compared shallowly by entry.
+  @override
+  bool operator ==(Object other) {
+    if (other is! NativeConfig) return false;
+    final otherExtras = other.factoryExtras;
+    final extras = factoryExtras;
+    final extrasEqual =
+        identical(otherExtras, extras) ||
+        (otherExtras != null &&
+            extras != null &&
+            otherExtras.length == extras.length &&
+            otherExtras.entries.every((e) => extras[e.key] == e.value));
+    return other.adUnitId == adUnitId &&
+        other.templateKind == templateKind &&
+        other.factoryId == factoryId &&
+        extrasEqual;
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(adUnitId, templateKind, factoryId, factoryExtras?.length);
 }
 
 /// Configuration for the app open slot.
@@ -302,7 +374,6 @@ class AppOpenConfig {
     required this.adUnitId,
     this.cap = const FrequencyCap(minGap: Duration(minutes: 4)),
     this.expiry = const Duration(hours: 4),
-    this.showOnColdStart = false,
   });
 
   /// Per-platform app open ad unit IDs.
@@ -314,22 +385,11 @@ class AppOpenConfig {
   /// Loaded ads older than this are discarded and reloaded
   /// (Google mandates 4 hours).
   final Duration expiry;
-
-  /// **Deprecated and ignored** since ADR-043.
-  ///
-  /// It never did what its name promised. `AppStateEventNotifier` does not
-  /// deliver a foreground event for the cold launch at all, so this flag could
-  /// not cause an ad to show on one; all it actually did was un-suppress the
-  /// first *warm* return — which now happens by default, because that return is
-  /// a genuine one and swallowing it cost an impression in every session.
-  ///
-  /// A cold launch still cannot show an ad: nothing is loaded yet.
-  @Deprecated(
-    'Ignored since 2.1.0 (ADR-043): it could never show an ad on a cold launch, '
-    'and the first warm return now shows one by default. Remove it.',
-  )
-  final bool showOnColdStart;
 }
+
+// 3.0: `showOnColdStart` (deprecated + ignored since 2.1.0/ADR-043) is
+// REMOVED. It never could show an ad on a cold launch — no foreground event
+// exists for one — and the first warm return shows by default.
 
 /// Google's official sample ad unit IDs (safe to click; used by
 /// [AdFlowConfig.test] and whenever [AdFlowConfig.testMode] is on).
@@ -397,6 +457,93 @@ class AdFlowConfig {
     this.tagForUnderAgeOfConsent,
     this.tagForChildDirectedTreatment,
   });
+
+  /// Validates the configuration, throwing an
+  /// [AdFlowError] (kind `invalidConfig`) on the first nonsensical value.
+  ///
+  /// Called automatically by `AdFlow.initialize` — failing at init is
+  /// discoverable; a blank/empty ad unit ID silently producing no-fill
+  /// forever is not (2026-07 audit). Durations cannot be compared in const
+  /// constructor asserts (`const_eval_type_num`), so this is where their
+  /// sanity checks live.
+  void validate() {
+    void check(bool ok, String message) {
+      if (!ok) throw AdFlowError(AdFlowErrorKind.invalidConfig, message);
+    }
+
+    void checkUnitId(PlatformAdUnitId id, String slot) {
+      check(
+        id.android != null || id.ios != null,
+        '$slot.adUnitId has no platform IDs — configure android and/or ios, '
+        'or leave the slot null.',
+      );
+      check(
+        id.android == null || id.android!.trim().isNotEmpty,
+        '$slot.adUnitId.android is an empty string.',
+      );
+      check(
+        id.ios == null || id.ios!.trim().isNotEmpty,
+        '$slot.adUnitId.ios is an empty string.',
+      );
+    }
+
+    void checkCap(FrequencyCap cap, String name) {
+      check(cap.minGap >= Duration.zero, '$name.minGap is negative.');
+    }
+
+    void checkAge(Duration? age, String name) {
+      check(age == null || age > Duration.zero, '$name must be positive.');
+    }
+
+    final banner = this.banner;
+    if (banner != null) {
+      checkUnitId(banner.adUnitId, 'banner');
+      check(
+        banner.maxInlineHeight == null || banner.maxInlineHeight! > 0,
+        'banner.maxInlineHeight must be positive.',
+      );
+      check(
+        banner.minRefresh == null || banner.minRefresh! > Duration.zero,
+        'banner.minRefresh must be positive (or null to disable).',
+      );
+    }
+    final interstitial = this.interstitial;
+    if (interstitial != null) {
+      checkUnitId(interstitial.adUnitId, 'interstitial');
+      checkCap(interstitial.cap, 'interstitial.cap');
+      checkAge(interstitial.maxAdAge, 'interstitial.maxAdAge');
+    }
+    final rewarded = this.rewarded;
+    if (rewarded != null) {
+      checkUnitId(rewarded.adUnitId, 'rewarded');
+      checkCap(rewarded.cap, 'rewarded.cap');
+      checkAge(rewarded.maxAdAge, 'rewarded.maxAdAge');
+    }
+    final rewardedInterstitial = this.rewardedInterstitial;
+    if (rewardedInterstitial != null) {
+      checkUnitId(rewardedInterstitial.adUnitId, 'rewardedInterstitial');
+      checkCap(rewardedInterstitial.cap, 'rewardedInterstitial.cap');
+      checkAge(rewardedInterstitial.maxAdAge, 'rewardedInterstitial.maxAdAge');
+    }
+    final nativeAd = this.nativeAd;
+    if (nativeAd != null) checkUnitId(nativeAd.adUnitId, 'nativeAd');
+    final appOpen = this.appOpen;
+    if (appOpen != null) {
+      checkUnitId(appOpen.adUnitId, 'appOpen');
+      checkCap(appOpen.cap, 'appOpen.cap');
+      check(appOpen.expiry > Duration.zero, 'appOpen.expiry must be positive.');
+    }
+    checkCap(globalFrequencyCap, 'globalFrequencyCap');
+    check(retry.baseDelay > Duration.zero, 'retry.baseDelay must be positive.');
+    check(
+      retry.maxDelay >= retry.baseDelay,
+      'retry.maxDelay must be >= retry.baseDelay.',
+    );
+    check(retry.cooldown >= Duration.zero, 'retry.cooldown is negative.');
+    for (final id in testDeviceIds) {
+      check(id.trim().isNotEmpty, 'testDeviceIds contains an empty string.');
+    }
+  }
 
   /// A configuration that serves Google's official test ads for every
   /// format. Use during development; never ship it.

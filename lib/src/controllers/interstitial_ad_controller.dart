@@ -24,8 +24,9 @@ class InterstitialAdController extends FullScreenAdControllerBase {
     super.retry,
     super.onPaid,
     super.onBlocked,
+    super.now,
   }) : _config = config,
-       super(slot: slotName);
+       super(slot: slotName, maxAdAge: config.maxAdAge);
 
   /// The gate/cap slot name for interstitials.
   static const slotName = 'interstitial';

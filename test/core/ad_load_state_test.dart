@@ -1,3 +1,4 @@
+import 'package:ad_flow/src/core/ad_block_reason.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/core/ad_load_state.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -54,16 +55,32 @@ void main() {
       expect(const AdFailed(e1), isNot(equals(const AdFailed(e3))));
     });
 
+    test('AdBlocked equality follows its reason (3.0)', () {
+      expect(
+        const AdBlocked(AdBlockReason.consentNotGranted),
+        equals(const AdBlocked(AdBlockReason.consentNotGranted)),
+      );
+      expect(
+        const AdBlocked(AdBlockReason.consentNotGranted),
+        isNot(equals(const AdBlocked(AdBlockReason.adsDisabled))),
+      );
+    });
+
     test('sealed switch is exhaustive over all states', () {
       String describe(AdLoadState s) => switch (s) {
         AdIdle() => 'idle',
         AdLoading() => 'loading',
         AdLoaded() => 'loaded',
         AdShowing() => 'showing',
+        AdBlocked(:final reason) => 'blocked:${reason.name}',
         AdFailed(:final error) => 'failed:${error.kind.name}',
       };
 
       expect(describe(const AdIdle()), 'idle');
+      expect(
+        describe(const AdBlocked(AdBlockReason.adsDisabled)),
+        'blocked:adsDisabled',
+      );
       expect(
         describe(const AdFailed(AdFlowError(AdFlowErrorKind.loadFailed, 'x'))),
         'failed:loadFailed',

@@ -69,6 +69,41 @@ void main() {
     );
   });
 
+  test('frequency-cap state SURVIVES a re-initialize when the same store is '
+      'injected (2026-07 audit — a reinit must not reset ad pacing)', () async {
+    final store = InMemoryKeyValueStore();
+    final first = await AdFlow.initialize(
+      config,
+      sdk: sdk,
+      store: store,
+      platform: AdPlatform.android,
+    );
+    await first.whenReady;
+    await pumpEventQueue();
+    // Show + dismiss an interstitial: its minGap timestamp persists.
+    await first.interstitial.show();
+    sdk.interstitials.last.simulateDismissed();
+    await pumpEventQueue();
+
+    final second = await AdFlow.initialize(
+      config,
+      sdk: sdk,
+      store: store,
+      platform: AdPlatform.android,
+    );
+    await second.whenReady;
+    await pumpEventQueue();
+
+    expect(
+      await second.interstitial.show(),
+      isFalse,
+      reason:
+          'the 30s default minGap from the impression recorded under the '
+          'FIRST graph must still pace the second one',
+    );
+    second.dispose();
+  });
+
   test('dispose() after a re-initialize does not clear the live instance '
       'pointer', () async {
     final first = await boot();

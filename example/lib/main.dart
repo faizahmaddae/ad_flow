@@ -38,12 +38,21 @@ Future<void> main() async {
   final ads = await (useExplainer ? _initWithExplainer() : _initSimple());
 
   // Impression-level revenue (allowlisted AdMob accounts only). Assignable any
-  // time — set it right after init so no paid event is missed.
+  // time — set it right after init so no paid event is missed. `slot` and
+  // `adSourceName` (3.0.0) carry the format and the winning mediation network,
+  // ready for an analytics ad_impression event.
   ads.onPaidEvent = (event) => debugPrint(
-    '[ad_flow] paid: ${event.adUnitId} '
+    '[ad_flow] paid: ${event.slot}/${event.adUnitId} '
     '${event.valueMicros / 1e6} ${event.currencyCode} '
-    '(${event.precision.name})',
+    '(${event.precision.name}'
+    '${event.adSourceName == null ? '' : ', via ${event.adSourceName}'})',
   );
+
+  // "Why aren't my ads showing?" — every refused load/show reports its reason
+  // (consent pending, Remove-Ads, frequency cap, expiry…). Most reasons are
+  // NORMAL; wire this to your logger during rollout (2.1.0, ADR-045).
+  ads.onAdBlocked = (slot, reason) =>
+      debugPrint('[ad_flow] $slot blocked: ${reason.name}');
 
   runApp(ExampleApp(ads: ads));
 }
@@ -132,15 +141,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   AdFlow get ads => widget.ads;
 
-  // Create one controller per placement ONCE — never inside build(). Each
-  // ads.banner()/ads.native() call mints a fresh controller and starts a
-  // new ad load, so building them in build() would restart the load (and
-  // blank the ad) on every setState — e.g. every time the coin count
-  // changes. `ownsController: true` lets the hosting widget dispose these
-  // when HomeScreen unmounts.
-  late final _bannerController = ads.banner();
-  late final _nativeController = ads.native();
-
   void _grantReward(RewardEarned reward) {
     setState(() => _coins += reward.amount.toInt());
     ScaffoldMessenger.of(context).showSnackBar(
@@ -206,10 +206,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   const Text('Native (medium template)'),
                   const SizedBox(height: 8),
-                  AdFlowNativeAd(
-                    controller: _nativeController,
-                    ownsController: true,
-                  ),
+                  // Widget-first (3.0): the widget creates AND owns its
+                  // controller internally, so the classic footgun — minting
+                  // a fresh controller inside build(), restarting the load
+                  // (and blanking the ad) on every setState — cannot happen.
+                  AdFlowNativeAd(adFlow: ads),
                 ],
               ),
             ),
@@ -230,13 +231,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      // Reserved height from the first frame — no layout shift.
-      bottomNavigationBar: SafeArea(
-        child: AdFlowBanner(
-          controller: _bannerController,
-          ownsController: true,
-        ),
-      ),
+      // Reserved height from the first frame — no layout shift. Widget-first
+      // (3.0): AdFlowBanner creates and owns its controller.
+      bottomNavigationBar: SafeArea(child: AdFlowBanner(adFlow: ads)),
     );
   }
 }
@@ -273,6 +270,10 @@ class _StateTile extends StatelessWidget {
                   AdLoading() => 'loading…',
                   AdLoaded() => 'ready',
                   AdShowing() => 'showing',
+                  // 3.0: a refused load is a first-class state — consent
+                  // pending, Remove-Ads on, cap active… no more guessing
+                  // from a bare 'idle'.
+                  AdBlocked(:final reason) => 'blocked (${reason.name})',
                   AdFailed(:final error) => 'failed (${error.message})',
                 }}',
                 style: Theme.of(context).textTheme.labelSmall,

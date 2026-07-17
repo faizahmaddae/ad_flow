@@ -159,7 +159,6 @@ void main() {
 
       const appOpen = AppOpenConfig(adUnitId: PlatformAdUnitId(android: 'a'));
       expect(appOpen.expiry, const Duration(hours: 4));
-      expect(appOpen.showOnColdStart, isFalse);
     });
 
     test('NativeConfig requires exactly one rendering path', () {
@@ -195,4 +194,78 @@ void main() {
       expect(const AdFlowConfig().toRequestConfig().testDeviceIds, isNull);
     });
   });
+
+  group(
+    'validate() (2026-07 audit — fail fast at init, not silent no-fill)',
+    () {
+      final throwsInvalidConfig = throwsA(
+        isA<AdFlowError>().having(
+          (e) => e.kind,
+          'kind',
+          AdFlowErrorKind.invalidConfig,
+        ),
+      );
+
+      test('a healthy config (and the test config) validates clean', () {
+        const AdFlowConfig().validate();
+        AdFlowConfig.test().validate();
+      });
+
+      test('an EMPTY ad unit string is rejected (it would silently no-fill '
+          'forever in production)', () {
+        expect(
+          () => const AdFlowConfig(
+            banner: BannerConfig(adUnitId: PlatformAdUnitId(android: '')),
+          ).validate(),
+          throwsInvalidConfig,
+        );
+      });
+
+      test('a slot with NO platform IDs at all is rejected', () {
+        expect(
+          () => const AdFlowConfig(
+            interstitial: InterstitialConfig(adUnitId: PlatformAdUnitId()),
+          ).validate(),
+          throwsInvalidConfig,
+        );
+      });
+
+      test('negative durations are rejected', () {
+        expect(
+          () => const AdFlowConfig(
+            globalFrequencyCap: FrequencyCap(minGap: Duration(seconds: -1)),
+          ).validate(),
+          throwsInvalidConfig,
+        );
+        expect(
+          () => const AdFlowConfig(
+            rewarded: RewardedConfig(
+              adUnitId: PlatformAdUnitId(android: 'r'),
+              maxAdAge: Duration.zero,
+            ),
+          ).validate(),
+          throwsInvalidConfig,
+        );
+        expect(
+          () => const AdFlowConfig(
+            retry: RetryConfig(baseDelay: Duration.zero),
+          ).validate(),
+          throwsInvalidConfig,
+        );
+      });
+
+      test('a non-positive maxInlineHeight is rejected', () {
+        expect(
+          () => const AdFlowConfig(
+            banner: BannerConfig(
+              adUnitId: PlatformAdUnitId(android: 'b'),
+              kind: BannerKind.inlineAdaptive,
+              maxInlineHeight: 0,
+            ),
+          ).validate(),
+          throwsInvalidConfig,
+        );
+      });
+    },
+  );
 }

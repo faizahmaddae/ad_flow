@@ -88,4 +88,24 @@ void main() {
     final policy = noJitter(const RetryConfig(cooldown: Duration(minutes: 7)));
     expect(policy.cooldown, const Duration(minutes: 7));
   });
+
+  test('gateRecheckDelay backs off exponentially and caps at maxDelay, '
+      'NEVER at the failure cooldown (ADR-035 — the 5-minute cooldown here '
+      'is what blanked first-frame banners for five minutes)', () {
+    final policy = noJitter(
+      const RetryConfig(
+        baseDelay: Duration(seconds: 5),
+        maxDelay: Duration(minutes: 1),
+        cooldown: Duration(minutes: 5),
+      ),
+    );
+    expect(policy.gateRecheckDelay(1), const Duration(seconds: 5));
+    expect(policy.gateRecheckDelay(2), const Duration(seconds: 10));
+    expect(policy.gateRecheckDelay(3), const Duration(seconds: 20));
+    expect(policy.gateRecheckDelay(4), const Duration(seconds: 40));
+    expect(policy.gateRecheckDelay(5), const Duration(minutes: 1));
+    // A permanently closed gate (Remove-Ads, declined consent) settles into
+    // a cheap once-a-minute check — never the 5-minute failure cooldown.
+    expect(policy.gateRecheckDelay(50), const Duration(minutes: 1));
+  });
 }

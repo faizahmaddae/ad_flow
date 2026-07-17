@@ -29,12 +29,7 @@ void main() {
 
   AppOpenAdController controller() => AppOpenAdController(
     sdk: sdk,
-    gate: AdGate(
-      canRequestAds: sdk.canRequestAds,
-      isEnabled: () => true,
-      caps: caps,
-      coordinator: coordinator,
-    ),
+    gate: AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true),
     caps: caps,
     coordinator: coordinator,
     config: const AppOpenConfig(

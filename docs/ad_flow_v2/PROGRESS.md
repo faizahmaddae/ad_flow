@@ -1,6 +1,87 @@
-# PROGRESS — ad_flow v2
+# PROGRESS — ad_flow v2/v3
 
 ## Current phase
+**Phase 18 — 3.0.0 API cleanup (2026-07-17)** — ✅ shipped on branch
+**`v3-design`** (built on top of `production-hardening-2.2.0`; 14 commits
+total over main; NOT merged, NOT tagged, NOT published — Faiz reviews/merges/
+tags when ready). Version **3.0.0**. The maintainer lifted the
+backward-compat constraint; ADR-055 records what 3.0 breaks (AdBlocked state,
+widget-first widgets, honest show(), purified AdGate, removals) and — as
+importantly — the redesigns it deliberately REJECTS. Verify:
+`flutter analyze && flutter test --concurrency=2` → clean, **413 tests**.
+
+## Previous phase
+**Phase 17 — production-hardening audit + fixes (2026-07-17)** — ✅ shipped on
+branch `production-hardening-2.2.0` (11 commits). Version 2.2.0 (never
+published; folded into 3.0.0).
+
+## What landed (Phase 17)
+A 7-dimension multi-agent audit (61 agents, adversarial verification: 25
+confirmed findings, 1 refuted, 21 improvement notes) + a full manual core read.
+Every confirmed finding fixed, each as a fail-first slice with tests. ADRs
+046–054 carry the full detail; CHANGELOG 2.2.0 + MIGRATION describe the
+app-visible surface. Highlights, in commit order:
+
+1. `fix(banner)` — refresh/resize interleaving races (leaked live BannerAd,
+   stale-width stomp, wedged recovery timer) — ADR-046.
+2. `fix(widgets)` — KeyedSubtree(ObjectKey(handle)): a swap now actually
+   remounts the plugin AdWidget (it cannot re-point its platform view; a swap
+   used to leave a permanently dead slot still buying ads) — ADR-047.
+   ⚠️ Needs one on-device sanity pass with `minRefresh` set (platform-view
+   identity is untestable in widget tests).
+3. `fix(seam)` — inline-adaptive refresh no longer tears down the live ad on a
+   size-query failure; load-dispatch throws normalized + cleaned up;
+   `BannerHandle.dimensions` listenable; app-open failed-load plugin leak
+   documented (upstream, unfixable here) — ADR-048.
+4. `fix(policy)` — show() no longer holds the coordinator across a consent
+   settle; view-ad click latch gets a 3s close-grace (iOS overlay clicks no
+   longer eat the next warm return) — ADR-049.
+5. `feat(facade)` — live ads DROP on disableAds/dispose/reinit/consent
+   withdrawal (minted-controller registry + `recheckGate()` + graph-aware
+   consent wrapper) — ADR-050.
+6. `feat(fullscreen)` — `maxAdAge` expiry for interstitial/rewarded/RI
+   (default 55min; Google documents ~1h) with proactive replacement; app-open
+   unified onto the same mechanism — ADR-051.
+7. `feat(rewarded)` — runtime `setServerSideVerification` (userId after
+   login, per-show customData; applies to the warm ad; throws on failure).
+8. `feat(observability)` — `AdPaidEvent.slot`/`adSourceName` +
+   `AdResponseSummary` (`controller.response`) — ADR-052.
+9. `feat(api)` — `AdFlowConfig.validate()` fail-fast, `…OrNull` getters,
+   primer first-frame wait, PrivacyOptionsButton error surfacing — ADR-053.
+10. `test` — seam coverage for all six formats through the real channel,
+    seeded random-interleaving fuzz (ADR-054), ADR-040/042 gap tests,
+    type-corrupt store tolerance, reinit cap continuity.
+11. `docs/ci/release` — v1→v2 rewrite of the SHIPPED `doc/` folder (it still
+    taught MediationHelper/^7.0.0!), README (kill switch, Families note,
+    both-platform snippet, 2.2.0 APIs), CHANGELOG/MIGRATION, CI (example
+    build + pana + coverage jobs), `.pubignore` (internal prompt file),
+    version 2.2.0.
+
+## How to verify the current state
+`flutter analyze && flutter test --concurrency=2` — expect clean, **414 tests
+passing**. Also green this session: `dart format` (0 changes),
+`dart pub publish --dry-run` (0 warnings), `pana` 160/160,
+`cd example && flutter build apk --debug`. Coverage: 81.2% → re-run
+`flutter test --coverage` after merge if you want fresh numbers.
+
+## Open items for Faiz
+- Review + merge `production-hardening-2.2.0`, then tag `v2.2.0` (tag
+  auto-publishes).
+- **On-device sanity pass** (the one thing unit tests cannot see): set
+  `minRefresh: Duration(seconds: 60)` on the example banner and confirm the
+  creative visibly changes after a refresh cycle (ADR-047), then revert.
+- Optional: file the plugin's app-open failed-load leak upstream
+  (RESEARCH §3, ADR-048) — re-check at the next `google_mobile_ads` bump.
+- Two audit findings intentionally NOT acted on: interstitial default hourly
+  cap left as-is (minGap 30s already bounds it; an added ceiling would
+  surprise legit integrations — document-only), and no-fill (code 3) retry
+  differentiation (3 attempts + backoff is not hammering; revisit if request
+  volume ever matters).
+
+---
+
+# Phase 16 and earlier (history)
+
 **Phase 16 — the 8 judgment calls (2026-07-14)** — ✅ all shipped. Version **2.1.0**,
 **NOT tagged, NOT published** (a tag auto-publishes; Faiz tags when ready).
 

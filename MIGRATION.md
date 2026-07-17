@@ -1,3 +1,72 @@
+# Upgrading 2.x → 3.0.0
+
+3.0 bundles the (unpublished) 2.2.0 hardening work with a deliberate,
+compact API cleanup. Breaking changes first — each takes minutes:
+
+1. **`AdLoadState` gained `AdBlocked(reason)`.** Add one case to every
+   exhaustive `switch` over `AdLoadState`. It replaces the old
+   "blocked loads look like `AdIdle`" ambiguity: match on it to render
+   "consent pending" / "ads off" placeholders directly.
+
+2. **Prefer the widget-first ad widgets.** `AdFlowBanner(adFlow: ads)` /
+   `AdFlowNativeAd(adFlow: ads)` create and own their controllers — delete
+   your `late final _banner = ads.banner()` fields and the
+   `controller:`/`ownsController:` arguments (that mode still exists for
+   advanced use; `controller` is now optional).
+
+3. **`show()` reward callback**: only `RewardedAdController` and
+   `RewardedInterstitialAdController` accept `show(onReward: …)` now. If you
+   passed `onReward` to `interstitial.show()` or an app-open show, it was
+   silently ignored — delete it.
+
+4. **Removed**: `AppOpenConfig.showOnColdStart` (ignored since 2.1.0 — it
+   never could do anything; delete the argument) and `AdGate.canShow` (an
+   unfixably racy composed query with a warning label; if you used it for a
+   UI hint, combine `controller.state` + your own cap knowledge instead).
+   `AdGate`'s constructor lost its unused `caps`/`coordinator` params.
+   `BannerAdController.slot`/`NativeAdController.slot` →
+   `slotName`.
+
+5. **New reactive consent surface**: `ads.canRequestAds`
+   (`ValueListenable<bool>`) is the LIVE answer — use it instead of caching
+   `whenReady`'s one-shot result.
+
+Behaviour changes carried over from the unpublished 2.2.0 hardening (check
+these too):
+
+1. **Preloaded interstitial/rewarded/rewarded-interstitial ads now expire**
+   (`maxAdAge`, default 55 minutes, per Google's documented ~1-hour window).
+   A stale warm ad is proactively replaced and never shown. Pass
+   `maxAdAge: null` on the format config to restore the old keep-forever
+   behaviour (not recommended — an expired ad may display but not count).
+
+2. **`disableAds()` now DROPS live ads** — mounted banner/native widgets fall
+   back to their placeholder and warm full-screen inventory is released,
+   instead of only blocking future loads. If you relied on the old "the
+   mounted ad stays until I hide it" behaviour, hide the widget first. The
+   same drop now happens on `dispose()`, on a re-`initialize`, and when the
+   user withdraws consent through the privacy-options form.
+
+3. **A consent withdrawal is now acted on**: use `ads.consent` (not a
+   directly-constructed `UmpConsentGateway`) for `PrivacyOptionsButton` /
+   `showPrivacyOptions()` so the graph can react. `AdFlow.consent` returns a
+   thin wrapper with identical behaviour otherwise.
+
+4. **`initialize` validates the config** and throws
+   `AdFlowError(invalidConfig)` on nonsense (empty ad-unit strings, negative
+   durations). If this fires for you, the config was already broken — it was
+   silently no-filling.
+
+5. **Custom implementers of the seam/testing interfaces** (rare; the shipped
+   fakes are updated): `BannerHandle.dimensions`, `*Handle.response`,
+   rewarded handles' `updateServerSideVerification`, and
+   `AdController.recheckGate()` are new interface members you must add.
+
+New opt-in APIs you may want: runtime SSV
+(`ads.rewarded.setServerSideVerification`), mediation observability
+(`controller.response`, `AdPaidEvent.slot`/`adSourceName`), null-safe slot
+getters (`ads.interstitialOrNull` …), and the kill-switch recipe in README §6.
+
 # Upgrading 2.0.x → 2.1.0
 
 **No breaking API changes** — everything still compiles. But several defaults and

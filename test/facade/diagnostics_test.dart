@@ -46,12 +46,14 @@ void main() {
     final banner = ads.banner();
     await banner.load(width: 320);
 
-    expect(banner.state.value, isA<AdIdle>()); // unchanged: no new state case
+    // 3.0: the refused load is a first-class STATE, carrying its reason —
+    // the AdIdle ambiguity ADR-045 documented (and could not fix in 2.x
+    // without breaking exhaustive switches) is gone.
     expect(
-      banner.lastBlockReason,
-      AdBlockReason.consentNotGranted,
-      reason: 'AdIdle alone cannot distinguish "blocked" from "not requested"',
+      banner.state.value,
+      const AdBlocked(AdBlockReason.consentNotGranted),
     );
+    expect(banner.lastBlockReason, AdBlockReason.consentNotGranted);
     expect(log, contains(('banner', AdBlockReason.consentNotGranted)));
 
     banner.dispose();

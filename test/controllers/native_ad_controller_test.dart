@@ -2,12 +2,11 @@ import 'dart:async';
 
 import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/controllers/native_ad_controller.dart';
+import 'package:ad_flow/src/core/ad_block_reason.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/core/ad_load_state.dart';
 import 'package:ad_flow/src/policy/ad_gate.dart';
-import 'package:ad_flow/src/policy/frequency_cap_policy.dart';
 import 'package:ad_flow/src/policy/full_screen_ad_coordinator.dart';
-import 'package:ad_flow/src/policy/key_value_store.dart';
 import 'package:ad_flow/src/policy/retry_policy.dart';
 import 'package:ad_flow/src/seam/ad_sdk_types.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
@@ -39,12 +38,6 @@ void main() {
     gate: AdGate(
       canRequestAds: () async => consented && sdk.canRequestAdsResult,
       isEnabled: () => true,
-      caps: StoredFrequencyCapPolicy(
-        store: InMemoryKeyValueStore(),
-        slotCaps: const {},
-        globalCap: const FrequencyCap(),
-      ),
-      coordinator: coordinator,
     ),
     config:
         config ??
@@ -62,7 +55,7 @@ void main() {
     final c = controller();
     await c.load();
     expect(sdk.loadLog, isEmpty);
-    expect(c.state.value, const AdIdle());
+    expect(c.state.value, const AdBlocked(AdBlockReason.consentNotGranted));
     c.dispose();
   });
 
@@ -225,16 +218,7 @@ void main() {
     final paid = <AdPaidEvent>[];
     final c = NativeAdController(
       sdk: sdk,
-      gate: AdGate(
-        canRequestAds: sdk.canRequestAds,
-        isEnabled: () => true,
-        caps: StoredFrequencyCapPolicy(
-          store: InMemoryKeyValueStore(),
-          slotCaps: const {},
-          globalCap: const FrequencyCap(),
-        ),
-        coordinator: coordinator,
-      ),
+      gate: AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true),
       config: const NativeConfig(
         adUnitId: PlatformAdUnitId(android: 'unit-n'),
         templateKind: NativeTemplateKind.small,
@@ -251,7 +235,9 @@ void main() {
       precision: AdRevenuePrecision.estimated,
     );
     sdk.natives.single.simulatePaid(event);
-    expect(paid, [event]);
+    // Tagged with the slot so one onPaidEvent listener can log per-format
+    // revenue (2026-07 audit).
+    expect(paid, [event.taggedWithSlot(NativeAdController.slotName)]);
     c.dispose();
   });
 

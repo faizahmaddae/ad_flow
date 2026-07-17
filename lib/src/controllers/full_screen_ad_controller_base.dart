@@ -35,16 +35,20 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     required FullScreenAdCoordinator coordinator,
     required this.slot,
     required this.adUnitId,
+    Duration? maxAdAge,
     RetryPolicy? retry,
     void Function(AdPaidEvent event)? onPaid,
     void Function(String slot, AdBlockReason reason)? onBlocked,
+    DateTime Function()? now,
   }) : _sdk = sdk,
        _gate = gate,
        _caps = caps,
        _coordinator = coordinator,
+       _maxAdAge = maxAdAge,
        _retry = retry ?? RetryPolicy(const RetryConfig()),
        _onPaid = onPaid,
-       _onBlocked = onBlocked;
+       _onBlocked = onBlocked,
+       _now = now ?? DateTime.now;
 
   /// The gate/cap slot name of this format.
   final String slot;
@@ -61,9 +65,12 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   final AdGate _gate;
   final FrequencyCapPolicy _caps;
   final FullScreenAdCoordinator _coordinator;
+  final Duration? _maxAdAge;
   final RetryPolicy _retry;
   final void Function(AdPaidEvent event)? _onPaid;
   final void Function(String slot, AdBlockReason reason)? _onBlocked;
+  final DateTime Function() _now;
+  DateTime? _loadedAt;
 
   AdBlockReason? _lastBlockReason;
 
@@ -135,6 +142,48 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   /// Whether a loaded ad is warm and ready to show.
   bool get isReady => _state.value is AdLoaded && _handle != null;
 
+  /// The warm handle, for subclasses that must talk to the loaded ad
+  /// directly (e.g. the rewarded formats applying runtime SSV). Null unless
+  /// [isReady].
+  @protected
+  FullScreenAdHandle? get currentHandle => _handle;
+
+  /// Which network filled the warm ad (mediation observability), or null
+  /// when nothing is loaded / the SDK reported nothing.
+  AdResponseSummary? get response => _handle?.response;
+
+  /// Whether the warm ad has outlived its maximum age and must not be shown.
+  ///
+  /// Google documents full-screen ads as expiring after ~1 hour (4 hours for
+  /// app-open): a stale ad may fail to display, or display but not count.
+  /// [show] discards-and-reloads an expired ad instead of showing it, and an
+  /// expiry timer proactively replaces one that goes stale while warm
+  /// (2026-07 audit; generalizes what app-open always did).
+  bool get isExpired {
+    final loadedAt = _loadedAt;
+    final maxAdAge = _maxAdAge;
+    if (loadedAt == null || maxAdAge == null) return false;
+    return _now().difference(loadedAt) >= maxAdAge;
+  }
+
+  /// Arms the proactive expiry replacement for the ad just loaded.
+  ///
+  /// Uses the shared single-slot [_timer]: while `AdLoaded` no retry or
+  /// gate-recheck timer can be pending, and any transition out of `AdLoaded`
+  /// re-arms [_timer] through its own path. Best-effort — timers do not fire
+  /// while the app is suspended, so [show]'s own [isExpired] check remains
+  /// the guarantee.
+  void _scheduleExpiry() {
+    final maxAdAge = _maxAdAge;
+    if (maxAdAge == null) return;
+    _timer?.cancel();
+    _timer = Timer(maxAdAge, () {
+      if (_disposed || _state.value is! AdLoaded || !isExpired) return;
+      noteBlocked(AdBlockReason.expired);
+      discardCurrentAd();
+    });
+  }
+
   @override
   Future<void> load() async {
     if (_disposed) return;
@@ -153,7 +202,10 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     if (_disposed) return;
     if (blocked != null) {
       noteBlocked(blocked);
-      _state.value = const AdIdle();
+      // A refused load is a STATE, not a side channel (3.0): consent still
+      // pending, Remove-Ads on and "nothing requested yet" used to be
+      // indistinguishable AdIdle.
+      _state.value = AdBlocked(blocked);
       _scheduleGateRecheck();
       return;
     }
@@ -166,11 +218,15 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       }
       _handle = handle;
       _contentSub = handle.contentEvents.listen(_onContentEvent);
-      _paidSub = handle.paidEvents.listen(_onPaid ?? (_) {});
+      _paidSub = handle.paidEvents.listen(
+        (event) => _onPaid?.call(event.taggedWithSlot(slot)),
+      );
       _attempts = 0;
       _gateAttempts = 0;
       _lastBlockReason = null;
+      _loadedAt = _now();
       _state.value = const AdLoaded();
+      _scheduleExpiry();
       onLoaded();
     } catch (e) {
       // Catch EVERYTHING, not just AdFlowError. The seam's contract says it
@@ -187,13 +243,54 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   }
 
   @override
-  Future<bool> show({OnUserEarnedReward? onReward}) async {
+  Future<void> recheckGate() async {
+    if (_disposed) return;
+    final state = _state.value;
+    if (state is AdLoaded) {
+      // Cheap current checks only (enabled + live canRequestAds) — the warm
+      // ad already passed the full load gate; this asks "is it STILL
+      // permitted?" (Remove-Ads bought, consent withdrawn, graph disposed).
+      final blocked = await _gate.showBlockReason(slot);
+      if (_disposed || blocked == null) return;
+      if (_state.value is! AdLoaded) return; // changed while awaiting
+      _timer?.cancel();
+      _dropHandle();
+      noteBlocked(blocked);
+      _state.value = AdBlocked(blocked);
+      _scheduleGateRecheck();
+    } else if (state is AdIdle || state is AdFailed || state is AdBlocked) {
+      // The gate may have just (re)opened — load() re-checks it itself, so
+      // this simply short-circuits the pending backoff.
+      if (state is AdFailed) _state.value = const AdIdle();
+      await load();
+    }
+    // AdLoading resolves on its own; AdShowing is on screen — the dismiss
+    // path reloads through the gate anyway.
+  }
+
+  @override
+  Future<bool> show() => showEngine();
+
+  /// The full show engine, shared by every format. [onReward] is forwarded
+  /// to the handle for the rewarded formats (their public `show(onReward:)`
+  /// overrides call this); the base [show] never passes one.
+  @protected
+  Future<bool> showEngine({OnUserEarnedReward? onReward}) async {
     if (_disposed) return false;
     if (_state.value is AdShowing) return false; // never double-show
     final handle = _handle;
     if (handle == null || _state.value is! AdLoaded) {
       noteBlocked(AdBlockReason.notReady);
       unawaited(load()); // warm one up for the next natural break
+      return false;
+    }
+    if (isExpired) {
+      // Stale inventory (the proactive timer did not fire — e.g. the app was
+      // suspended past the ad's maximum age): discard, keep a fresh one warm,
+      // show nothing. Showing it risks a failed display, or one that does
+      // not count.
+      noteBlocked(AdBlockReason.expired);
+      discardCurrentAd();
       return false;
     }
 
@@ -231,7 +328,13 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     // app-open) for the rest of the session. Review finding #1 fixed only the
     // symmetric hole around `handle.show()`; this is the other half.
     try {
-      final blocked = await _gate.loadBlockReason(slot);
+      // The CHEAP show checks, not loadBlockReason: a warm handle proves the
+      // config gate and consent settle already passed at load time, and this
+      // runs while holding the coordinator claim — awaiting a network-bound
+      // consent re-attempt here would freeze every full-screen format behind
+      // it (2026-07 audit). canRequestAds() is still read live, so a consent
+      // withdrawal between load and show is still respected.
+      final blocked = await _gate.showBlockReason(slot);
       if (blocked != null) {
         noteBlocked(blocked);
         return rejectAndRollBack();

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import 'ad_sdk_types.dart';
@@ -11,6 +12,10 @@ import 'ad_sdk_types.dart';
 abstract interface class FullScreenAdHandle {
   /// The ad unit this ad was loaded for.
   String get adUnitId;
+
+  /// Which network filled this ad (mediation observability), or null when
+  /// the SDK reported nothing.
+  AdResponseSummary? get response;
 
   /// Show/dismiss/impression/click events for this ad.
   Stream<FullScreenAdEvent> get contentEvents;
@@ -33,14 +38,27 @@ abstract interface class FullScreenAdHandle {
 abstract interface class InterstitialHandle implements FullScreenAdHandle {}
 
 /// A loaded rewarded ad.
-abstract interface class RewardedHandle implements FullScreenAdHandle {}
+abstract interface class RewardedHandle implements FullScreenAdHandle {
+  /// Applies (or replaces) server-side verification options on this
+  /// already-loaded ad — call any time before `show()`.
+  ///
+  /// Real apps set the SSV `userId` after login and per-show `customData`
+  /// (which mission/level earned the reward), long after the ad preloaded
+  /// (2026-07 audit). Throws an `AdFlowError` on failure — a caller granting
+  /// high-value rewards must know its verification payload did not attach.
+  Future<void> updateServerSideVerification(ServerSideVerification ssv);
+}
 
 /// A loaded rewarded interstitial ad.
 ///
 /// Policy: callers must present an intro screen with clear reward messaging
 /// and a skip option *before* showing this ad.
 abstract interface class RewardedInterstitialHandle
-    implements FullScreenAdHandle {}
+    implements FullScreenAdHandle {
+  /// Applies (or replaces) server-side verification options on this
+  /// already-loaded ad — see [RewardedHandle.updateServerSideVerification].
+  Future<void> updateServerSideVerification(ServerSideVerification ssv);
+}
 
 /// A loaded app open ad.
 ///
@@ -52,6 +70,11 @@ abstract interface class AppOpenHandle implements FullScreenAdHandle {}
 abstract interface class ViewAdHandle {
   /// The ad unit this ad was loaded for.
   String get adUnitId;
+
+  /// Which network filled this ad (mediation observability), or null when
+  /// the SDK reported nothing. Refreshed by AdMob's server-side auto-refresh
+  /// as the winning source changes.
+  AdResponseSummary? get response;
 
   /// Open/close/impression/click events for this ad.
   Stream<ViewAdEvent> get events;
@@ -70,7 +93,18 @@ abstract interface class ViewAdHandle {
 /// A loaded banner ad.
 abstract interface class BannerHandle implements ViewAdHandle {
   /// The resolved on-screen size, known once loaded.
+  ///
+  /// Shorthand for `dimensions.value`.
   AdDimensions get size;
+
+  /// Reactive view of [size].
+  ///
+  /// AdMob's server-side auto-refresh replaces the creative in place, and an
+  /// inline adaptive replacement can legitimately resolve to a DIFFERENT
+  /// height — the hosting widget sizes its box from the handle, so it must be
+  /// told or the new creative renders clipped/letterboxed in the old box
+  /// (2026-07 audit). Fixed and anchored sizes never change after load.
+  ValueListenable<AdDimensions> get dimensions;
 
   /// Whether the loaded ad is a collapsible banner.
   bool get isCollapsible;

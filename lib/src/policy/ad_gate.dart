@@ -1,15 +1,18 @@
 import '../core/ad_block_reason.dart';
-import 'frequency_cap_policy.dart';
-import 'full_screen_ad_coordinator.dart';
 
-/// The composed check every controller runs before loading.
+/// The PERMISSION gate every controller consults: may this slot request
+/// (or keep serving) an ad right now?
 ///
-/// - [canLoad]: request configuration applied AND consent gate open AND ads
-///   enabled (Remove-Ads off). Guards invariant 1 — no `load()` before
-///   consent — and the config-before-load ordering (review-fix #5 / ADR-028).
-/// - [canShow]: [canLoad] AND the slot's frequency caps allow it AND no
-///   other full-screen ad is currently visible. **Not used on the actual
-///   show path** — see its own doc for why.
+/// - [canLoad]/[loadBlockReason]: request configuration applied AND consent
+///   settled AND ads enabled (Remove-Ads off). Guards invariant 1 — no
+///   `load()` before consent — and the config-before-load ordering
+///   (review-fix #5 / ADR-028).
+/// - [showBlockReason]: the cheap live subset used on the show path.
+///
+/// Frequency caps and the full-screen coordinator are deliberately NOT here
+/// (3.0): they are SHOW-pacing concerns owned by the controllers, and the
+/// one composed query that mixed them in (`canShow`) was an unfixably racy
+/// footgun — see the note at the end of this file.
 class AdGate {
   /// Creates a gate.
   ///
@@ -26,21 +29,15 @@ class AdGate {
   AdGate({
     required Future<bool> Function() canRequestAds,
     required bool Function() isEnabled,
-    required FrequencyCapPolicy caps,
-    required FullScreenAdCoordinator coordinator,
     Future<void>? configReady,
     Future<void> Function()? settleConsent,
   }) : _canRequestAds = canRequestAds,
        _isEnabled = isEnabled,
-       _caps = caps,
-       _coordinator = coordinator,
        _configReady = configReady ?? Future<void>.value(),
        _settleConsent = settleConsent;
 
   final Future<bool> Function() _canRequestAds;
   final bool Function() _isEnabled;
-  final FrequencyCapPolicy _caps;
-  final FullScreenAdCoordinator _coordinator;
   final Future<void> _configReady;
   final Future<void> Function()? _settleConsent;
 
@@ -80,23 +77,28 @@ class AdGate {
     return null;
   }
 
-  /// Whether [slot] could show a full-screen ad right now — a best-effort,
-  /// **non-atomic** snapshot for informational/UI use only (e.g. graying
-  /// out a "Watch Ad" button).
+  /// Why [slot] may not SHOW an already-loaded ad right now, or null if it
+  /// may — the cheap, current checks only (2026-07 audit).
   ///
-  /// ⚠️ Do NOT use this to decide whether to actually call `show()`. The
-  /// coordinator check below is `await`-separated from any coordinator
-  /// *claim*, so two callers can each observe "nothing is showing" in the
-  /// same turn and both proceed — the exact double-show-across-formats
-  /// race ADR-024 fixed. `FullScreenAdControllerBase.show()` does NOT
-  /// call this method; it claims `FullScreenAdCoordinator.tryEnter()`
-  /// synchronously as its first action instead, which is the only safe
-  /// way to gate a real show. This method exists for read-only queries
-  /// where a stale/racy answer is an acceptable UX nit, never a policy
-  /// violation (review finding #6).
-  Future<bool> canShow(String slot) async {
-    if (_coordinator.isFullScreenAdVisible) return false;
-    if (!await canLoad(slot)) return false;
-    return _caps.canShow(slot);
+  /// Unlike [loadBlockReason] this never awaits [AdGate]'s config gate or the
+  /// consent settle: a warm handle exists, so both were already satisfied at
+  /// load time, and `FullScreenAdControllerBase.show()` calls this while
+  /// HOLDING the shared coordinator claim — joining a network-bound consent
+  /// re-attempt there (up to the 30s info-update timeout) would freeze every
+  /// full-screen format behind one controller's show call. The
+  /// `canRequestAds()` read is still live, so a consent withdrawal between
+  /// load and show is still respected.
+  Future<AdBlockReason?> showBlockReason(String slot) async {
+    if (!_isEnabled()) return AdBlockReason.adsDisabled;
+    if (!await _canRequestAds()) return AdBlockReason.consentNotGranted;
+    return null;
   }
 }
+
+// 3.0: `AdGate.canShow` is REMOVED. It re-embodied the exact
+// check-then-await-then-act race ADR-024 closed (two callers could both read
+// "nothing is showing" and both proceed), had no in-package caller since
+// ADR-024, and survived 2.x only as public API with a warning label (review
+// finding #6). For a UI hint ("gray out the Watch Ad button"), combine
+// `coordinator.visible`, `controller.state` and `caps.canShow(slot)` —
+// and treat the answer as a hint, never as permission to show.

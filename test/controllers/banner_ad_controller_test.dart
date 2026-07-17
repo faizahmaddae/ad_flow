@@ -2,12 +2,11 @@ import 'dart:async';
 
 import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/controllers/banner_ad_controller.dart';
+import 'package:ad_flow/src/core/ad_block_reason.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/core/ad_load_state.dart';
 import 'package:ad_flow/src/policy/ad_gate.dart';
-import 'package:ad_flow/src/policy/frequency_cap_policy.dart';
 import 'package:ad_flow/src/policy/full_screen_ad_coordinator.dart';
-import 'package:ad_flow/src/policy/key_value_store.dart';
 import 'package:ad_flow/src/policy/retry_policy.dart';
 import 'package:ad_flow/src/seam/ad_sdk_types.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
@@ -36,12 +35,6 @@ void main() {
   AdGate gate() => AdGate(
     canRequestAds: () async => consented && sdk.canRequestAdsResult,
     isEnabled: () => enabled,
-    caps: StoredFrequencyCapPolicy(
-      store: InMemoryKeyValueStore(),
-      slotCaps: const {},
-      globalCap: const FrequencyCap(),
-    ),
-    coordinator: coordinator,
   );
 
   BannerAdController controller({
@@ -65,7 +58,7 @@ void main() {
       sdk.canRequestAdsResult = false;
       final c = controller();
       await c.load(width: 320);
-      expect(c.state.value, const AdIdle());
+      expect(c.state.value, const AdBlocked(AdBlockReason.consentNotGranted));
       expect(sdk.loadLog, isEmpty); // enforceConsentGate would throw if hit
       c.dispose();
     });
@@ -167,7 +160,9 @@ void main() {
         precision: AdRevenuePrecision.precise,
       );
       sdk.banners.single.simulatePaid(event);
-      expect(paid, [event]);
+      // Tagged with the slot so one onPaidEvent listener can log per-format
+      // revenue (2026-07 audit).
+      expect(paid, [event.taggedWithSlot(BannerAdController.slotName)]);
       c.dispose();
     });
   });
@@ -340,7 +335,7 @@ void main() {
         enabled = false;
         async.elapse(const Duration(seconds: 60));
         expect(sdk.banners.single.disposed, isTrue);
-        expect(c.state.value, const AdIdle());
+        expect(c.state.value, const AdBlocked(AdBlockReason.adsDisabled));
 
         // Ads re-enabled before the next gate recheck fires.
         enabled = true;

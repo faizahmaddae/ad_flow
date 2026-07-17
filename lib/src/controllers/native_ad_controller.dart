@@ -13,13 +13,13 @@ import '../policy/retry_policy.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
 
-/// Loads one native ad slot (template or platform-factory rendering).
+/// Loads one native ad slotName (template or platform-factory rendering).
 ///
 /// Same load discipline as the banner controller — gate-checked loads,
 /// retry with backoff, cooldown, auto re-arm — but no refresh loop: native
 /// ads stay until [reload] or [dispose].
 class NativeAdController implements AdController {
-  /// Creates a controller for the native slot.
+  /// Creates a controller for the native slotName.
   ///
   /// [coordinator] — when given, a click/open on this native ad is reported to
   /// it, so the app-open manager does not stack an app-open ad on the foreground
@@ -32,7 +32,8 @@ class NativeAdController implements AdController {
     FullScreenAdCoordinator? coordinator,
     RetryPolicy? retry,
     void Function(AdPaidEvent event)? onPaid,
-    void Function(String slot, AdBlockReason reason)? onBlocked,
+    void Function(String slotName, AdBlockReason reason)? onBlocked,
+    void Function()? onDisposed,
   }) : _sdk = sdk,
        _gate = gate,
        _config = config,
@@ -40,10 +41,11 @@ class NativeAdController implements AdController {
        _coordinator = coordinator,
        _retry = retry ?? RetryPolicy(const RetryConfig()),
        _onPaid = onPaid,
-       _onBlocked = onBlocked;
+       _onBlocked = onBlocked,
+       _onDisposed = onDisposed;
 
-  /// The gate/cap slot name for native ads.
-  static const slot = 'native';
+  /// The gate/cap slotName name for native ads.
+  static const slotName = 'native';
 
   final AdSdk _sdk;
   final AdGate _gate;
@@ -52,18 +54,22 @@ class NativeAdController implements AdController {
   final FullScreenAdCoordinator? _coordinator;
   final RetryPolicy _retry;
   final void Function(AdPaidEvent event)? _onPaid;
-  final void Function(String slot, AdBlockReason reason)? _onBlocked;
+  final void Function(String slotName, AdBlockReason reason)? _onBlocked;
+
+  /// Notified exactly once, when [dispose] runs — lets the minting `AdFlow`
+  /// drop this controller from its recheck registry (2026-07 audit).
+  final void Function()? _onDisposed;
 
   AdBlockReason? _lastBlockReason;
 
-  /// Why this slot last refused to load, or null if nothing is blocking it
+  /// Why this slotName last refused to load, or null if nothing is blocking it
   /// (ADR-045). A gate-blocked load reports [AdIdle], which is also what "not
   /// requested yet" looks like — this is what tells them apart.
   AdBlockReason? get lastBlockReason => _lastBlockReason;
 
   void _noteBlocked(AdBlockReason reason) {
     _lastBlockReason = reason;
-    _onBlocked?.call(slot, reason);
+    _onBlocked?.call(slotName, reason);
   }
 
   final ValueNotifier<AdLoadState> _state = ValueNotifier(const AdIdle());
@@ -81,6 +87,10 @@ class NativeAdController implements AdController {
   /// The loaded native ad, ready for `buildWidget()`. Null unless [state]
   /// is [AdLoaded].
   NativeHandle? get handle => _handle;
+
+  /// Which network filled the current ad (mediation observability), or null
+  /// when nothing is loaded / the SDK reported nothing.
+  AdResponseSummary? get response => _handle?.response;
 
   /// Height to reserve before the ad loads: the template minimums
   /// (small ≈ 90, medium ≈ 320), or 100 for factory rendering.
@@ -100,11 +110,12 @@ class NativeAdController implements AdController {
     // loser's ad).
     _state.value = const AdLoading();
 
-    final blocked = await _gate.loadBlockReason(slot);
+    final blocked = await _gate.loadBlockReason(slotName);
     if (_disposed) return;
     if (blocked != null) {
       _noteBlocked(blocked);
-      _state.value = const AdIdle();
+      // A refused load is a STATE (3.0) — see AdBlocked.
+      _state.value = AdBlocked(blocked);
       _scheduleGateRecheck();
       return;
     }
@@ -123,7 +134,9 @@ class NativeAdController implements AdController {
         return;
       }
       _handle = handle;
-      _paidSub = handle.paidEvents.listen(_onPaid ?? (_) {});
+      _paidSub = handle.paidEvents.listen(
+        (event) => _onPaid?.call(event.taggedWithSlot(slotName)),
+      );
       _eventSub = handle.events.listen(_onViewEvent);
       _attempts = 0;
       _gateAttempts = 0;
@@ -132,7 +145,7 @@ class NativeAdController implements AdController {
     } catch (e) {
       // See BannerAdController.load: catch everything, not just AdFlowError —
       // a raw platform exception must degrade to AdFailed + retry, never pin
-      // the slot at AdLoading forever.
+      // the slotName at AdLoading forever.
       if (_disposed) return;
       _state.value = AdFailed(asAdFlowError(e, AdFlowErrorKind.loadFailed));
       _scheduleRetry();
@@ -154,6 +167,28 @@ class NativeAdController implements AdController {
     _dropHandle();
     _state.value = const AdIdle();
     await load();
+  }
+
+  @override
+  Future<void> recheckGate() async {
+    if (_disposed) return;
+    final state = _state.value;
+    if (state is AdLoaded) {
+      final blocked = await _gate.loadBlockReason(slotName);
+      if (_disposed || blocked == null) return;
+      if (_state.value is! AdLoaded) return; // changed while awaiting
+      // No longer permitted (Remove-Ads, consent withdrawn, graph disposed):
+      // native ads have no refresh loop at all, so nothing else would ever
+      // drop a mounted ad (2026-07 audit).
+      _timer?.cancel();
+      _dropHandle();
+      _noteBlocked(blocked);
+      _state.value = AdBlocked(blocked);
+      _scheduleGateRecheck();
+    } else if (state is AdIdle || state is AdFailed || state is AdBlocked) {
+      if (state is AdFailed) _state.value = const AdIdle();
+      await load();
+    }
   }
 
   void _scheduleRetry() {
@@ -181,7 +216,7 @@ class NativeAdController implements AdController {
   }
 
   /// Re-checks the gate after a backoff when a load was blocked (consent not
-  /// settled / ads disabled) rather than failed — otherwise a slot whose one
+  /// settled / ads disabled) rather than failed — otherwise a slotName whose one
   /// load attempt happened to land while the gate was shut stays idle forever
   /// with nothing left to prompt a reload.
   ///
@@ -204,7 +239,11 @@ class NativeAdController implements AdController {
     switch (event) {
       case ViewAdEvent.opened || ViewAdEvent.clicked:
         _coordinator?.noteViewAdOpened();
-      case ViewAdEvent.closed || ViewAdEvent.impression:
+      case ViewAdEvent.closed:
+        // See BannerAdController._onViewEvent: starts the latch's grace
+        // window so an in-app overlay click cannot strand it.
+        _coordinator?.noteViewAdClosed();
+      case ViewAdEvent.impression:
         break;
     }
   }
@@ -223,6 +262,7 @@ class NativeAdController implements AdController {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _onDisposed?.call();
     _timer?.cancel();
     _timer = null;
     _dropHandle();

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import '../core/ad_flow_error.dart';
@@ -152,6 +153,11 @@ class FakeAdSdk implements AdSdk {
   /// use it to flip [canRequestAdsResult]/[consentStatus] the way a real
   /// form dismissal would.
   void Function()? onConsentFormShown;
+
+  /// Invoked when [showPrivacyOptionsForm] runs (after the error knob) —
+  /// mutate consent state here to simulate the user changing (or
+  /// withdrawing) consent in the privacy-options form.
+  void Function()? onPrivacyOptionsFormShown;
 
   /// Invoked by [requestConsentInfoUpdate] when it does NOT throw. Use it to
   /// flip [canRequestAdsResult] the way a real UMP info update does once the
@@ -351,6 +357,7 @@ class FakeAdSdk implements AdSdk {
     showPrivacyOptionsFormCalls++;
     final error = privacyOptionsFormError;
     if (error != null) throw error;
+    onPrivacyOptionsFormShown?.call();
   }
 
   @override
@@ -429,6 +436,25 @@ class FakeFullScreenAdHandle
   /// matching the real SDK's single-use ad instances.
   bool _dismissed = false;
 
+  /// What [response] reports (settable to simulate mediation fill info).
+  AdResponseSummary? responseSummary;
+
+  @override
+  AdResponseSummary? get response => responseSummary;
+
+  /// SSV payloads applied via [updateServerSideVerification], in order.
+  final List<ServerSideVerification> ssvUpdates = [];
+
+  /// If set, [updateServerSideVerification] throws this.
+  Object? ssvUpdateError;
+
+  @override
+  Future<void> updateServerSideVerification(ServerSideVerification ssv) async {
+    final error = ssvUpdateError;
+    if (error != null) throw error;
+    ssvUpdates.add(ssv);
+  }
+
   @override
   Stream<FullScreenAdEvent> get contentEvents => _content.stream;
 
@@ -479,6 +505,12 @@ class FakeFullScreenAdHandle
   }
 
   /// Emits [AdImpressionEvent].
+  /// Emits [AdFailedToShowEvent] directly — e.g. a mid-display failure
+  /// AFTER the ad already showed (use [showError] for one that fails the
+  /// show dispatch itself).
+  void simulateShowFailed(AdFlowError error) =>
+      _content.add(AdFailedToShowEvent(error));
+
   void simulateImpression() => _content.add(const AdImpressionEvent());
 
   /// Emits [AdClickedEvent].
@@ -517,15 +549,31 @@ class FakeBannerHandle implements BannerHandle {
   /// Creates a fake banner handle.
   FakeBannerHandle(
     this.adUnitId, {
-    this.size = const AdDimensions(width: 320, height: 50),
+    AdDimensions size = const AdDimensions(width: 320, height: 50),
     this.isCollapsible = false,
-  });
+  }) : _dimensions = ValueNotifier(size);
 
   @override
   final String adUnitId;
 
+  final ValueNotifier<AdDimensions> _dimensions;
+
   @override
-  final AdDimensions size;
+  AdDimensions get size => _dimensions.value;
+
+  @override
+  ValueListenable<AdDimensions> get dimensions => _dimensions;
+
+  /// Simulates the platform resolving a new size for the SAME live ad —
+  /// what an AdMob server-side auto-refresh of an inline adaptive banner
+  /// does (the real seam updates the handle and notifies listeners).
+  void simulateResize(AdDimensions size) => _dimensions.value = size;
+
+  /// What [response] reports (settable to simulate mediation fill info).
+  AdResponseSummary? responseSummary;
+
+  @override
+  AdResponseSummary? get response => responseSummary;
 
   @override
   final bool isCollapsible;
@@ -573,6 +621,12 @@ class FakeNativeHandle implements NativeHandle {
 
   @override
   final String adUnitId;
+
+  /// What [response] reports (settable to simulate mediation fill info).
+  AdResponseSummary? responseSummary;
+
+  @override
+  AdResponseSummary? get response => responseSummary;
 
   final _events = StreamController<ViewAdEvent>.broadcast(sync: true);
   final _paid = StreamController<AdPaidEvent>.broadcast(sync: true);

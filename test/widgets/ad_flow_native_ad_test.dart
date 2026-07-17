@@ -2,9 +2,7 @@ import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/controllers/native_ad_controller.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/policy/ad_gate.dart';
-import 'package:ad_flow/src/policy/frequency_cap_policy.dart';
 import 'package:ad_flow/src/policy/full_screen_ad_coordinator.dart';
-import 'package:ad_flow/src/policy/key_value_store.dart';
 import 'package:ad_flow/src/seam/ad_sdk_types.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
 import 'package:ad_flow/src/widgets/ad_flow_native_ad.dart';
@@ -28,16 +26,7 @@ void main() {
 
   NativeAdController controller({NativeConfig? config}) => NativeAdController(
     sdk: sdk,
-    gate: AdGate(
-      canRequestAds: sdk.canRequestAds,
-      isEnabled: () => true,
-      caps: StoredFrequencyCapPolicy(
-        store: InMemoryKeyValueStore(),
-        slotCaps: const {},
-        globalCap: const FrequencyCap(),
-      ),
-      coordinator: coordinator,
-    ),
+    gate: AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true),
     config:
         config ??
         const NativeConfig(

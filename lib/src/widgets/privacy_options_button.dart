@@ -22,7 +22,13 @@ class PrivacyOptionsButton extends StatelessWidget {
   /// Button label. Localize for real apps.
   final String label;
 
-  /// Invoked when showing the privacy options form fails.
+  /// Invoked when showing the privacy options form fails — surface it to
+  /// the user (e.g. a SnackBar): this is the GDPR-mandated manage-consent
+  /// control, and a tap that silently does nothing is a dead end.
+  ///
+  /// When null, the failure is reported through [FlutterError.reportError]
+  /// (visible in logs and crash reporting) rather than swallowed
+  /// (2026-07 audit).
   final void Function(Object error)? onError;
 
   @override
@@ -35,8 +41,22 @@ class PrivacyOptionsButton extends StatelessWidget {
           onPressed: () async {
             try {
               await consent.showPrivacyOptions();
-            } catch (e) {
-              onError?.call(e);
+            } catch (e, stack) {
+              final handler = onError;
+              if (handler != null) {
+                handler(e);
+              } else {
+                FlutterError.reportError(
+                  FlutterErrorDetails(
+                    exception: e,
+                    stack: stack,
+                    library: 'ad_flow',
+                    context: ErrorDescription(
+                      'while showing the privacy options form',
+                    ),
+                  ),
+                );
+              }
             }
           },
           child: Text(label),

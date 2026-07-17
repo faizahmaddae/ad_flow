@@ -30,16 +30,33 @@ class SharedPrefsKeyValueStore implements KeyValueStore {
   String _k(String key) => 'ad_flow.$key';
 
   @override
-  Future<int?> getInt(String key) => _prefs.getInt(_k(key));
+  Future<int?> getInt(String key) async {
+    // TYPE-corrupt data (another writer stored a string under our key, or a
+    // backend migration mangled it) makes SharedPreferencesAsync.getInt
+    // THROW, not return null — and a throwing read propagates into every
+    // frequency-cap check, blocking every full-screen show with no self-heal
+    // (2026-07 audit). Corrupt persistence is garbage, not an error: read it
+    // as absent; the next impression's write overwrites and self-heals.
+    try {
+      return await _prefs.getInt(_k(key));
+    } catch (_) {
+      return null;
+    }
+  }
 
   @override
   Future<void> setInt(String key, int value) => _prefs.setInt(_k(key), value);
 
   @override
   Future<List<int>> getHistory(String key) async {
-    final raw = await _prefs.getStringList(_k(key));
-    if (raw == null) return const [];
-    return [for (final entry in raw) ?int.tryParse(entry)];
+    // See getInt: a type-corrupt entry must read as absent, never throw.
+    try {
+      final raw = await _prefs.getStringList(_k(key));
+      if (raw == null) return const [];
+      return [for (final entry in raw) ?int.tryParse(entry)];
+    } catch (_) {
+      return const [];
+    }
   }
 
   @override

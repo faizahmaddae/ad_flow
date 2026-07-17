@@ -1,333 +1,91 @@
-# AdMob Mediation Setup Guide
+# AdMob Mediation with ad_flow (v2)
 
-This guide explains how to enable and configure **AdMob Mediation** with ad_flow to maximize your ad revenue by serving ads from multiple ad networks.
+AdMob **mediation** serves ads from multiple networks (bidding + waterfall)
+through your existing AdMob integration, raising fill rate and eCPM. ad_flow
+v2 is mediation-transparent: mediation is configured in the AdMob console and
+in your app's dependencies — ad_flow's Dart API does not change, and no
+ad_flow configuration is needed to enable it.
 
-## What is Mediation?
+> **Migrating from ad_flow v1?** v1 shipped a `MediationHelper` with
+> per-network Dart wiring. v2 deliberately does not: the plugin and each
+> adapter do the work natively, and consent signalling is handled by UMP (the
+> IAB TCF string), which ad_flow already drives. Delete any `MediationHelper`
+> usage; the steps below are all that is required.
 
-AdMob Mediation allows you to serve ads from multiple ad networks (Unity Ads, AppLovin, Meta, etc.) through a single integration. AdMob automatically selects the highest-paying ad network for each impression, maximizing your revenue.
+## 1. Console
 
-**Benefits:**
-- 📈 Higher fill rates
-- 💰 Increased eCPM through competition
-- 🔄 Automatic waterfall/bidding optimization
-- 🛠️ Single SDK integration point
+1. AdMob console → **Mediation** → create/edit a mediation group per format.
+2. Add your networks (bidding where available; waterfall otherwise).
+3. **Privacy & messaging → your GDPR message → Ad partners**: register every
+   mediation partner so UMP consent covers them. This is a compliance
+   requirement, not an optimization.
+4. Update **app-ads.txt** with each partner's lines (listed on the partner's
+   AdMob mediation page) — missing lines cost fill.
 
-## Supported Networks
+## 2. Add the adapters
 
-ad_flow provides built-in support for:
+**Preferred:** Google publishes official Flutter mediation adapter packages
+(`gma_mediation_<network>` on pub.dev — e.g. `gma_mediation_applovin`,
+`gma_mediation_unityads`, `gma_mediation_meta`). Add the ones for your
+networks to `pubspec.yaml`; they bundle the correct native adapter on both
+platforms and are versioned against `google_mobile_ads`. Check each package's
+compatibility with `google_mobile_ads` 9.x before adding.
 
-| Network | Package | Consent Signals |
-|---------|---------|-----------------|
-| Unity Ads | `gma_mediation_unity` | GDPR, CCPA |
-| AppLovin | `gma_mediation_applovin` | GDPR (hasUserConsent), CCPA (doNotSell) |
+**Fallback (no Flutter package for the network):** add the native adapter
+yourself —
 
-You can also register **custom adapters** for any other mediation network.
+- Android, `android/app/build.gradle`:
 
-> **⚠️ Version Compatibility Note:**  
-> ad_flow uses `google_mobile_ads ^7.0.0`. As of January 2026, the official mediation packages (`gma_mediation_unity`, `gma_mediation_applovin`) may still require `google_mobile_ads ^6.0.0`. Check pub.dev for updated versions that support ^7.0.0, or use a [dependency override](https://dart.dev/tools/pub/dependencies#dependency-overrides) if needed.
-
----
-
-## Quick Start
-
-### Step 1: Add Mediation Dependencies
-
-Add the mediation packages you need to your `pubspec.yaml`:
-
-```yaml
-dependencies:
-  ad_flow: ^1.3.14
-  
-  # Add only the networks you want to use:
-  gma_mediation_unity: ^1.6.2      # Unity Ads
-  gma_mediation_applovin: ^2.5.1   # AppLovin
-```
-
-Then run:
-```bash
-flutter pub get
-```
-
-### Step 2: Register Adapters Before Initialization
-
-**⚠️ Critical:** Register mediation adapters **BEFORE** calling `AdFlow.instance.initialize()`.
-
-```dart
-import 'package:ad_flow/ad_flow.dart';
-import 'package:gma_mediation_unity/gma_mediation_unity.dart';
-import 'package:gma_mediation_applovin/gma_mediation_applovin.dart';
-
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  
-  // Step 1: Create instances and register Unity Ads adapter
-  final unity = GmaMediationUnity();
-  MediationHelper.registerUnityWithCallbacks(
-    setGDPRConsent: unity.setGDPRConsent,
-    setCCPAConsent: unity.setCCPAConsent,
-  );
-  
-  // Step 2: Create instance and register AppLovin adapter
-  final applovin = GmaMediationApplovin();
-  MediationHelper.registerApplovinWithCallbacks(
-    setHasUserConsent: applovin.setHasUserConsent,
-    setDoNotSell: applovin.setDoNotSell,
-  );
-  
-  // Step 3: Initialize ad_flow (consent is auto-forwarded)
-  await AdFlow.instance.initializeWithExplainer(
-    config: AdFlowConfig(
-      androidBannerAdUnitId: 'ca-app-pub-xxx/yyy',
-      iosBannerAdUnitId: 'ca-app-pub-xxx/zzz',
-      // ... other config
-    ),
-    context: navigatorKey.currentContext!,
-  );
-  
-  runApp(MyApp());
-}
-```
-
-### Step 3: That's It!
-
-ad_flow automatically:
-1. Gathers user consent (ATT on iOS, then UMP)
-2. Forwards consent status to all registered mediation networks
-3. Initializes the Google Mobile Ads SDK
-4. Preloads ads as configured
-
----
-
-## Detailed Configuration
-
-### Using Only One Network
-
-You don't need to use all networks. Just add the dependencies and register the adapters you need:
-
-```dart
-// Unity Ads only
-import 'package:gma_mediation_unity/gma_mediation_unity.dart';
-
-final unity = GmaMediationUnity();
-MediationHelper.registerUnityWithCallbacks(
-  setGDPRConsent: unity.setGDPRConsent,
-  setCCPAConsent: unity.setCCPAConsent,
-);
-```
-
-```dart
-// AppLovin only
-import 'package:gma_mediation_applovin/gma_mediation_applovin.dart';
-
-final applovin = GmaMediationApplovin();
-MediationHelper.registerApplovinWithCallbacks(
-  setHasUserConsent: applovin.setHasUserConsent,
-  setDoNotSell: applovin.setDoNotSell,
-);
-```
-
-### Custom Consent Configuration
-
-By default, ad_flow reads consent status from `ConsentManager`. You can override this:
-
-```dart
-MediationHelper.forwardConsent(
-  config: MediationConsentConfig(
-    hasGdprConsent: true,  // Override GDPR consent
-    hasCcpaConsent: false, // Override CCPA consent (user opted out)
-  ),
-);
-```
-
-### Registering Custom Adapters
-
-For networks not built into ad_flow, use the generic `registerAdapter()` method:
-
-```dart
-MediationHelper.registerAdapter(
-  networkName: 'meta_audience_network',
-  forwarder: (config) async {
-    // Forward consent to Meta Audience Network
-    // Use their SDK's consent API here
-    await MetaAudienceNetwork.setAdvertiserTrackingEnabled(config.hasGdprConsent);
-    return true; // Return true on success
-  },
-);
-```
-
-### Checking Registration Status
-
-```dart
-// Check if any adapters are registered
-if (MediationHelper.hasRegisteredAdapters) {
-  print('Mediation is enabled');
-}
-
-// Get list of registered networks
-List<String> networks = MediationHelper.registeredNetworks;
-print('Registered: $networks'); // ['unity', 'applovin']
-```
-
-### Manual Consent Forwarding
-
-Consent is automatically forwarded during initialization. To manually forward (e.g., after consent changes):
-
-```dart
-final summary = await MediationHelper.forwardConsent();
-
-print('Forwarded to ${summary.successCount} networks');
-print('Failed: ${summary.failureCount}');
-
-for (final result in summary.results) {
-  print('${result.networkName}: ${result.success ? "✓" : "✗"}');
-  if (!result.success) {
-    print('  Error: ${result.error}');
+  ```groovy
+  dependencies {
+    implementation 'com.google.ads.mediation:<network>:x.y.z'
   }
-}
-```
+  ```
 
----
+- iOS, `ios/Podfile`:
 
-## Platform-Specific Setup
+  ```ruby
+  pod 'GoogleMobileAdsMediation<Network>'
+  ```
 
-### Android
+Versions and compatibility per network:
+[Android partners](https://developers.google.com/admob/android/mediation) ·
+[iOS partners](https://developers.google.com/admob/ios/mediation).
 
-Add the mediation adapter dependencies to `android/app/build.gradle.kts`:
+If you experiment with the **Next-Gen SDK** build flag
+(`--dart-define=USE_NEXT_GEN_SDK=true`, Android-only, experimental), verify
+every adapter is Next-Gen-compatible first.
 
-```kotlin
-dependencies {
-    // Unity Ads
-    implementation("com.google.ads.mediation:unity:4.12.4.0")
-    
-    // AppLovin
-    implementation("com.google.ads.mediation:applovin:13.0.1.0")
-}
-```
+## 3. iOS: SKAdNetworkItems
 
-### iOS
+Add each partner's **`SKAdNetworkItems`** to `ios/Runner/Info.plist`.
+Google's own identifiers ship with the SDK, but partner identifiers do not,
+and missing entries silently cost you attributed (paid) installs. Each
+partner's AdMob mediation page lists theirs.
 
-The Flutter packages handle CocoaPods integration automatically. Just run:
+## 4. Consent signals
 
-```bash
-cd ios && pod install
-```
+Nothing to do in ad_flow: UMP writes the IAB TCF consent string, and
+certified adapters read it themselves. Register the partners in Privacy &
+messaging (step 1.3). For a network with an extra, non-TCF consent API,
+follow that partner's page — such calls are made from your app directly, not
+through ad_flow.
 
----
+## 5. Verifying mediation
 
-## AdMob Console Configuration
+- Open the **Ad Inspector** (`ads.openAdInspector()`) on a test device: it
+  lists every mediation group, adapter status, and which network filled each
+  request.
+- At runtime, `controller.response` (`AdResponseSummary`) reports the winning
+  ad source per loaded ad, and every `AdPaidEvent` carries `adSourceName` —
+  log them (e.g. through `ads.onPaidEvent`) to see your real fill mix in
+  production.
 
-After adding mediation packages, configure your ad units in the [AdMob Console](https://admob.google.com/):
+## Checklist
 
-1. Go to **Mediation** → **Mediation groups**
-2. Create a new mediation group or edit existing
-3. Add ad sources for your networks (Unity, AppLovin, etc.)
-4. Configure eCPM floors and optimization settings
-5. Link your network account credentials
-
-Refer to Google's documentation for detailed console setup:
-- [Unity Ads Mediation](https://developers.google.com/admob/flutter/mediation/unity)
-- [AppLovin Mediation](https://developers.google.com/admob/flutter/mediation/applovin)
-
----
-
-## Consent & Privacy
-
-### How Consent Forwarding Works
-
-1. **iOS ATT Prompt** → User grants/denies app tracking
-2. **UMP Consent Form** → User provides GDPR/CCPA preferences
-3. **ad_flow reads consent** → From `ConsentManager.canShowPersonalizedAds`
-4. **Forwards to networks** → Each registered adapter receives consent status
-
-### GDPR Consent Signal
-
-- `true` → User consented to personalized ads
-- `false` → User did NOT consent (serve non-personalized ads)
-
-### CCPA Consent Signal
-
-- `true` → User did NOT opt out of sale (can use data)
-- `false` → User opted out (do not sell data)
-
-**Note:** The CCPA signal is inverted from GDPR. ad_flow handles this automatically for built-in adapters.
-
----
-
-## Troubleshooting
-
-### Ads Not Filling from Mediation Networks
-
-1. **Check registration order** – Adapters must be registered BEFORE `initialize()`
-2. **Verify AdMob console** – Ensure mediation groups are configured correctly
-3. **Check network credentials** – App IDs and ad unit IDs must match
-4. **Test on real device** – Mediation may not work on emulators
-
-### Consent Not Being Forwarded
-
-```dart
-// Debug: Check if adapters are registered
-print('Has adapters: ${MediationHelper.hasRegisteredAdapters}');
-print('Networks: ${MediationHelper.registeredNetworks}');
-
-// Debug: Check consent status
-print('Can show personalized: ${AdFlow.instance.consent.canShowPersonalizedAds}');
-```
-
-### Network-Specific Issues
-
-**Unity Ads:**
-- Ensure Game ID is set in AdMob console
-- Test with Unity test ads first
-
-**AppLovin:**
-- Verify SDK key in AndroidManifest.xml / Info.plist
-- Check AppLovin dashboard for integration status
-
----
-
-## API Reference
-
-### MediationHelper
-
-| Method | Description |
-|--------|-------------|
-| `registerAdapter(networkName, forwarder)` | Register a custom mediation adapter |
-| `registerUnityWithCallbacks(...)` | Register Unity Ads with consent callbacks |
-| `registerApplovinWithCallbacks(...)` | Register AppLovin with consent callbacks |
-| `forwardConsent([config])` | Forward consent to all registered adapters |
-| `clearAdapters()` | Remove all registered adapters |
-| `hasRegisteredAdapters` | Check if any adapters are registered |
-| `registeredNetworks` | Get list of registered network names |
-
-### MediationConsentConfig
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `hasGdprConsent` | `bool` | User consented to personalized ads (GDPR) |
-| `hasCcpaConsent` | `bool` | User did NOT opt out of sale (CCPA) |
-
-### MediationForwardSummary
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `results` | `List<MediationForwardResult>` | Results for each network |
-| `successCount` | `int` | Number of successful forwards |
-| `failureCount` | `int` | Number of failed forwards |
-| `allSucceeded` | `bool` | True if all forwards succeeded |
-
----
-
-## Example App
-
-See the example app for a complete implementation:
-
-```bash
-cd example
-flutter pub get
-flutter run
-```
-
-The example demonstrates:
-- Registering mediation adapters
-- Initialization with consent flow
-- Showing ads from mediated networks
+- [ ] Mediation group per format in the console
+- [ ] Partners registered under Privacy & messaging (GDPR)
+- [ ] Adapters added (`gma_mediation_*` package, or native build files)
+- [ ] iOS: partner `SKAdNetworkItems` in `Info.plist`
+- [ ] `app-ads.txt` updated with partner lines
+- [ ] Verified with Ad Inspector on a test device
