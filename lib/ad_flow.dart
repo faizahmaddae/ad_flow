@@ -1,7 +1,7 @@
 /// Easy AdMob integration for Flutter.
 ///
-/// ad_flow wraps `google_mobile_ads` into a policy-compliant,
-/// revenue-optimized, testable ad layer: banner, interstitial, rewarded,
+/// ad_flow wraps `google_mobile_ads` into a testable, revenue-minded ad
+/// layer with policy-aware defaults: banner, interstitial, rewarded,
 /// rewarded interstitial, native and app open ads, plus UMP consent
 /// management.
 ///

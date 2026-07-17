@@ -1,8 +1,11 @@
 # ad_flow
 
-Easy, policy-compliant AdMob integration for Flutter — banner, interstitial,
-rewarded, rewarded interstitial, native and app open ads, with UMP consent,
-frequency capping, retry with backoff, and revenue callbacks built in.
+Easy AdMob integration for Flutter with policy-aware defaults — banner,
+interstitial, rewarded, rewarded interstitial, native and app open ads, with
+UMP consent, frequency capping, retry with backoff, and revenue callbacks
+built in. (Defaults and guardrails encode AdMob's published policies;
+final policy compliance always depends on your placements, content and
+console setup.)
 
 [![pub package](https://img.shields.io/pub/v/ad_flow.svg)](https://pub.dev/packages/ad_flow)
 [![google_mobile_ads](https://img.shields.io/badge/google__mobile__ads-9.x-green.svg)](https://pub.dev/packages/google_mobile_ads)
@@ -15,7 +18,7 @@ Read [MIGRATION](MIGRATION.md).
 
 - **Consent first, always.** No ad loads before the UMP gate opens
   (GDPR/EEA form, ATT coordination, privacy-options entry point).
-- **Policy-safe defaults.** App open only on warm starts with the 4-hour
+- **Policy-aware defaults.** App open only on warm starts with the 4-hour
   expiry; interstitials frequency-capped and action-paced; the rewarded
   interstitial intro/skip screen is mandatory by construction; banners
   reserve their height so layouts never shift.
@@ -570,10 +573,21 @@ production until Google declares Flutter support GA.
 
 ## 9. Mediation
 
-Add the official `gma_mediation_*` adapter packages to your app, register
-the partners in AdMob's *Privacy & messaging* for consent forwarding, and —
-on iOS — add the partners' `SKAdNetworkItems` to `Info.plist`. Mediation
-needs no ad_flow changes; adapters raise fill and eCPM transparently.
+Add the official `gma_mediation_*` adapter packages, select the partners in
+AdMob's *Privacy & messaging*, and — on iOS — add the partners'
+`SKAdNetworkItems` to `Info.plist`. Ads then flow with no ad_flow changes.
+
+**Consent forwarding is NOT automatic for every network** (Google's own
+partner pages say so explicitly). UMP collects consent and writes the IAB
+TCF/AC/GPP strings; TCF-reading SDKs (e.g. AppLovin 12+) pick them up, but
+networks like Unity (MetaData calls) or Meta (Limited Data Use) need their
+own APIs called — some *before* their SDK initializes. ad_flow gives you
+the hooks: `AdFlow.onConsentChanged` (fires after every consent flow or
+mutation), `AdFlowConfig.deferMediationInit` (adapters init lazily at the
+first ad request, after consent settled), and per-slot
+`AdRequestOptions.mediationExtras`. The full per-network guide is
+[doc/MEDIATION_SETUP.md](doc/MEDIATION_SETUP.md) — read it before shipping
+mediation.
 
 ## 10. Policy compliance checklist
 

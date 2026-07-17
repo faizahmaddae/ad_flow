@@ -1,3 +1,40 @@
+# Upgrading 3.x → 4.0.0
+
+4.0 is a hardening major; most apps compile unchanged. Check these:
+
+1. **Enum switches.** `AdBlockReason` gained `requestConfigNotApplied` and
+   `internalError`; `AdFlowErrorKind` gained `ssv`. Add the cases to any
+   exhaustive `switch` (or add a wildcard).
+2. **Rewarded interstitial pacing.** The RI sequence is now paced by
+   `globalFrequencyCap` (the intro is an app-chosen interruption), and every
+   check runs BEFORE the intro. If you relied on RI ignoring the global gap,
+   raise/clear `globalFrequencyCap` or the RI slot's own `cap`. Classic
+   rewarded is still exempt.
+3. **SSV semantics.** If you configure `ssv` and the attach fails at load,
+   the load now FAILS (`AdFlowError(ssv)`) and retries — you may observe
+   `AdFailed` where 3.x reported a (silently unverified) `AdLoaded`.
+4. **Child-directed / rated / test-device apps.** If
+   `updateRequestConfiguration` fails, loads now BLOCK with
+   `AdBlocked(requestConfigNotApplied)` until the retried apply succeeds
+   (default `RequestConfigFailurePolicy.auto`). Opt out with
+   `requestConfigPolicy: RequestConfigFailurePolicy.failOpen` — not
+   recommended for child-directed apps.
+5. **Load watchdog.** Loads that get no SDK callback within
+   `RetryConfig.loadTimeout` (default 60s) fail as `AdFlowError(timeout)`
+   and retry. Pass `loadTimeout: null` for 3.x behavior (not recommended).
+6. **`AdGate` constructor** (only if you build one directly, e.g. in tests):
+   `configReady:` future → `settleRequestConfig:` bounded callback.
+7. **Custom `AdSdk` implementations** must add
+   `disableMediationInitialization()`.
+
+New (additive): per-slot `AdRequestOptions request` on every format config,
+`MediationNetworkExtras`, `AdFlow.onConsentChanged`,
+`AdFlowConfig.deferMediationInit`, `RetryConfig.loadTimeout`. If you use
+mediation, re-read `doc/MEDIATION_SETUP.md` — the consent-forwarding
+section changed from "automatic" to the honest per-network contract.
+
+---
+
 # Upgrading 2.x → 3.0.0
 
 3.0 bundles the (unpublished) 2.2.0 hardening work with a deliberate,
