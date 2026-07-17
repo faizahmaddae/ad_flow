@@ -105,6 +105,12 @@ class FakeAdSdk implements AdSdk {
   /// If set, [updateRequestConfiguration] throws this instead of recording.
   AdFlowError? updateRequestConfigurationError;
 
+  /// If set (and the load carries a non-null `ssv`), [loadRewarded] /
+  /// [loadRewardedInterstitial] throw this instead of returning a handle —
+  /// mirrors the real seam FAILING a load whose server-side verification
+  /// could not be attached (4.0 audit; `AdFlowErrorKind.ssv`).
+  Object? ssvAttachError;
+
   /// If set, [requestConsentInfoUpdate] throws this.
   AdFlowError? consentUpdateError;
 
@@ -252,6 +258,14 @@ class FakeAdSdk implements AdSdk {
   }) async {
     final handle = await _loadFullScreen('rewarded', adUnitId, rewardeds);
     rewardedSsvs.add(ssv);
+    final ssvError = ssvAttachError;
+    if (ssv != null && ssvError != null) {
+      // Mirrors the real seam: the un-verifiable ad is released and the load
+      // FAILS — never a ready ad that silently lost its SSV payload.
+      rewardeds.remove(handle);
+      unawaited(handle.dispose());
+      throw ssvError;
+    }
     return handle;
   }
 
@@ -267,6 +281,12 @@ class FakeAdSdk implements AdSdk {
       rewardedInterstitials,
     );
     rewardedInterstitialSsvs.add(ssv);
+    final ssvError = ssvAttachError;
+    if (ssv != null && ssvError != null) {
+      rewardedInterstitials.remove(handle);
+      unawaited(handle.dispose());
+      throw ssvError;
+    }
     return handle;
   }
 

@@ -66,15 +66,14 @@ class GmaAdSdk implements AdSdk {
         adUnitId: adUnitId,
         request: toGmaAdRequest(options),
         rewardedAdLoadCallback: gma.RewardedAdLoadCallback(
-          onAdLoaded: (ad) => unawaited(() async {
-            // SSV must be attached before show; failures must not lose the ad.
-            if (ssv != null) {
-              try {
-                await ad.setServerSideOptions(toGmaSsvOptions(ssv));
-              } catch (_) {}
-            }
-            completer.complete(_GmaRewardedHandle(adUnitId, ad));
-          }()),
+          onAdLoaded: (ad) => unawaited(
+            _attachSsvThenComplete(
+              completer,
+              ad,
+              ssv,
+              () => _GmaRewardedHandle(adUnitId, ad),
+            ),
+          ),
           onAdFailedToLoad: (e) => completer.completeError(loadErrorFrom(e)),
         ),
       ),
@@ -95,22 +94,65 @@ class GmaAdSdk implements AdSdk {
         request: toGmaAdRequest(options),
         rewardedInterstitialAdLoadCallback:
             gma.RewardedInterstitialAdLoadCallback(
-              onAdLoaded: (ad) => unawaited(() async {
-                if (ssv != null) {
-                  try {
-                    await ad.setServerSideOptions(toGmaSsvOptions(ssv));
-                  } catch (_) {}
-                }
-                completer.complete(
-                  _GmaRewardedInterstitialHandle(adUnitId, ad),
-                );
-              }()),
+              onAdLoaded: (ad) => unawaited(
+                _attachSsvThenComplete(
+                  completer,
+                  ad,
+                  ssv,
+                  () => _GmaRewardedInterstitialHandle(adUnitId, ad),
+                ),
+              ),
               onAdFailedToLoad: (e) =>
                   completer.completeError(loadErrorFrom(e)),
             ),
       ),
     );
     return completer.future;
+  }
+
+  /// Attaches [ssv] to a freshly loaded rewarded/rewarded-interstitial [ad],
+  /// then completes the load — or FAILS it (4.0 audit).
+  ///
+  /// If the publisher configured server-side verification, an ad whose SSV
+  /// payload could not be attached must never be reported ready: it would be
+  /// shown, the user would earn the reward, and the publisher's SSV endpoint
+  /// would receive a callback with no userId/customData to validate against —
+  /// a silent removal of exactly the protection SSV exists to provide. The
+  /// controller's normal retry path reloads (and re-attaches) instead.
+  ///
+  /// Detectability note (verified against the plugin source): the native
+  /// handlers acknowledge `setServerSideVerificationOptions` unconditionally,
+  /// so only channel-level faults (a dead engine, MissingPluginException) are
+  /// observable here. A hang is bounded by the controller's load watchdog.
+  static Future<void> _attachSsvThenComplete<T>(
+    Completer<T> completer,
+    gma.AdWithoutView ad,
+    ServerSideVerification? ssv,
+    T Function() buildHandle,
+  ) async {
+    if (ssv != null) {
+      try {
+        switch (ad) {
+          case final gma.RewardedAd rewarded:
+            await rewarded.setServerSideOptions(toGmaSsvOptions(ssv));
+          case final gma.RewardedInterstitialAd rewardedInterstitial:
+            await rewardedInterstitial.setServerSideOptions(
+              toGmaSsvOptions(ssv),
+            );
+        }
+      } catch (e) {
+        unawaited(ad.dispose());
+        completer.completeError(
+          AdFlowError(
+            AdFlowErrorKind.ssv,
+            'Server-side verification could not be attached to the loaded '
+            'ad: $e',
+          ),
+        );
+        return;
+      }
+    }
+    completer.complete(buildHandle());
   }
 
   /// Known upstream limitation (plugin 9.0.0, verified in

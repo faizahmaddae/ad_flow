@@ -13,6 +13,18 @@ enum AdFlowErrorKind {
   /// An internal ad_flow timeout elapsed.
   timeout,
 
+  /// Server-side verification could not be attached to a rewarded /
+  /// rewarded-interstitial ad that was configured to carry it.
+  ///
+  /// The load is FAILED in this case (the controller retries normally) —
+  /// an ad without its SSV payload must never be served as "ready" when the
+  /// publisher's reward economy depends on server-side validation (4.0
+  /// audit). Honesty note: the plugin's native handlers acknowledge the SSV
+  /// call unconditionally, so only channel-level faults are detectable
+  /// client-side; final confirmation is always your SSV endpoint receiving
+  /// the payload.
+  ssv,
+
   /// The supplied configuration is invalid or incomplete for the operation.
   invalidConfig,
 
