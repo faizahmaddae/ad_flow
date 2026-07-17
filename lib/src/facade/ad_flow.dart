@@ -357,12 +357,13 @@ class AdFlow {
   Timer? _configRetryTimer;
 
   /// Whether a failed/absent request configuration must BLOCK loads.
-  bool get _configFailurePolicyIsClosed => switch (_config
-      .requestConfigPolicy) {
-    RequestConfigFailurePolicy.failClosed => true,
-    RequestConfigFailurePolicy.failOpen => false,
-    RequestConfigFailurePolicy.auto => _config.requestConfigIsPolicySensitive,
-  };
+  bool get _configFailurePolicyIsClosed =>
+      switch (_config.requestConfigPolicy) {
+        RequestConfigFailurePolicy.failClosed => true,
+        RequestConfigFailurePolicy.failOpen => false,
+        RequestConfigFailurePolicy.auto =>
+          _config.requestConfigIsPolicySensitive,
+      };
 
   /// Awaited by `AdGate.canLoad` before every load: joins the in-flight
   /// bounded apply attempt (or starts one, rate-limited), then answers
@@ -437,8 +438,7 @@ class AdFlow {
           library: 'ad_flow',
           context: ErrorDescription(
             'while applying the ad request configuration (will retry; loads '
-            'are ${_configFailurePolicyIsClosed ? "BLOCKED until it succeeds"
-                : "proceeding without it"} per RequestConfigFailurePolicy)',
+            'are ${_configFailurePolicyIsClosed ? "BLOCKED until it succeeds" : "proceeding without it"} per RequestConfigFailurePolicy)',
           ),
         ),
       );

@@ -275,8 +275,12 @@ class FakeAdSdk implements AdSdk {
   Future<InterstitialHandle> loadInterstitial(
     String adUnitId,
     AdRequestOptions options,
-  ) async =>
-      _loadFullScreen('interstitial', adUnitId, interstitials, options: options);
+  ) async => _loadFullScreen(
+    'interstitial',
+    adUnitId,
+    interstitials,
+    options: options,
+  );
 
   @override
   Future<RewardedHandle> loadRewarded(

@@ -356,24 +356,31 @@ void main() {
       );
     });
 
-    test('rewarded interstitial: SSV attach failure fails the load too', () async {
-      ssvAttachRejectsWith = PlatformException(code: 'ssv-attach');
-      final sdk = GmaAdSdk();
-      final future = sdk.loadRewardedInterstitial(
-        'unit-ri',
-        const AdRequestOptions(),
-        ssv: const ServerSideVerification(userId: 'u-1'),
-      );
-      final expectation = expectLater(
-        future,
-        throwsA(
-          isA<AdFlowError>().having((e) => e.kind, 'kind', AdFlowErrorKind.ssv),
-        ),
-      );
-      await pumpEventQueue();
-      await sendAdEvent(0, 'onAdLoaded');
-      await expectation;
-    });
+    test(
+      'rewarded interstitial: SSV attach failure fails the load too',
+      () async {
+        ssvAttachRejectsWith = PlatformException(code: 'ssv-attach');
+        final sdk = GmaAdSdk();
+        final future = sdk.loadRewardedInterstitial(
+          'unit-ri',
+          const AdRequestOptions(),
+          ssv: const ServerSideVerification(userId: 'u-1'),
+        );
+        final expectation = expectLater(
+          future,
+          throwsA(
+            isA<AdFlowError>().having(
+              (e) => e.kind,
+              'kind',
+              AdFlowErrorKind.ssv,
+            ),
+          ),
+        );
+        await pumpEventQueue();
+        await sendAdEvent(0, 'onAdLoaded');
+        await expectation;
+      },
+    );
 
     test('no SSV configured: an SSV-channel fault cannot fail the load '
         '(nothing to attach)', () async {

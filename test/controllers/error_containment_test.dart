@@ -421,10 +421,7 @@ void main() {
       var enabled = false;
       final controller = InterstitialAdController(
         sdk: sdk,
-        gate: AdGate(
-          canRequestAds: () async => true,
-          isEnabled: () => enabled,
-        ),
+        gate: AdGate(canRequestAds: () async => true, isEnabled: () => enabled),
         caps: caps,
         coordinator: coordinator,
         config: const InterstitialConfig(

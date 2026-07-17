@@ -177,10 +177,7 @@ void main() {
         // the await has resolved (no wedge) — not silently sent unconfigured.
         expect(sdk.bannerSpecs, isEmpty);
         expect(banner.state.value, isA<AdBlocked>());
-        expect(
-          banner.lastBlockReason,
-          AdBlockReason.requestConfigNotApplied,
-        );
+        expect(banner.lastBlockReason, AdBlockReason.requestConfigNotApplied);
 
         // The channel heals: the retry machinery re-applies and the slot
         // recovers on its own gate re-check.
@@ -195,37 +192,31 @@ void main() {
       });
     });
 
-    test(
-      'a throwing updateRequestConfiguration with a config that carries NO '
-      'policy-critical fields degrades OPEN — loads proceed, nothing hangs '
-      '(auto policy, 4.0)',
-      () async {
-        sdk.updateRequestConfigurationError = const AdFlowError(
-          AdFlowErrorKind.unknown,
-          'config boom',
-        );
-        sdk.consentStatus = AdConsentStatus.notRequired;
-        sdk.canRequestAdsResult = true;
+    test('a throwing updateRequestConfiguration with a config that carries NO '
+        'policy-critical fields degrades OPEN — loads proceed, nothing hangs '
+        '(auto policy, 4.0)', () async {
+      sdk.updateRequestConfigurationError = const AdFlowError(
+        AdFlowErrorKind.unknown,
+        'config boom',
+      );
+      sdk.consentStatus = AdConsentStatus.notRequired;
+      sdk.canRequestAdsResult = true;
 
-        final ads = await AdFlow.initialize(
-          // No testDeviceIds/tags/rating → a lost config costs nothing.
-          const AdFlowConfig(
-            banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
-          ),
-          sdk: sdk,
-          store: InMemoryKeyValueStore(),
-          platform: AdPlatform.android,
-        );
-        final banner = ads.banner();
-        await banner.load(width: 320); // must complete, not hang
-        expect(
-          sdk.bannerSpecs.single.adUnitId,
-          'b-a',
-        ); // load proceeded degraded
-        banner.dispose();
-        ads.dispose();
-      },
-    );
+      final ads = await AdFlow.initialize(
+        // No testDeviceIds/tags/rating → a lost config costs nothing.
+        const AdFlowConfig(
+          banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
+        ),
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+      );
+      final banner = ads.banner();
+      await banner.load(width: 320); // must complete, not hang
+      expect(sdk.bannerSpecs.single.adUnitId, 'b-a'); // load proceeded degraded
+      banner.dispose();
+      ads.dispose();
+    });
 
     test('whenReady completes false and nothing loads when the gate stays '
         'closed', () async {

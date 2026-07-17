@@ -231,31 +231,33 @@ void main() {
       c.dispose();
     });
 
-    test('a THROWING intro presenter rolls back: no ad, warm kept, '
-        'coordinator free, show() returns false instead of rejecting',
-        () async {
-      final c = RewardedInterstitialAdController(
-        sdk: sdk,
-        gate: AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true),
-        caps: caps,
-        coordinator: coordinator,
-        config: const RewardedInterstitialConfig(
-          adUnitId: PlatformAdUnitId(android: 'unit-ri'),
-        ),
-        adUnitId: 'unit-ri',
-        showIntro: (content) async => throw StateError('presenter bug'),
-      );
-      await c.load();
-      final handle = sdk.rewardedInterstitials.single;
+    test(
+      'a THROWING intro presenter rolls back: no ad, warm kept, '
+      'coordinator free, show() returns false instead of rejecting',
+      () async {
+        final c = RewardedInterstitialAdController(
+          sdk: sdk,
+          gate: AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true),
+          caps: caps,
+          coordinator: coordinator,
+          config: const RewardedInterstitialConfig(
+            adUnitId: PlatformAdUnitId(android: 'unit-ri'),
+          ),
+          adUnitId: 'unit-ri',
+          showIntro: (content) async => throw StateError('presenter bug'),
+        );
+        await c.load();
+        final handle = sdk.rewardedInterstitials.single;
 
-      final shown = await c.show(onReward: (_) {});
+        final shown = await c.show(onReward: (_) {});
 
-      expect(shown, isFalse);
-      expect(handle.showCalls, 0, reason: 'policy: no intro, no ad');
-      expect(c.isReady, isTrue);
-      expect(coordinator.isFullScreenAdVisible, isFalse);
-      c.dispose();
-    });
+        expect(shown, isFalse);
+        expect(handle.showCalls, 0, reason: 'policy: no intro, no ad');
+        expect(c.isReady, isTrue);
+        expect(coordinator.isFullScreenAdVisible, isFalse);
+        c.dispose();
+      },
+    );
 
     test('skip releases the claim and returns to AdLoaded', () async {
       introAnswer = false;
