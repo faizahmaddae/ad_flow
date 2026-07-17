@@ -35,16 +35,20 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     required FullScreenAdCoordinator coordinator,
     required this.slot,
     required this.adUnitId,
+    Duration? maxAdAge,
     RetryPolicy? retry,
     void Function(AdPaidEvent event)? onPaid,
     void Function(String slot, AdBlockReason reason)? onBlocked,
+    DateTime Function()? now,
   }) : _sdk = sdk,
        _gate = gate,
        _caps = caps,
        _coordinator = coordinator,
+       _maxAdAge = maxAdAge,
        _retry = retry ?? RetryPolicy(const RetryConfig()),
        _onPaid = onPaid,
-       _onBlocked = onBlocked;
+       _onBlocked = onBlocked,
+       _now = now ?? DateTime.now;
 
   /// The gate/cap slot name of this format.
   final String slot;
@@ -61,9 +65,12 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   final AdGate _gate;
   final FrequencyCapPolicy _caps;
   final FullScreenAdCoordinator _coordinator;
+  final Duration? _maxAdAge;
   final RetryPolicy _retry;
   final void Function(AdPaidEvent event)? _onPaid;
   final void Function(String slot, AdBlockReason reason)? _onBlocked;
+  final DateTime Function() _now;
+  DateTime? _loadedAt;
 
   AdBlockReason? _lastBlockReason;
 
@@ -135,6 +142,38 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   /// Whether a loaded ad is warm and ready to show.
   bool get isReady => _state.value is AdLoaded && _handle != null;
 
+  /// Whether the warm ad has outlived its maximum age and must not be shown.
+  ///
+  /// Google documents full-screen ads as expiring after ~1 hour (4 hours for
+  /// app-open): a stale ad may fail to display, or display but not count.
+  /// [show] discards-and-reloads an expired ad instead of showing it, and an
+  /// expiry timer proactively replaces one that goes stale while warm
+  /// (2026-07 audit; generalizes what app-open always did).
+  bool get isExpired {
+    final loadedAt = _loadedAt;
+    final maxAdAge = _maxAdAge;
+    if (loadedAt == null || maxAdAge == null) return false;
+    return _now().difference(loadedAt) >= maxAdAge;
+  }
+
+  /// Arms the proactive expiry replacement for the ad just loaded.
+  ///
+  /// Uses the shared single-slot [_timer]: while `AdLoaded` no retry or
+  /// gate-recheck timer can be pending, and any transition out of `AdLoaded`
+  /// re-arms [_timer] through its own path. Best-effort — timers do not fire
+  /// while the app is suspended, so [show]'s own [isExpired] check remains
+  /// the guarantee.
+  void _scheduleExpiry() {
+    final maxAdAge = _maxAdAge;
+    if (maxAdAge == null) return;
+    _timer?.cancel();
+    _timer = Timer(maxAdAge, () {
+      if (_disposed || _state.value is! AdLoaded || !isExpired) return;
+      noteBlocked(AdBlockReason.expired);
+      discardCurrentAd();
+    });
+  }
+
   @override
   Future<void> load() async {
     if (_disposed) return;
@@ -170,7 +209,9 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       _attempts = 0;
       _gateAttempts = 0;
       _lastBlockReason = null;
+      _loadedAt = _now();
       _state.value = const AdLoaded();
+      _scheduleExpiry();
       onLoaded();
     } catch (e) {
       // Catch EVERYTHING, not just AdFlowError. The seam's contract says it
@@ -220,6 +261,15 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     if (handle == null || _state.value is! AdLoaded) {
       noteBlocked(AdBlockReason.notReady);
       unawaited(load()); // warm one up for the next natural break
+      return false;
+    }
+    if (isExpired) {
+      // Stale inventory (the proactive timer did not fire — e.g. the app was
+      // suspended past the ad's maximum age): discard, keep a fresh one warm,
+      // show nothing. Showing it risks a failed display, or one that does
+      // not count.
+      noteBlocked(AdBlockReason.expired);
+      discardCurrentAd();
       return false;
     }
 

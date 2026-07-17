@@ -200,6 +200,7 @@ class InterstitialConfig {
     required this.adUnitId,
     this.cap = const FrequencyCap(minGap: Duration(seconds: 30)),
     this.minActionsBetween = 2,
+    this.maxAdAge = const Duration(minutes: 55),
   }) : assert(minActionsBetween >= 0, 'minActionsBetween must be >= 0');
 
   /// Per-platform interstitial ad unit IDs.
@@ -211,6 +212,16 @@ class InterstitialConfig {
   /// Minimum user actions between two interstitials (AdMob guidance:
   /// at most one ad per two user actions).
   final int minActionsBetween;
+
+  /// How long a preloaded ad stays showable before it is proactively
+  /// discarded and replaced (null = never).
+  ///
+  /// Google documents full-screen ads as expiring **after one hour**: a
+  /// stale ad shown late may fail to display — or display but not count —
+  /// so a long session's warm ad could silently waste its natural break.
+  /// The 55-minute default replaces it just inside the documented window
+  /// (2026-07 audit).
+  final Duration? maxAdAge;
 }
 
 /// Configuration for the rewarded slot.
@@ -220,6 +231,7 @@ class RewardedConfig {
     required this.adUnitId,
     this.cap = const FrequencyCap(),
     this.ssv,
+    this.maxAdAge = const Duration(minutes: 55),
   });
 
   /// Per-platform rewarded ad unit IDs.
@@ -238,6 +250,11 @@ class RewardedConfig {
 
   /// Server-side verification for high-value rewards.
   final ServerSideVerification? ssv;
+
+  /// How long a preloaded ad stays showable before it is proactively
+  /// discarded and replaced (null = never) — see
+  /// [InterstitialConfig.maxAdAge].
+  final Duration? maxAdAge;
 }
 
 /// Configuration for the rewarded interstitial slot.
@@ -248,6 +265,7 @@ class RewardedInterstitialConfig {
     this.cap = const FrequencyCap(),
     this.intro = const RewardIntroContent(),
     this.ssv,
+    this.maxAdAge = const Duration(minutes: 55),
   });
 
   /// Per-platform rewarded interstitial ad unit IDs.
@@ -264,6 +282,11 @@ class RewardedInterstitialConfig {
 
   /// Server-side verification for high-value rewards.
   final ServerSideVerification? ssv;
+
+  /// How long a preloaded ad stays showable before it is proactively
+  /// discarded and replaced (null = never) — see
+  /// [InterstitialConfig.maxAdAge].
+  final Duration? maxAdAge;
 }
 
 /// Configuration for the native slot.

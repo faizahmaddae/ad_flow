@@ -34,9 +34,10 @@ class RewardedInterstitialAdController extends FullScreenAdControllerBase {
     super.retry,
     super.onPaid,
     super.onBlocked,
+    super.now,
   }) : _config = config,
        _showIntro = showIntro,
-       super(slot: slotName);
+       super(slot: slotName, maxAdAge: config.maxAdAge);
 
   /// The gate/cap slot name for rewarded interstitials.
   static const slotName = 'rewarded_interstitial';
