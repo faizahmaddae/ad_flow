@@ -221,6 +221,11 @@ class AdFlow {
     AttExplainerContent attExplainerContent = const AttExplainerContent(),
     bool skipConsentPrimerIfAttDenied = true,
   }) async {
+    // Fail fast on nonsense (empty ad unit strings, negative durations) —
+    // discoverable at init, instead of silent no-fill in production
+    // (2026-07 audit). Throws AdFlowError(invalidConfig); initialize stays
+    // async, so this surfaces as a rejected Future.
+    config.validate();
     final resolvedSdk = sdk ?? GmaAdSdk();
     final flow = AdFlow._(
       config: config,
@@ -378,14 +383,18 @@ class AdFlow {
     _ready = _start(debug).catchError((Object _) => false);
   }
 
-  /// Completes when the background consent flow has resolved — its value is
-  /// whether ads may be requested (`canRequestAds()`).
+  /// Completes when the FIRST background consent flow has resolved — its
+  /// value is whether ads could be requested at that moment.
   ///
   /// **Not required for normal use.** [initialize] returns before this
   /// completes, and the app should render immediately; ads only ever load
   /// after the gate opens (invariant 1). Await this only if you genuinely
-  /// need to block on the consent result (e.g. a settings screen that must
-  /// reflect the final consent state). It never throws.
+  /// need to block on the consent result. It never throws.
+  ///
+  /// **A one-shot snapshot, not live state**: a failed flow that the ADR-035
+  /// retry later recovers, or a consent withdrawal in the privacy-options
+  /// form, does NOT change what this already completed with. For the current
+  /// answer ask [consent] (`lastError`, or re-run `ensureCanRequestAds`).
   Future<bool> get whenReady => _ready;
 
   /// Impression-level revenue callback for every format (allowlisted
@@ -628,6 +637,34 @@ class AdFlow {
   /// The app open controller (state inspection). Throws if unconfigured.
   AppOpenAdController get appOpenController =>
       _require(_appOpenController, 'appOpen');
+
+  // ── Null-safe slot access ─────────────────────────────────────────────
+  //
+  // The throwing getters above fail fast on a MISCONFIGURATION. But a slot
+  // can be absent by DESIGN — most commonly an ad unit configured for one
+  // platform only — and shared cross-platform code should degrade, not
+  // crash, on the platform without it (2026-07 audit).
+
+  /// The interstitial controller, or null when the slot is not configured
+  /// for this platform.
+  InterstitialAdController? get interstitialOrNull => _interstitial;
+
+  /// The rewarded controller, or null when the slot is not configured for
+  /// this platform.
+  RewardedAdController? get rewardedOrNull => _rewarded;
+
+  /// The rewarded interstitial controller, or null when the slot is not
+  /// configured for this platform.
+  RewardedInterstitialAdController? get rewardedInterstitialOrNull =>
+      _rewardedInterstitial;
+
+  /// The app open manager, or null when the slot is not configured for this
+  /// platform.
+  AppOpenAdManager? get appOpenOrNull => _appOpen;
+
+  /// The app open controller, or null when the slot is not configured for
+  /// this platform.
+  AppOpenAdController? get appOpenControllerOrNull => _appOpenController;
 
   /// Creates a fresh banner controller (one per placement; give it to an
   /// `AdFlowBanner` with `ownsController: true`). [override] replaces the

@@ -107,20 +107,23 @@ void main() {
   });
 
   group('runtime SSV (2026-07 audit)', () {
-    test('setServerSideVerification applies to the WARM ad immediately', () async {
-      final c = controller();
-      await c.load();
-      expect(c.isReady, isTrue);
+    test(
+      'setServerSideVerification applies to the WARM ad immediately',
+      () async {
+        final c = controller();
+        await c.load();
+        expect(c.isReady, isTrue);
 
-      const ssv = ServerSideVerification(
-        userId: 'user-42',
-        customData: 'mission-7',
-      );
-      await c.setServerSideVerification(ssv);
+        const ssv = ServerSideVerification(
+          userId: 'user-42',
+          customData: 'mission-7',
+        );
+        await c.setServerSideVerification(ssv);
 
-      expect(sdk.rewardeds.single.ssvUpdates, [ssv]);
-      c.dispose();
-    });
+        expect(sdk.rewardeds.single.ssvUpdates, [ssv]);
+        c.dispose();
+      },
+    );
 
     test('the override replaces config SSV on every FUTURE load too', () async {
       final c = controller(

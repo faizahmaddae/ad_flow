@@ -1,3 +1,4 @@
+import '../core/ad_flow_error.dart';
 import '../seam/ad_sdk_types.dart';
 import 'ad_platform.dart';
 
@@ -420,6 +421,93 @@ class AdFlowConfig {
     this.tagForUnderAgeOfConsent,
     this.tagForChildDirectedTreatment,
   });
+
+  /// Validates the configuration, throwing an
+  /// [AdFlowError] (kind `invalidConfig`) on the first nonsensical value.
+  ///
+  /// Called automatically by `AdFlow.initialize` — failing at init is
+  /// discoverable; a blank/empty ad unit ID silently producing no-fill
+  /// forever is not (2026-07 audit). Durations cannot be compared in const
+  /// constructor asserts (`const_eval_type_num`), so this is where their
+  /// sanity checks live.
+  void validate() {
+    void check(bool ok, String message) {
+      if (!ok) throw AdFlowError(AdFlowErrorKind.invalidConfig, message);
+    }
+
+    void checkUnitId(PlatformAdUnitId id, String slot) {
+      check(
+        id.android != null || id.ios != null,
+        '$slot.adUnitId has no platform IDs — configure android and/or ios, '
+        'or leave the slot null.',
+      );
+      check(
+        id.android == null || id.android!.trim().isNotEmpty,
+        '$slot.adUnitId.android is an empty string.',
+      );
+      check(
+        id.ios == null || id.ios!.trim().isNotEmpty,
+        '$slot.adUnitId.ios is an empty string.',
+      );
+    }
+
+    void checkCap(FrequencyCap cap, String name) {
+      check(cap.minGap >= Duration.zero, '$name.minGap is negative.');
+    }
+
+    void checkAge(Duration? age, String name) {
+      check(age == null || age > Duration.zero, '$name must be positive.');
+    }
+
+    final banner = this.banner;
+    if (banner != null) {
+      checkUnitId(banner.adUnitId, 'banner');
+      check(
+        banner.maxInlineHeight == null || banner.maxInlineHeight! > 0,
+        'banner.maxInlineHeight must be positive.',
+      );
+      check(
+        banner.minRefresh == null || banner.minRefresh! > Duration.zero,
+        'banner.minRefresh must be positive (or null to disable).',
+      );
+    }
+    final interstitial = this.interstitial;
+    if (interstitial != null) {
+      checkUnitId(interstitial.adUnitId, 'interstitial');
+      checkCap(interstitial.cap, 'interstitial.cap');
+      checkAge(interstitial.maxAdAge, 'interstitial.maxAdAge');
+    }
+    final rewarded = this.rewarded;
+    if (rewarded != null) {
+      checkUnitId(rewarded.adUnitId, 'rewarded');
+      checkCap(rewarded.cap, 'rewarded.cap');
+      checkAge(rewarded.maxAdAge, 'rewarded.maxAdAge');
+    }
+    final rewardedInterstitial = this.rewardedInterstitial;
+    if (rewardedInterstitial != null) {
+      checkUnitId(rewardedInterstitial.adUnitId, 'rewardedInterstitial');
+      checkCap(rewardedInterstitial.cap, 'rewardedInterstitial.cap');
+      checkAge(rewardedInterstitial.maxAdAge, 'rewardedInterstitial.maxAdAge');
+    }
+    final nativeAd = this.nativeAd;
+    if (nativeAd != null) checkUnitId(nativeAd.adUnitId, 'nativeAd');
+    final appOpen = this.appOpen;
+    if (appOpen != null) {
+      checkUnitId(appOpen.adUnitId, 'appOpen');
+      checkCap(appOpen.cap, 'appOpen.cap');
+      check(appOpen.expiry > Duration.zero, 'appOpen.expiry must be positive.');
+    }
+    checkCap(globalFrequencyCap, 'globalFrequencyCap');
+    check(retry.baseDelay > Duration.zero, 'retry.baseDelay must be positive.');
+    check(
+      retry.maxDelay >= retry.baseDelay,
+      'retry.maxDelay must be >= retry.baseDelay.',
+    );
+    check(retry.cooldown >= Duration.zero, 'retry.cooldown is negative.');
+    for (final id in testDeviceIds) {
+      check(id.trim().isNotEmpty, 'testDeviceIds contains an empty string.');
+    }
+  }
 
   /// A configuration that serves Google's official test ads for every
   /// format. Use during development; never ship it.

@@ -110,31 +110,33 @@ void main() {
   });
 
   group('dispose / re-initialize', () {
-    test('a widget-owned banner minted from a DISPOSED graph stops serving',
-        () async {
-      final ads = await boot();
-      final banner = ads.banner();
-      await banner.load(width: 320);
-      final live = sdk.banners.single;
+    test(
+      'a widget-owned banner minted from a DISPOSED graph stops serving',
+      () async {
+        final ads = await boot();
+        final banner = ads.banner();
+        await banner.load(width: 320);
+        final live = sdk.banners.single;
 
-      ads.dispose();
-      await pumpEventQueue();
+        ads.dispose();
+        await pumpEventQueue();
 
-      expect(
-        banner.state.value,
-        const AdIdle(),
-        reason: 'the old graph must not keep a live ad on screen',
-      );
-      expect(live.disposed, isTrue);
+        expect(
+          banner.state.value,
+          const AdIdle(),
+          reason: 'the old graph must not keep a live ad on screen',
+        );
+        expect(live.disposed, isTrue);
 
-      // And it must not load again through the dead graph's gate — with
-      // enforceConsentGate on, a stray load would throw in the fake.
-      await banner.load(width: 320);
-      await pumpEventQueue();
-      expect(banner.state.value, const AdIdle());
-      expect(sdk.banners, hasLength(1));
-      banner.dispose();
-    });
+        // And it must not load again through the dead graph's gate — with
+        // enforceConsentGate on, a stray load would throw in the fake.
+        await banner.load(width: 320);
+        await pumpEventQueue();
+        expect(banner.state.value, const AdIdle());
+        expect(sdk.banners, hasLength(1));
+        banner.dispose();
+      },
+    );
 
     test('re-initialize (ADR-044) stops the previous graph\'s minted '
         'controllers as part of replacing it', () async {

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import '../core/ad_flow_error.dart';
 import '../seam/ad_sdk.dart';
@@ -94,6 +95,7 @@ class UmpConsentGateway implements ConsentGateway {
     AttExplainerContent attExplainerContent = const AttExplainerContent(),
     Duration attPromptDelay = const Duration(milliseconds: 200),
     bool skipConsentPrimerIfAttDenied = true,
+    Future<void> Function()? waitBeforePresenting,
   }) : _tagForUnderAgeOfConsent = tagForUnderAgeOfConsent,
        _infoUpdateTimeout = infoUpdateTimeout,
        _consentExplainer = consentExplainer,
@@ -101,7 +103,27 @@ class UmpConsentGateway implements ConsentGateway {
        _consentExplainerContent = consentExplainerContent,
        _attExplainerContent = attExplainerContent,
        _attPromptDelay = attPromptDelay,
-       _skipConsentPrimerIfAttDenied = skipConsentPrimerIfAttDenied;
+       _skipConsentPrimerIfAttDenied = skipConsentPrimerIfAttDenied,
+       _waitBeforePresenting = waitBeforePresenting ?? _waitForFirstFrame;
+
+  /// Waits (bounded) for the app's first frame before presenting a primer.
+  ///
+  /// The consent flow starts in the background the moment `initialize()`
+  /// runs (ADR-032) — on a fast device the ATT/consent primer can be reached
+  /// BEFORE the navigator has mounted, and the presenter's own
+  /// `navigatorKey.currentContext == null` guard then silently drops the
+  /// primer on the one launch where it matters most (2026-07 audit). Bounded
+  /// and best-effort: headless/test environments proceed immediately.
+  static Future<void> _waitForFirstFrame() async {
+    try {
+      await WidgetsBinding.instance.waitUntilFirstFrameRasterized.timeout(
+        const Duration(seconds: 5),
+      );
+    } catch (_) {
+      // No binding (plain Dart tests) or no frame within the bound — the
+      // presenter's own context guard remains the fallback.
+    }
+  }
 
   final AdSdk _sdk;
   final bool? _tagForUnderAgeOfConsent;
@@ -112,6 +134,7 @@ class UmpConsentGateway implements ConsentGateway {
   final AttExplainerContent _attExplainerContent;
   final Duration _attPromptDelay;
   final bool _skipConsentPrimerIfAttDenied;
+  final Future<void> Function() _waitBeforePresenting;
 
   Future<bool>? _inFlight;
   final ValueNotifier<bool> _privacyOptionsRequired = ValueNotifier(false);
@@ -234,6 +257,7 @@ class UmpConsentGateway implements ConsentGateway {
     }
     // Only iOS 14+ with an undetermined status can show the system prompt.
     if (status != AttStatus.notDetermined) return false;
+    await _waitBeforePresenting();
     try {
       await attExplainer(_attExplainerContent);
     } catch (e) {
@@ -256,6 +280,7 @@ class UmpConsentGateway implements ConsentGateway {
     final consentExplainer = _consentExplainer;
     if (consentExplainer == null) return;
     if (!await _willConsentFormShow()) return;
+    await _waitBeforePresenting();
     try {
       await consentExplainer(_consentExplainerContent);
     } catch (e) {
