@@ -35,6 +35,10 @@ class GmaAdSdk implements AdSdk {
   }
 
   @override
+  Future<void> disableMediationInitialization() =>
+      gma.MobileAds.instance.disableMediationInitialization();
+
+  @override
   Future<InterstitialHandle> loadInterstitial(
     String adUnitId,
     AdRequestOptions options,
@@ -576,13 +580,36 @@ gma.AdRequest toGmaAdRequest(
   AdRequestOptions options, {
   Map<String, String>? extras,
 }) {
+  final mediationExtras = options.mediationExtras;
   return gma.AdRequest(
     keywords: options.keywords,
     contentUrl: options.contentUrl,
     neighboringContentUrls: options.neighboringContentUrls,
     nonPersonalizedAds: options.nonPersonalizedAds,
     extras: extras ?? options.extras,
+    mediationExtras: mediationExtras == null || mediationExtras.isEmpty
+        ? null
+        : [for (final e in mediationExtras) GmaMediationExtrasAdapter(e)],
   );
+}
+
+/// Adapts the seam's plugin-free [MediationNetworkExtras] onto the plugin's
+/// `MediationExtras` contract (public for the pure-mapper tests only).
+class GmaMediationExtrasAdapter implements gma.MediationExtras {
+  /// Wraps [extras].
+  const GmaMediationExtrasAdapter(this.extras);
+
+  /// The seam value being adapted.
+  final MediationNetworkExtras extras;
+
+  @override
+  String getAndroidClassName() => extras.androidClassName;
+
+  @override
+  String getIOSClassName() => extras.iosClassName;
+
+  @override
+  Map<String, dynamic> getExtras() => Map<String, dynamic>.of(extras.extras);
 }
 
 /// Merges the collapsible placement into request extras.

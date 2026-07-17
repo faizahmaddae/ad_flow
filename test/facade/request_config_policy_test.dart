@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:ad_flow/ad_flow.dart';
 import 'package:ad_flow/ad_flow_testing.dart';
 import 'package:fake_async/fake_async.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// RequestConfigFailurePolicy (4.0 audit): request configuration is a
@@ -126,6 +127,92 @@ void main() {
       expect(sdk.bannerSpecs, isEmpty);
       expect(banner.lastBlockReason, AdBlockReason.requestConfigNotApplied);
       banner.dispose();
+      ads.dispose();
+    });
+  });
+
+  group('mediation integration surfaces (4.0)', () {
+    test('per-slot AdRequestOptions reach every format\'s request', () async {
+      const request = AdRequestOptions(keywords: ['games']);
+      final ads = await AdFlow.initialize(
+        const AdFlowConfig(
+          banner: BannerConfig(
+            adUnitId: PlatformAdUnitId(android: 'b-a'),
+            request: request,
+          ),
+          interstitial: InterstitialConfig(
+            adUnitId: PlatformAdUnitId(android: 'i-a'),
+            request: request,
+          ),
+          nativeAd: NativeConfig(
+            adUnitId: PlatformAdUnitId(android: 'n-a'),
+            templateKind: NativeTemplateKind.small,
+            request: request,
+          ),
+        ),
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+      );
+      await ads.whenReady;
+      final banner = ads.banner();
+      await banner.load(width: 320);
+      final native = ads.native();
+      await native.load();
+
+      expect(sdk.bannerSpecs.single.request.keywords, ['games']);
+      expect(sdk.nativeSpecs.single.request.keywords, ['games']);
+      expect(sdk.fullScreenRequests, isNotEmpty);
+      expect(
+        sdk.fullScreenRequests.every((o) => o.keywords?.single == 'games'),
+        isTrue,
+      );
+      banner.dispose();
+      native.dispose();
+      ads.dispose();
+    });
+
+    test('deferMediationInit calls disableMediationInitialization BEFORE '
+        'initialize (the plugin no-ops it afterwards)', () async {
+      final ads = await AdFlow.initialize(
+        const AdFlowConfig(
+          banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
+          deferMediationInit: true,
+        ),
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+      );
+      await ads.whenReady;
+      expect(sdk.disableMediationInitializationCalls, 1);
+      expect(sdk.mediationInitDisabledBeforeInitialize, isTrue);
+      ads.dispose();
+    });
+
+    test('onConsentChanged fires after the initial flow AND after a '
+        'privacy-options mutation — and its throw is isolated', () async {
+      var calls = 0;
+      final previousOnError = FlutterError.onError;
+      FlutterError.onError = (_) {};
+      addTearDown(() => FlutterError.onError = previousOnError);
+
+      final ads = await AdFlow.initialize(
+        const AdFlowConfig(
+          banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
+        ),
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+      );
+      ads.onConsentChanged = () {
+        calls++;
+        throw StateError('forwarding bug'); // must not corrupt anything
+      };
+      await ads.whenReady;
+      expect(calls, 1, reason: 'the initial consent flow completed');
+
+      await ads.consent.showPrivacyOptions();
+      expect(calls, 2, reason: 'a consent mutation is a forwarding point');
       ads.dispose();
     });
   });

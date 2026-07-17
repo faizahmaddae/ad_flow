@@ -1,6 +1,5 @@
 import '../config/ad_flow_config.dart';
 import '../seam/ad_sdk.dart';
-import '../seam/ad_sdk_types.dart';
 import 'full_screen_ad_controller_base.dart';
 
 /// Preloads and shows app open ads, enforcing Google's 4-hour expiry
@@ -25,12 +24,15 @@ class AppOpenAdController extends FullScreenAdControllerBase {
     super.onPaid,
     super.onBlocked,
     super.now,
-  }) : super(slot: slotName, maxAdAge: config.expiry);
+  }) : _config = config,
+       super(slot: slotName, maxAdAge: config.expiry);
 
   /// The gate/cap slot name for app open ads.
   static const slotName = 'app_open';
 
+  final AppOpenConfig _config;
+
   @override
   Future<FullScreenAdHandle> loadHandle() =>
-      sdk.loadAppOpen(adUnitId, const AdRequestOptions());
+      sdk.loadAppOpen(adUnitId, _config.request);
 }

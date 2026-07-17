@@ -15,6 +15,7 @@ import '../controllers/rewarded_interstitial_ad_controller.dart';
 import '../core/ad_block_reason.dart';
 import '../core/ad_controller.dart';
 import '../core/ad_flow_error.dart';
+import '../core/callback_guard.dart';
 import '../lifecycle/app_open_ad_manager.dart';
 import '../policy/ad_gate.dart';
 import '../policy/frequency_cap_policy.dart';
@@ -482,6 +483,7 @@ class AdFlow {
   void _afterConsentMutation() {
     if (_disposed) return;
     _refreshCanRequestAds();
+    _dispatchConsentChanged();
     _recheckAll();
   }
 
@@ -537,6 +539,26 @@ class AdFlow {
   void Function(AdPaidEvent event)? onPaidEvent;
 
   void _dispatchPaid(AdPaidEvent event) => onPaidEvent?.call(event);
+
+  /// Called (isolated) after every consent flow or consent mutation
+  /// completes: the initial background flow, an ADR-035 retry that finally
+  /// succeeds, a privacy-options form the user may have used to change or
+  /// withdraw consent, and a test reset (4.0).
+  ///
+  /// This is the hook for forwarding consent to mediation networks that do
+  /// not read the IAB TCF string themselves: read the UMP-written state
+  /// (`IABTCF_*` / `IABGPP_*` keys in the platform's default preferences)
+  /// and call the partner SDK's own privacy APIs here — Google explicitly
+  /// does NOT propagate consent to such networks automatically. See
+  /// doc/MEDIATION_SETUP.md, and [AdFlowConfig.deferMediationInit] for
+  /// partners that need their flags before their SDK spins up.
+  void Function()? onConsentChanged;
+
+  void _dispatchConsentChanged() {
+    final onChanged = onConsentChanged;
+    if (onChanged == null) return;
+    guardedCallback(onChanged, debugName: 'onConsentChanged');
+  }
 
   /// Called whenever a load or show is REFUSED, with the slot name and the
   /// reason (ADR-045). Assignable at any time.
@@ -610,7 +632,12 @@ class AdFlow {
     return run
         .then((open) {
           _consentOpen = open;
-          if (!_disposed) _canRequestAdsNotifier.value = open;
+          if (!_disposed) {
+            _canRequestAdsNotifier.value = open;
+            // Every completed consent flow (initial, or a retry that finally
+            // resolved) is a forwarding point for mediation privacy signals.
+            _dispatchConsentChanged();
+          }
           return open;
         })
         .whenComplete(() {
@@ -657,6 +684,15 @@ class AdFlow {
     // native init may still be mid-bootstrap, quietly re-opening the ADR-028
     // race on the slowest devices. If init lands later, the completion hook
     // below applies the configuration then.
+    // Opt-in mediation-init deferral (4.0): must precede initialize() (the
+    // plugin no-ops it afterwards). Best-effort — a failure here only means
+    // adapters auto-init as usual.
+    if (_config.deferMediationInit) {
+      try {
+        await _sdk.disableMediationInitialization();
+      } catch (_) {}
+    }
+
     Future<void>? init;
     try {
       init = _sdk.initialize();

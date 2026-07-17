@@ -203,10 +203,15 @@ class BannerConfig {
     this.maxInlineHeight,
     this.collapsible,
     this.minRefresh,
+    this.request = const AdRequestOptions(),
   });
 
   /// Per-platform banner ad unit IDs.
   final PlatformAdUnitId adUnitId;
+
+  /// Request options for this slot (keywords, contentUrl, non-personalized,
+  /// AdMob-adapter extras, per-network mediation extras).
+  final AdRequestOptions request;
 
   /// Sizing strategy. Prefer [BannerKind.anchoredAdaptive] over fixed sizes.
   final BannerKind kind;
@@ -253,7 +258,8 @@ class BannerConfig {
       other.fixedSize == fixedSize &&
       other.maxInlineHeight == maxInlineHeight &&
       other.collapsible == collapsible &&
-      other.minRefresh == minRefresh;
+      other.minRefresh == minRefresh &&
+      other.request == request;
 
   @override
   int get hashCode => Object.hash(
@@ -263,6 +269,7 @@ class BannerConfig {
     maxInlineHeight,
     collapsible,
     minRefresh,
+    request,
   );
 }
 
@@ -274,10 +281,14 @@ class InterstitialConfig {
     this.cap = const FrequencyCap(minGap: Duration(seconds: 30)),
     this.minActionsBetween = 2,
     this.maxAdAge = const Duration(minutes: 55),
+    this.request = const AdRequestOptions(),
   }) : assert(minActionsBetween >= 0, 'minActionsBetween must be >= 0');
 
   /// Per-platform interstitial ad unit IDs.
   final PlatformAdUnitId adUnitId;
+
+  /// Request options for this slot — see [BannerConfig.request].
+  final AdRequestOptions request;
 
   /// Per-slot frequency cap (v1 default: 30s minimum gap).
   final FrequencyCap cap;
@@ -305,10 +316,14 @@ class RewardedConfig {
     this.cap = const FrequencyCap(),
     this.ssv,
     this.maxAdAge = const Duration(minutes: 55),
+    this.request = const AdRequestOptions(),
   });
 
   /// Per-platform rewarded ad unit IDs.
   final PlatformAdUnitId adUnitId;
+
+  /// Request options for this slot — see [BannerConfig.request].
+  final AdRequestOptions request;
 
   /// Per-slot frequency cap. **Unlimited by default**, and deliberately so: a
   /// rewarded ad is one the user explicitly asked for, in exchange for
@@ -339,10 +354,14 @@ class RewardedInterstitialConfig {
     this.intro = const RewardIntroContent(),
     this.ssv,
     this.maxAdAge = const Duration(minutes: 55),
+    this.request = const AdRequestOptions(),
   });
 
   /// Per-platform rewarded interstitial ad unit IDs.
   final PlatformAdUnitId adUnitId;
+
+  /// Request options for this slot — see [BannerConfig.request].
+  final AdRequestOptions request;
 
   /// Per-slot frequency cap. Unlimited by default — see [RewardedConfig.cap].
   ///
@@ -377,6 +396,7 @@ class NativeConfig {
     this.templateKind,
     this.factoryId,
     this.factoryExtras,
+    this.request = const AdRequestOptions(),
   }) : assert(
          (templateKind != null) ^ (factoryId != null),
          'Provide exactly one of templateKind or factoryId.',
@@ -384,6 +404,9 @@ class NativeConfig {
 
   /// Per-platform native ad unit IDs.
   final PlatformAdUnitId adUnitId;
+
+  /// Request options for this slot — see [BannerConfig.request].
+  final AdRequestOptions request;
 
   /// Render with a built-in template of this kind.
   final NativeTemplateKind? templateKind;
@@ -410,12 +433,18 @@ class NativeConfig {
     return other.adUnitId == adUnitId &&
         other.templateKind == templateKind &&
         other.factoryId == factoryId &&
+        other.request == request &&
         extrasEqual;
   }
 
   @override
-  int get hashCode =>
-      Object.hash(adUnitId, templateKind, factoryId, factoryExtras?.length);
+  int get hashCode => Object.hash(
+    adUnitId,
+    templateKind,
+    factoryId,
+    factoryExtras?.length,
+    request,
+  );
 }
 
 /// Configuration for the app open slot.
@@ -425,10 +454,14 @@ class AppOpenConfig {
     required this.adUnitId,
     this.cap = const FrequencyCap(minGap: Duration(minutes: 4)),
     this.expiry = const Duration(hours: 4),
+    this.request = const AdRequestOptions(),
   });
 
   /// Per-platform app open ad unit IDs.
   final PlatformAdUnitId adUnitId;
+
+  /// Request options for this slot — see [BannerConfig.request].
+  final AdRequestOptions request;
 
   /// Per-slot frequency cap.
   final FrequencyCap cap;
@@ -508,6 +541,7 @@ class AdFlowConfig {
     this.tagForUnderAgeOfConsent,
     this.tagForChildDirectedTreatment,
     this.requestConfigPolicy = RequestConfigFailurePolicy.auto,
+    this.deferMediationInit = false,
   });
 
   /// Validates the configuration, throwing an
@@ -671,6 +705,20 @@ class AdFlowConfig {
   /// What happens to ad loading when the request configuration could not be
   /// applied — see [RequestConfigFailurePolicy]. Default: [RequestConfigFailurePolicy.auto].
   final RequestConfigFailurePolicy requestConfigPolicy;
+
+  /// Defer mediation adapter initialization out of SDK init (default false).
+  ///
+  /// When true, ad_flow calls the plugin's `disableMediationInitialization`
+  /// BEFORE `MobileAds.initialize()`: mediation adapters then initialize
+  /// lazily at the first ad request for their network instead of during SDK
+  /// init. Use it when a partner SDK needs privacy flags set before it spins
+  /// up (e.g. Meta's Limited Data Use, AppLovin's US-state flag) and those
+  /// flags depend on the UMP consent outcome — forward them in
+  /// `AdFlow.onConsentChanged`, and the first ad request (which already
+  /// waits for consent, invariant 1) initializes the adapters afterwards.
+  /// Google notes deferral "may negatively impact mediation performance" —
+  /// leave it off unless you need this ordering. See doc/MEDIATION_SETUP.md.
+  final bool deferMediationInit;
 
   /// Whether this configuration carries fields whose silent loss is a policy
   /// or invalid-traffic risk: child-directed / under-age tags, a maximum

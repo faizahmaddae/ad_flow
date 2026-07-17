@@ -1,6 +1,5 @@
 import '../config/ad_flow_config.dart';
 import '../seam/ad_sdk.dart';
-import '../seam/ad_sdk_types.dart';
 import 'full_screen_ad_controller_base.dart';
 
 /// Preloads and shows interstitial ads at natural breaks.
@@ -45,7 +44,7 @@ class InterstitialAdController extends FullScreenAdControllerBase {
 
   @override
   Future<FullScreenAdHandle> loadHandle() =>
-      sdk.loadInterstitial(adUnitId, const AdRequestOptions());
+      sdk.loadInterstitial(adUnitId, _config.request);
 
   @override
   bool canShowExtra() =>

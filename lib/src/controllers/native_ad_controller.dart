@@ -153,6 +153,7 @@ class NativeAdController implements AdController {
             templateKind: _config.templateKind,
             factoryId: _config.factoryId,
             factoryExtras: _config.factoryExtras,
+            request: _config.request,
           ),
         ),
         timeout: _retry.loadTimeout,

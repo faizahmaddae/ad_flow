@@ -134,6 +134,14 @@ abstract interface class AdSdk {
   /// COPPA/underage tags).
   Future<void> updateRequestConfiguration(AdRequestConfig config);
 
+  /// Defers mediation adapter initialization out of [initialize] — adapters
+  /// then initialize lazily at the first ad request for their network. Must
+  /// be called BEFORE [initialize] (the plugin documents it as a no-op
+  /// afterwards). Used by `AdFlowConfig.deferMediationInit` so an app can
+  /// forward per-network consent signals after UMP settles but before any
+  /// network SDK spins up (4.0; see doc/MEDIATION_SETUP.md).
+  Future<void> disableMediationInitialization();
+
   /// Loads an interstitial ad.
   Future<InterstitialHandle> loadInterstitial(
     String adUnitId,

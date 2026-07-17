@@ -83,6 +83,10 @@ class FakeAdSdk implements AdSdk {
   /// Every [NativeLoadSpec] passed to [loadNative], in order.
   final List<NativeLoadSpec> nativeSpecs = [];
 
+  /// The [AdRequestOptions] of every full-screen load (interstitial,
+  /// rewarded, rewarded interstitial, app open), in order.
+  final List<AdRequestOptions> fullScreenRequests = [];
+
   /// The `ssv` argument of every [loadRewarded] call, in order.
   final List<ServerSideVerification?> rewardedSsvs = [];
 
@@ -226,13 +230,28 @@ class FakeAdSdk implements AdSdk {
   Future<FakeFullScreenAdHandle> _loadFullScreen(
     String format,
     String adUnitId,
-    List<FakeFullScreenAdHandle> into,
-  ) async {
+    List<FakeFullScreenAdHandle> into, {
+    AdRequestOptions options = const AdRequestOptions(),
+  }) async {
     await _checkLoadAllowed(format, adUnitId);
     loadLog.add('$format:$adUnitId');
+    fullScreenRequests.add(options);
     final handle = FakeFullScreenAdHandle(adUnitId);
     into.add(handle);
     return handle;
+  }
+
+  /// Number of [disableMediationInitialization] calls.
+  int disableMediationInitializationCalls = 0;
+
+  /// Whether [disableMediationInitialization] was called before the first
+  /// [initialize] — the only ordering in which the real plugin honours it.
+  bool? mediationInitDisabledBeforeInitialize;
+
+  @override
+  Future<void> disableMediationInitialization() async {
+    disableMediationInitializationCalls++;
+    mediationInitDisabledBeforeInitialize ??= initializeCalls == 0;
   }
 
   @override
@@ -256,7 +275,8 @@ class FakeAdSdk implements AdSdk {
   Future<InterstitialHandle> loadInterstitial(
     String adUnitId,
     AdRequestOptions options,
-  ) async => _loadFullScreen('interstitial', adUnitId, interstitials);
+  ) async =>
+      _loadFullScreen('interstitial', adUnitId, interstitials, options: options);
 
   @override
   Future<RewardedHandle> loadRewarded(
@@ -264,7 +284,12 @@ class FakeAdSdk implements AdSdk {
     AdRequestOptions options, {
     ServerSideVerification? ssv,
   }) async {
-    final handle = await _loadFullScreen('rewarded', adUnitId, rewardeds);
+    final handle = await _loadFullScreen(
+      'rewarded',
+      adUnitId,
+      rewardeds,
+      options: options,
+    );
     rewardedSsvs.add(ssv);
     final ssvError = ssvAttachError;
     if (ssv != null && ssvError != null) {
@@ -287,6 +312,7 @@ class FakeAdSdk implements AdSdk {
       'rewarded_interstitial',
       adUnitId,
       rewardedInterstitials,
+      options: options,
     );
     rewardedInterstitialSsvs.add(ssv);
     final ssvError = ssvAttachError;
@@ -302,7 +328,7 @@ class FakeAdSdk implements AdSdk {
   Future<AppOpenHandle> loadAppOpen(
     String adUnitId,
     AdRequestOptions options,
-  ) async => _loadFullScreen('app_open', adUnitId, appOpens);
+  ) async => _loadFullScreen('app_open', adUnitId, appOpens, options: options);
 
   @override
   Future<BannerHandle> loadBanner(BannerLoadSpec spec) async {

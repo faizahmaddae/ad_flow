@@ -12,6 +12,7 @@ class AdRequestOptions {
     this.neighboringContentUrls,
     this.nonPersonalizedAds,
     this.extras,
+    this.mediationExtras,
   });
 
   /// Targeting keywords.
@@ -26,9 +27,107 @@ class AdRequestOptions {
   /// Request non-personalized ads only.
   final bool? nonPersonalizedAds;
 
-  /// Network-specific extras (e.g. `{'collapsible': 'bottom'}` is set by the
-  /// seam itself for collapsible banners — do not set it here).
+  /// Extras for the AdMob adapter itself (e.g. `{'collapsible': 'bottom'}`
+  /// is set by the seam for collapsible banners — do not set it here).
+  /// Third-party mediation networks do NOT read this map; use
+  /// [mediationExtras] for those.
   final Map<String, String>? extras;
+
+  /// Per-network mediation extras, forwarded to the plugin's
+  /// `AdRequest.mediationExtras` — see [MediationNetworkExtras].
+  final List<MediationNetworkExtras>? mediationExtras;
+
+  static bool _listEq<T>(List<T>? a, List<T>? b) {
+    if (identical(a, b)) return true;
+    if (a == null || b == null || a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  static bool _mapEq(Map<String, String>? a, Map<String, String>? b) {
+    if (identical(a, b)) return true;
+    if (a == null || b == null || a.length != b.length) return false;
+    for (final entry in a.entries) {
+      if (b[entry.key] != entry.value) return false;
+    }
+    return true;
+  }
+
+  // Value equality: per-slot configs embed request options, and the
+  // widget-first ad widgets compare configs in didUpdateWidget — identity
+  // comparison would re-mint a controller (and re-request an ad) on every
+  // rebuild that passes a non-const inline config.
+  @override
+  bool operator ==(Object other) =>
+      other is AdRequestOptions &&
+      _listEq(other.keywords, keywords) &&
+      other.contentUrl == contentUrl &&
+      _listEq(other.neighboringContentUrls, neighboringContentUrls) &&
+      other.nonPersonalizedAds == nonPersonalizedAds &&
+      _mapEq(other.extras, extras) &&
+      _listEq(other.mediationExtras, mediationExtras);
+
+  @override
+  int get hashCode => Object.hash(
+    keywords?.length,
+    contentUrl,
+    neighboringContentUrls?.length,
+    nonPersonalizedAds,
+    extras?.length,
+    mediationExtras?.length,
+  );
+}
+
+/// Extras for ONE third-party mediation network on an ad request, mapped to
+/// the plugin's `MediationExtras` mechanism (4.0).
+///
+/// The plugin instantiates [androidClassName] / [iosClassName] via
+/// reflection on the platform side — they must name a platform class
+/// implementing the plugin's `FlutterMediationExtras` (Android) /
+/// `FLTMediationExtras` (iOS) contract, typically provided by the network's
+/// `gma_mediation_<network>` adapter package. [extras] is handed to that
+/// class to build the network-specific extras object.
+///
+/// This carries request-level extras only. Network privacy signals (Unity's
+/// MetaData consent calls, AppLovin's US-state flag, Meta's Limited Data
+/// Use) are separate per-network APIs — see `doc/MEDIATION_SETUP.md` for
+/// what remains the integrator's responsibility.
+class MediationNetworkExtras {
+  /// Creates extras for one network.
+  const MediationNetworkExtras({
+    required this.androidClassName,
+    required this.iosClassName,
+    this.extras = const {},
+  });
+
+  /// Fully-qualified Android class implementing `FlutterMediationExtras`.
+  final String androidClassName;
+
+  /// iOS class conforming to `FLTMediationExtras`.
+  final String iosClassName;
+
+  /// The values handed to that class.
+  final Map<String, Object?> extras;
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! MediationNetworkExtras) return false;
+    if (other.androidClassName != androidClassName ||
+        other.iosClassName != iosClassName ||
+        other.extras.length != extras.length) {
+      return false;
+    }
+    for (final entry in extras.entries) {
+      if (other.extras[entry.key] != entry.value) return false;
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(androidClassName, iosClassName, extras.length);
 }
 
 /// Maximum ad content rating, per AdMob's rating scale.
