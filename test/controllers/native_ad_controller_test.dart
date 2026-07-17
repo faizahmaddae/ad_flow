@@ -251,7 +251,9 @@ void main() {
       precision: AdRevenuePrecision.estimated,
     );
     sdk.natives.single.simulatePaid(event);
-    expect(paid, [event]);
+    // Tagged with the slot so one onPaidEvent listener can log per-format
+    // revenue (2026-07 audit).
+    expect(paid, [event.taggedWithSlot(NativeAdController.slot)]);
     c.dispose();
   });
 

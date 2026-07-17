@@ -334,7 +334,7 @@ void main() {
         precision: AdRevenuePrecision.precise,
       );
       sdk.interstitials.single.simulatePaid(event);
-      expect(paid, [event]);
+      expect(paid, [event.taggedWithSlot('interstitial')]);
 
       ads.dispose();
     });

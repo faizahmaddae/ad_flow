@@ -148,6 +148,10 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   @protected
   FullScreenAdHandle? get currentHandle => _handle;
 
+  /// Which network filled the warm ad (mediation observability), or null
+  /// when nothing is loaded / the SDK reported nothing.
+  AdResponseSummary? get response => _handle?.response;
+
   /// Whether the warm ad has outlived its maximum age and must not be shown.
   ///
   /// Google documents full-screen ads as expiring after ~1 hour (4 hours for
@@ -211,7 +215,9 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       }
       _handle = handle;
       _contentSub = handle.contentEvents.listen(_onContentEvent);
-      _paidSub = handle.paidEvents.listen(_onPaid ?? (_) {});
+      _paidSub = handle.paidEvents.listen(
+        (event) => _onPaid?.call(event.taggedWithSlot(slot)),
+      );
       _attempts = 0;
       _gateAttempts = 0;
       _lastBlockReason = null;

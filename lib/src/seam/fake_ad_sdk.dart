@@ -436,6 +436,12 @@ class FakeFullScreenAdHandle
   /// matching the real SDK's single-use ad instances.
   bool _dismissed = false;
 
+  /// What [response] reports (settable to simulate mediation fill info).
+  AdResponseSummary? responseSummary;
+
+  @override
+  AdResponseSummary? get response => responseSummary;
+
   /// SSV payloads applied via [updateServerSideVerification], in order.
   final List<ServerSideVerification> ssvUpdates = [];
 
@@ -557,6 +563,12 @@ class FakeBannerHandle implements BannerHandle {
   /// does (the real seam updates the handle and notifies listeners).
   void simulateResize(AdDimensions size) => _dimensions.value = size;
 
+  /// What [response] reports (settable to simulate mediation fill info).
+  AdResponseSummary? responseSummary;
+
+  @override
+  AdResponseSummary? get response => responseSummary;
+
   @override
   final bool isCollapsible;
 
@@ -603,6 +615,12 @@ class FakeNativeHandle implements NativeHandle {
 
   @override
   final String adUnitId;
+
+  /// What [response] reports (settable to simulate mediation fill info).
+  AdResponseSummary? responseSummary;
+
+  @override
+  AdResponseSummary? get response => responseSummary;
 
   final _events = StreamController<ViewAdEvent>.broadcast(sync: true);
   final _paid = StreamController<AdPaidEvent>.broadcast(sync: true);

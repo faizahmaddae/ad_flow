@@ -13,6 +13,10 @@ abstract interface class FullScreenAdHandle {
   /// The ad unit this ad was loaded for.
   String get adUnitId;
 
+  /// Which network filled this ad (mediation observability), or null when
+  /// the SDK reported nothing.
+  AdResponseSummary? get response;
+
   /// Show/dismiss/impression/click events for this ad.
   Stream<FullScreenAdEvent> get contentEvents;
 
@@ -66,6 +70,11 @@ abstract interface class AppOpenHandle implements FullScreenAdHandle {}
 abstract interface class ViewAdHandle {
   /// The ad unit this ad was loaded for.
   String get adUnitId;
+
+  /// Which network filled this ad (mediation observability), or null when
+  /// the SDK reported nothing. Refreshed by AdMob's server-side auto-refresh
+  /// as the winning source changes.
+  AdResponseSummary? get response;
 
   /// Open/close/impression/click events for this ad.
   Stream<ViewAdEvent> get events;

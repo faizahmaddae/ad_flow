@@ -189,6 +189,9 @@ class GmaAdSdk implements AdSdk {
                 valueMicros: valueMicros,
                 currencyCode: currencyCode,
                 precision: revenuePrecisionFrom(precision),
+                adSourceName: summarizeResponseInfo(
+                  ad.responseInfo,
+                )?.adSourceName,
               ),
             ),
       ),
@@ -385,6 +388,9 @@ class GmaAdSdk implements AdSdk {
                 valueMicros: valueMicros,
                 currencyCode: currencyCode,
                 precision: revenuePrecisionFrom(precision),
+                adSourceName: summarizeResponseInfo(
+                  ad.responseInfo,
+                )?.adSourceName,
               ),
             ),
       ),
@@ -662,6 +668,19 @@ AdFlowError showErrorFrom(gma.AdError error) => AdFlowError(
 AdFlowError consentErrorFrom(gma.FormError error) =>
     AdFlowError(AdFlowErrorKind.consent, error.message, code: error.errorCode);
 
+/// Summarizes the plugin's `ResponseInfo` into the seam's plugin-free
+/// [AdResponseSummary] (null in, null out).
+AdResponseSummary? summarizeResponseInfo(gma.ResponseInfo? info) {
+  if (info == null) return null;
+  final loaded = info.loadedAdapterResponseInfo;
+  return AdResponseSummary(
+    responseId: info.responseId,
+    mediationAdapterClassName: info.mediationAdapterClassName,
+    adSourceName: loaded?.adSourceName,
+    adSourceInstanceName: loaded?.adSourceInstanceName,
+  );
+}
+
 /// Maps the `app_tracking_transparency` status to the seam's [AttStatus].
 AttStatus attStatusFrom(att.TrackingStatus status) => switch (status) {
   att.TrackingStatus.notDetermined => AttStatus.notDetermined,
@@ -682,12 +701,16 @@ abstract class _GmaFullScreenHandle<T extends gma.AdWithoutView> {
         valueMicros: valueMicros,
         currencyCode: currencyCode,
         precision: revenuePrecisionFrom(precision),
+        // Read at event time — the winning source for THIS impression.
+        adSourceName: summarizeResponseInfo(_ad.responseInfo)?.adSourceName,
       ),
     );
   }
 
   final String adUnitId;
   final T _ad;
+
+  AdResponseSummary? get response => summarizeResponseInfo(_ad.responseInfo);
   final _content = StreamController<FullScreenAdEvent>.broadcast();
   final _paid = StreamController<AdPaidEvent>.broadcast();
 
@@ -791,6 +814,9 @@ abstract class _GmaViewAdHandle {
   final String adUnitId;
   final _events = StreamController<ViewAdEvent>.broadcast();
   final _paid = StreamController<AdPaidEvent>.broadcast();
+
+  AdResponseSummary? get response =>
+      summarizeResponseInfo(_adWithView.responseInfo);
 
   Stream<ViewAdEvent> get events => _events.stream;
 

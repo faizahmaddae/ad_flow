@@ -85,6 +85,58 @@ enum AdRevenuePrecision {
   precise,
 }
 
+/// A compact, plugin-free summary of the SDK's `ResponseInfo` — which
+/// network actually filled the ad (2026-07 audit).
+///
+/// This is the mediation observability surface: without it there is no way
+/// to attribute revenue or diagnose fill per ad source through ad_flow.
+/// Available on every handle (`handle.response`) and every controller
+/// (`controller.response`) once loaded; the winning source also rides along
+/// on [AdPaidEvent.adSourceName] for impression-level revenue attribution.
+class AdResponseSummary {
+  /// Creates a response summary.
+  const AdResponseSummary({
+    this.responseId,
+    this.mediationAdapterClassName,
+    this.adSourceName,
+    this.adSourceInstanceName,
+  });
+
+  /// AdMob's response identifier (correlate with AdMob console logs).
+  final String? responseId;
+
+  /// Class name of the mediation adapter that loaded the ad.
+  final String? mediationAdapterClassName;
+
+  /// Display name of the winning ad source (e.g. `AdMob Network`, a
+  /// mediation partner).
+  final String? adSourceName;
+
+  /// The winning ad source instance name from the mediation waterfall.
+  final String? adSourceInstanceName;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AdResponseSummary &&
+      other.responseId == responseId &&
+      other.mediationAdapterClassName == mediationAdapterClassName &&
+      other.adSourceName == adSourceName &&
+      other.adSourceInstanceName == adSourceInstanceName;
+
+  @override
+  int get hashCode => Object.hash(
+    responseId,
+    mediationAdapterClassName,
+    adSourceName,
+    adSourceInstanceName,
+  );
+
+  @override
+  String toString() =>
+      'AdResponseSummary(source: $adSourceName/$adSourceInstanceName, '
+      'adapter: $mediationAdapterClassName, id: $responseId)';
+}
+
 /// Impression-level revenue reported by the SDK (allowlisted accounts only).
 class AdPaidEvent {
   /// Creates a paid event.
@@ -93,6 +145,8 @@ class AdPaidEvent {
     required this.valueMicros,
     required this.currencyCode,
     required this.precision,
+    this.slot,
+    this.adSourceName,
   });
 
   /// The ad unit that earned the revenue.
@@ -107,17 +161,45 @@ class AdPaidEvent {
   /// How precise [valueMicros] is.
   final AdRevenuePrecision precision;
 
+  /// Which ad_flow slot earned it (`'banner'`, `'interstitial'`, …) — set by
+  /// the controller that owns the placement, so one `onPaidEvent` listener
+  /// can log per-format revenue (e.g. a Firebase `ad_impression` event)
+  /// without juggling ad unit IDs (2026-07 audit).
+  final String? slot;
+
+  /// The winning mediation ad source, when known — see
+  /// [AdResponseSummary.adSourceName].
+  final String? adSourceName;
+
+  /// This event tagged with the ad_flow [slot] that earned it.
+  AdPaidEvent taggedWithSlot(String slot) => AdPaidEvent(
+    adUnitId: adUnitId,
+    valueMicros: valueMicros,
+    currencyCode: currencyCode,
+    precision: precision,
+    slot: slot,
+    adSourceName: adSourceName,
+  );
+
   @override
   bool operator ==(Object other) =>
       other is AdPaidEvent &&
       other.adUnitId == adUnitId &&
       other.valueMicros == valueMicros &&
       other.currencyCode == currencyCode &&
-      other.precision == precision;
+      other.precision == precision &&
+      other.slot == slot &&
+      other.adSourceName == adSourceName;
 
   @override
-  int get hashCode =>
-      Object.hash(adUnitId, valueMicros, currencyCode, precision);
+  int get hashCode => Object.hash(
+    adUnitId,
+    valueMicros,
+    currencyCode,
+    precision,
+    slot,
+    adSourceName,
+  );
 }
 
 /// Server-side verification options for (rewarded) ads with high-value

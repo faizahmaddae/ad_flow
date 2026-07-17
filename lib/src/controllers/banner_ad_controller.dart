@@ -111,6 +111,10 @@ class BannerAdController implements AdController {
   /// [AdLoaded].
   BannerHandle? get handle => _handle;
 
+  /// Which network filled the current ad (mediation observability), or null
+  /// when nothing is loaded / the SDK reported nothing.
+  AdResponseSummary? get response => _handle?.response;
+
   /// This slot's sizing strategy — lets [AdFlowBanner] compute a better,
   /// device-aware placeholder for adaptive kinds than [reservedHeight]'s
   /// width-only floor estimate (review finding #8).
@@ -241,7 +245,9 @@ class BannerAdController implements AdController {
         return;
       }
       _handle = handle;
-      _paidSub = handle.paidEvents.listen(_onPaid ?? (_) {});
+      _paidSub = handle.paidEvents.listen(
+        (event) => _onPaid?.call(event.taggedWithSlot(slot)),
+      );
       _eventSub = handle.events.listen(_onViewEvent);
       _attempts = 0;
       _gateAttempts = 0;
@@ -353,7 +359,9 @@ class BannerAdController implements AdController {
       final oldPaidSub = _paidSub;
       final oldEventSub = _eventSub;
       _handle = handle;
-      _paidSub = handle.paidEvents.listen(_onPaid ?? (_) {});
+      _paidSub = handle.paidEvents.listen(
+        (event) => _onPaid?.call(event.taggedWithSlot(slot)),
+      );
       _eventSub = handle.events.listen(_onViewEvent);
       _loadedWidth = requestWidth;
       unawaited(oldPaidSub?.cancel());

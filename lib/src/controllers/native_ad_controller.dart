@@ -88,6 +88,10 @@ class NativeAdController implements AdController {
   /// is [AdLoaded].
   NativeHandle? get handle => _handle;
 
+  /// Which network filled the current ad (mediation observability), or null
+  /// when nothing is loaded / the SDK reported nothing.
+  AdResponseSummary? get response => _handle?.response;
+
   /// Height to reserve before the ad loads: the template minimums
   /// (small ≈ 90, medium ≈ 320), or 100 for factory rendering.
   double get reservedHeight => switch (_config.templateKind) {
@@ -129,7 +133,9 @@ class NativeAdController implements AdController {
         return;
       }
       _handle = handle;
-      _paidSub = handle.paidEvents.listen(_onPaid ?? (_) {});
+      _paidSub = handle.paidEvents.listen(
+        (event) => _onPaid?.call(event.taggedWithSlot(slot)),
+      );
       _eventSub = handle.events.listen(_onViewEvent);
       _attempts = 0;
       _gateAttempts = 0;
