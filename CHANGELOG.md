@@ -1,10 +1,38 @@
-## 2.2.0
+## 3.0.0
 
-Production-hardening release from a deep 2026-07 multi-agent audit (25
-confirmed findings, all fixed) plus my own core review. **No breaking API
-changes for apps** — every existing call site compiles. Several defaults and
-behaviours changed deliberately; implementers of the seam/testing interfaces
-have additive members to implement. See MIGRATION.md.
+Two releases in one (2.2.0 was never published): the production-hardening
+work from a deep 2026-07 multi-agent audit (25 confirmed findings, all
+fixed), plus the API cleanup that backward compatibility had forbidden.
+See MIGRATION.md for the short 2.x → 3.0 checklist.
+
+### BREAKING
+
+- **`AdBlocked(reason)` is a new `AdLoadState` case.** A load refused by
+  policy (consent pending, Remove-Ads, withdrawal, disposed graph) now
+  reports itself as a state instead of an `AdIdle` indistinguishable from
+  "nothing requested yet" — the model ADR-045 documented as correct but
+  could not ship in 2.x. Exhaustive switches gain one case; the controller
+  still re-checks its gate and proceeds to `AdLoading` on its own.
+- **Widget-first ad widgets.** `AdFlowBanner(adFlow: ads)` /
+  `AdFlowNativeAd(adFlow: ads)` create AND own their controller, making the
+  ADR-029 footgun (minting a controller inside `build()` → permanently
+  blank ad) unrepresentable. `controller:` is now optional (advanced use).
+- **`FullScreenAdController.show()` takes no reward callback** — it was
+  silently ignored by interstitial and app-open. The rewarded formats keep
+  `show({onReward})`.
+- **`AdGate` is a pure permission gate**: the racy composed `canShow()`
+  query (review finding #6) and its caps/coordinator collaborators are
+  removed. Show pacing lives in the controllers, where the atomic
+  `tryEnter()` is.
+- **`AppOpenConfig.showOnColdStart` removed** (deprecated + ignored since
+  2.1.0; it never could do anything). Banner/native slot constants renamed
+  `slot` → `slotName` to match the full-screen formats.
+
+### Added (3.0)
+
+- `AdFlow.canRequestAds` — a `ValueListenable<bool>` with the LIVE consent
+  answer: follows a late consent grant (ADR-035 retry) and a
+  privacy-options withdrawal, unlike the one-shot `whenReady` snapshot.
 
 ### Fixed (correctness / revenue)
 

@@ -45,31 +45,31 @@ Set up the ad_flow Flutter package (AdMob) in my project. Do it idiomatically �
    • If you find any: show me what it is, then REPLACE it with ad_flow equivalents and remove the
      old implementation (and the direct google_mobile_ads dependency if nothing else uses it).
    • If none: do a clean fresh integration.
-3. Add ad_flow: ^2.1.0 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
+3. Add ad_flow: ^3.0.0 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
    Android minSdk 24 / compileSdk 36). Platform setup: Android APPLICATION_ID meta-data, iOS
    GADApplicationIdentifier + NSUserTrackingUsageDescription. Remind me to publish & verify app-ads.txt.
 4. Ask me which formats I want and for my ad unit IDs (or use AdFlowConfig.test() for now).
 5. Follow the README best practices EXACTLY: non-blocking init (never gate the first frame / a
-   splash on it), create ad controllers ONCE as fields (never inside build()), consent-first, and —
+   splash on it), use the widget-first ad widgets (AdFlowBanner(adFlow: ads) — they own their controllers), consent-first, and —
    if I want the consent/ATT priming screens — wire the explainer presenters.
 6. Verify: flutter analyze is clean and the app builds; show me where each ad renders.
 
 Ask me anything you need (formats, IDs, EEA/iOS) before writing code. Keep changes minimal and explained.
 ```
 
-### 🔁 Migrate — upgrade from ad_flow 1.x to 2.1.0
+### 🔁 Migrate — upgrade from ad_flow 1.x/2.x to 3.0.0
 
 ```
-Migrate my project from ad_flow 1.x to 2.1.0 (a ground-up rewrite). Be careful — the API changed a lot.
+Migrate my project from ad_flow 1.x/2.x to 3.0.0 (v2 was a ground-up rewrite; 3.0 refines its API). Be careful — the API changed a lot.
 
-1. FIRST read ad_flow's MIGRATION.md plus the 2.1.0 README and public API. Use only real v2 symbols.
-2. Bump ad_flow to ^2.1.0 and meet v2's min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
+1. FIRST read ad_flow's MIGRATION.md plus the 3.0.0 README and public API. Use only real v2 symbols.
+2. Bump ad_flow to ^3.0.0 and meet v2's min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
    Android minSdk 24 / compileSdk 36; adopt the iOS UISceneDelegate lifecycle if I have a custom AppDelegate).
 3. Find EVERY v1 ad_flow usage (AdFlow.instance, initialize / initializeWithExplainer, EasyBannerAd,
    the old managers/widgets, the broad google_mobile_ads re-export). List them, then migrate each to
    its v2 equivalent per MIGRATION.md.
 4. Apply the v2 best practices while you're in there: non-blocking init (drop any FutureBuilder/await
-   that gates the UI on init), controllers created ONCE as fields (not in build()), the presenter-based
+   that gates the UI on init), widget-first ad widgets (AdFlowBanner(adFlow: ads)), the presenter-based
    consent/ATT explainer (the v2 replacement for initializeWithExplainer), and ValueListenable state.
 5. Remove whatever is now dead from v1; keep my ad unit IDs and behavior intact.
 6. Verify: flutter analyze is clean and the app builds.
@@ -86,7 +86,7 @@ the GDPR consent form even if they denied ATT).
 
 ```yaml
 dependencies:
-  ad_flow: ^2.1.0
+  ad_flow: ^3.0.0
 ```
 
 Requirements (from `google_mobile_ads` 9.x): Flutter ≥ 3.38.1, Dart ≥ 3.10,
@@ -161,7 +161,6 @@ The application ID **cannot** be set from Dart — `AdFlowConfig` carries ad
 **Step 2 — initialize (non-blocking) and drop in a banner.** `initialize()`
 returns immediately; consent, ATT and ad loading all run in the **background**.
 Render your UI on the first frame — **never `await`-block it behind a splash**.
-Create each ad controller **once** (a `State` field, never inside `build()`).
 
 ```dart
 final navigatorKey = GlobalKey<NavigatorState>();
@@ -179,12 +178,13 @@ Future<void> main() async {
 }
 
 class _HomeState extends State<Home> {
-  late final _banner = ads.banner(); // create the controller ONCE, never in build()
-
   @override
   Widget build(BuildContext context) => Scaffold(
         bottomNavigationBar: SafeArea(
-          child: AdFlowBanner(controller: _banner, ownsController: true),
+          // Widget-first (3.0): the widget creates AND owns its controller,
+          // so the "fresh controller minted in build()" footgun (a blank ad
+          // on every setState) cannot happen.
+          child: AdFlowBanner(adFlow: ads),
         ),
       );
 }
@@ -257,25 +257,19 @@ it swaps every **configured** slot to Google's sample IDs. Never ship it.
 ### Banner
 
 ```dart
-class _MyScreenState extends State<MyScreen> {
-  // Create the controller ONCE, as a field — never inside build().
-  late final _banner = ads.banner();
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        bottomNavigationBar: SafeArea(
-          child: AdFlowBanner(controller: _banner, ownsController: true),
-        ),
-        // ...
-      );
-}
+Scaffold(
+  bottomNavigationBar: SafeArea(
+    child: AdFlowBanner(adFlow: ads), // creates + owns its controller (3.0)
+  ),
+)
 ```
 
-> **Never create ad controllers inside `build()`.** Each `ads.banner()` /
-> `ads.native()` call mints a fresh controller and starts a new ad load, so
-> building one in `build()` restarts the load — and blanks the ad — on every
-> rebuild (e.g. every `setState`). Hoist each to a `late final` `State`
-> field and reference the field, as above.
+> **Widget-first is the safe path (3.0).** The widget creates and owns its
+> controller internally, so the classic footgun — minting a fresh controller
+> inside `build()` and restarting (blanking) the load on every `setState` —
+> cannot happen. Advanced: `ads.banner()` still mints a standalone
+> `BannerAdController` you can pass via `controller:` when you need to
+> inspect its `state`/`response` elsewhere — create it ONCE, as a field.
 
 Anchored adaptive by default (Google's revenue recommendation); the widget
 reserves its height from the first frame so content never shifts under a
@@ -315,7 +309,7 @@ await ads.rewarded.show(onReward: (reward) {
 ```
 
 High-value rewards: set `RewardedConfig.ssv` for server-side verification —
-and update it at runtime as your app learns more (2.2.0):
+and update it at runtime as your app learns more (3.0.0):
 
 ```dart
 // After login, and again right before showing (e.g. which mission this is):
@@ -356,11 +350,8 @@ ready-made presenter; customize copy via `RewardedInterstitialConfig.intro`.
 ### Native
 
 ```dart
-// Create the controller ONCE, as a State field (never inside build()):
-late final _nativeAd = ads.native();
-
-// ...then in build():
-AdFlowNativeAd(controller: _nativeAd, ownsController: true)
+AdFlowNativeAd(adFlow: ads) // creates + owns its controller (3.0)
+// per-placement override: AdFlowNativeAd(adFlow: ads, config: NativeConfig(...))
 ```
 
 Template rendering (`NativeConfig(templateKind: NativeTemplateKind.small | .medium)`)
@@ -375,8 +366,8 @@ preloaded ad when the app returns to the foreground — never on cold launch,
 never over another full-screen ad, never past the 4-hour expiry (stale ads
 are discarded and proactively replaced). App-open ads show on the first
 genuine warm return of a session; a cold launch emits no foreground event, so
-there is nothing to show on one (`AppOpenConfig.showOnColdStart` is
-deprecated and ignored for the same reason).
+there is nothing to show on one (`AppOpenConfig.showOnColdStart` was removed
+in 3.0 for the same reason — it never could do anything).
 
 > **Policy note:** Google prohibits app-open ads in "Designed for Families"
 > apps. If your app is in the Families program, leave the `appOpen` slot
@@ -478,16 +469,19 @@ ads.disableAds();   // user bought Remove-Ads: live/warm ads are DROPPED
                     // placeholder) and every future load/show is blocked
 ads.enableAds();    // re-warms inventory at once
 ads.adsEnabled;     // ValueListenable<bool> — hide ad widgets reactively
+ads.canRequestAds;  // ValueListenable<bool> — LIVE consent answer (3.0):
+                    // follows a late consent grant AND a withdrawal, unlike
+                    // the one-shot whenReady snapshot
 
 ads.onPaidEvent = (e) => analytics.logAdImpression(
   value: e.valueMicros / 1e6,
   currency: e.currencyCode,
-  adFormat: e.slot,          // 'banner', 'interstitial', … (2.2.0)
-  adSource: e.adSourceName,  // winning mediation network, when known (2.2.0)
+  adFormat: e.slot,          // 'banner', 'interstitial', … (3.0.0)
+  adSource: e.adSourceName,  // winning mediation network, when known (3.0.0)
 );
 
 ads.interstitial.response;   // AdResponseSummary? — which network filled the
-                             // warm ad (mediation diagnostics, 2.2.0)
+                             // warm ad (mediation diagnostics, 3.0.0)
 
 await ads.openAdInspector(); // debug overlay on a test device
 ```
@@ -509,9 +503,11 @@ if (remoteConfig.getBool('ads_kill_switch')) {
 
 ### "Why aren't my ads showing?"
 
-A blocked slot sits at `AdIdle` — which is also what "nothing requested yet"
-looks like. To tell them apart, ad_flow reports **why** it refused a load or a
-show:
+A refused **load** is a first-class state (3.0): the slot reports
+`AdBlocked(reason)` instead of an ambiguous idle, so
+`ValueListenableBuilder` UIs can react to it directly. Refused **shows**
+(a frequency cap, user-action pacing) never change the load state — they
+report through the callback channel:
 
 ```dart
 ads.onAdBlocked = (slot, reason) =>

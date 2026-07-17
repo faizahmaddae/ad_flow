@@ -1,7 +1,38 @@
-# Upgrading 2.1.x → 2.2.0
+# Upgrading 2.x → 3.0.0
 
-**No breaking API changes for apps** — everything compiles. Behaviour changed
-deliberately in five places; check these:
+3.0 bundles the (unpublished) 2.2.0 hardening work with a deliberate,
+compact API cleanup. Breaking changes first — each takes minutes:
+
+1. **`AdLoadState` gained `AdBlocked(reason)`.** Add one case to every
+   exhaustive `switch` over `AdLoadState`. It replaces the old
+   "blocked loads look like `AdIdle`" ambiguity: match on it to render
+   "consent pending" / "ads off" placeholders directly.
+
+2. **Prefer the widget-first ad widgets.** `AdFlowBanner(adFlow: ads)` /
+   `AdFlowNativeAd(adFlow: ads)` create and own their controllers — delete
+   your `late final _banner = ads.banner()` fields and the
+   `controller:`/`ownsController:` arguments (that mode still exists for
+   advanced use; `controller` is now optional).
+
+3. **`show()` reward callback**: only `RewardedAdController` and
+   `RewardedInterstitialAdController` accept `show(onReward: …)` now. If you
+   passed `onReward` to `interstitial.show()` or an app-open show, it was
+   silently ignored — delete it.
+
+4. **Removed**: `AppOpenConfig.showOnColdStart` (ignored since 2.1.0 — it
+   never could do anything; delete the argument) and `AdGate.canShow` (an
+   unfixably racy composed query with a warning label; if you used it for a
+   UI hint, combine `controller.state` + your own cap knowledge instead).
+   `AdGate`'s constructor lost its unused `caps`/`coordinator` params.
+   `BannerAdController.slot`/`NativeAdController.slot` →
+   `slotName`.
+
+5. **New reactive consent surface**: `ads.canRequestAds`
+   (`ValueListenable<bool>`) is the LIVE answer — use it instead of caching
+   `whenReady`'s one-shot result.
+
+Behaviour changes carried over from the unpublished 2.2.0 hardening (check
+these too):
 
 1. **Preloaded interstitial/rewarded/rewarded-interstitial ads now expire**
    (`maxAdAge`, default 55 minutes, per Google's documented ~1-hour window).

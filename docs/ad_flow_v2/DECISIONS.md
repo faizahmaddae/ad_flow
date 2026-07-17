@@ -366,6 +366,20 @@ This is squarely a regression from **review-fix #5**: before #5, `updateRequestC
 **Decision.** `state_machine_fuzz_test.dart`: 24 seeds × 120 random ops per controller (banner + interstitial) inside fakeAsync — public API calls, SDK event injection, hold/release, failure toggles, gate flips, clock/timer advances — with invariants asserted after every op: at most one live handle and it is the current one; `AdLoaded` implies a handle; the coordinator claim tracks `AdShowing`; dispose leaves nothing live. Failures print the seed and replay deterministically.
 **Consequences.** Any future interleaving bug in these controllers has a standing chance of being caught without anyone thinking of it first. Extend the op set when new operations are added (SKILL §6 note).
 
+## ADR-055 — 3.0.0: the compat-forbidden cleanup, and the redesigns deliberately rejected  ·  accepted
+**Context.** The maintainer explicitly lifted the backward-compatibility constraint ("limited public adoption; best long-term design wins"), with the counter-rule that breaking changes must earn their keep. Reviewed the whole architecture against that freedom.
+**Decision — what breaks (each one a documented 2.x wart):**
+1. **`AdBlocked(reason)` joins `AdLoadState`.** ADR-045 called this the correct model and shipped a parallel diagnostic channel only because a sealed-type addition breaks exhaustive switches. Blocked-on-LOAD is now a state (consent pending / Remove-Ads / withdrawal / disposed graph are visibly different from "nothing requested"); blocked-on-SHOW still reports via `noteBlocked` (a show refusal never changes load state — e.g. a capped show leaves `AdLoaded`).
+2. **Widget-first ad widgets.** `AdFlowBanner(adFlow:)`/`AdFlowNativeAd(adFlow:)` create AND own their controllers, making the ADR-029 footgun unrepresentable; `controller:` stays for advanced use.
+3. **`show()` honesty.** The base interface no longer carries a reward callback that interstitial/app-open silently ignored; the engine moved to a protected `showEngine`, and the rewarded formats keep `show({onReward})`.
+4. **`AdGate` purified.** `canShow` (review finding #6's racy composed query, zero in-package callers since ADR-024, kept in 2.x only as public API) is deleted along with the gate's now-unused caps/coordinator collaborators — the gate answers PERMISSION; the controllers own show pacing (where the atomic `tryEnter()` lives).
+5. **Deletions/renames:** `AppOpenConfig.showOnColdStart` (ignored since ADR-043) removed; banner/native `slot` → `slotName`.
+6. **Additive:** `AdFlow.canRequestAds` (`ValueListenable<bool>`), the LIVE consent answer — closes the `whenReady`-staleness finding properly instead of doc-only.
+**Decision — what was considered and REJECTED (breaking with no meaningful benefit):**
+- A synchronous `AdFlow initialize()` return: ADR-032's reasoning (fail-fast as a rejected Future; `await_only_futures` churn at every call site) holds independent of compat.
+- Stream-based events over `ValueListenable` (ADR-005 stands), merging policies into controllers, any layer reshuffle, renames-for-taste. The architecture's bones — seam, DI, policy layer, non-blocking init with structural gates — were validated by two audits and a documented bug history; a rewrite would destroy verified value.
+**Consequences.** Version **3.0.0** (folding the unpublished 2.2.0 hardening in). MIGRATION.md's 2.x → 3.0 checklist is five mechanical items. The example and README teach the widget-first path as primary.
+
 ## Proposed / to confirm while building
 - ~~**ADR-P1 — Immutability codegen (`freezed`).**~~ Resolved by ADR-017 (hand-written, no codegen).
 - ~~**ADR-P2 — Persistence dependency for frequency caps.**~~ **Confirmed at Phase 5:** `shared_preferences` (`SharedPreferencesAsync`, keys namespaced `ad_flow.`) behind the `KeyValueStore` interface; `InMemoryKeyValueStore` for tests. Design note: the last-impression timestamp is persisted separately from the pruned hourly history so `minGap` values longer than the 1h history window still work; session counts are deliberately in-memory only.

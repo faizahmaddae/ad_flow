@@ -1,9 +1,19 @@
-# PROGRESS — ad_flow v2
+# PROGRESS — ad_flow v2/v3
 
 ## Current phase
-**Phase 17 — production-hardening audit + fixes (2026-07-17)** — ✅ all shipped on
-branch **`production-hardening-2.2.0`** (11 commits, NOT merged to main, NOT
-tagged, NOT published — Faiz reviews/merges/tags when ready). Version **2.2.0**.
+**Phase 18 — 3.0.0 API cleanup (2026-07-17)** — ✅ shipped on branch
+**`v3-design`** (built on top of `production-hardening-2.2.0`; 14 commits
+total over main; NOT merged, NOT tagged, NOT published — Faiz reviews/merges/
+tags when ready). Version **3.0.0**. The maintainer lifted the
+backward-compat constraint; ADR-055 records what 3.0 breaks (AdBlocked state,
+widget-first widgets, honest show(), purified AdGate, removals) and — as
+importantly — the redesigns it deliberately REJECTS. Verify:
+`flutter analyze && flutter test --concurrency=2` → clean, **413 tests**.
+
+## Previous phase
+**Phase 17 — production-hardening audit + fixes (2026-07-17)** — ✅ shipped on
+branch `production-hardening-2.2.0` (11 commits). Version 2.2.0 (never
+published; folded into 3.0.0).
 
 ## What landed (Phase 17)
 A 7-dimension multi-agent audit (61 agents, adversarial verification: 25
