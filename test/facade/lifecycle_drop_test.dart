@@ -161,6 +161,29 @@ void main() {
     });
   });
 
+  group('reactive canRequestAds (3.0)', () {
+    test(
+      'follows the live consent answer across grant and withdrawal',
+      () async {
+        final ads = await boot();
+        await pumpEventQueue();
+        expect(ads.canRequestAds.value, isTrue);
+
+        sdk.onPrivacyOptionsFormShown = () => sdk.canRequestAdsResult = false;
+        await ads.consent.showPrivacyOptions();
+        await pumpEventQueue();
+        expect(
+          ads.canRequestAds.value,
+          isFalse,
+          reason:
+              'whenReady is a one-shot snapshot; this listenable must track '
+              'the withdrawal',
+        );
+        ads.dispose();
+      },
+    );
+  });
+
   group('consent withdrawal (privacy options)', () {
     test('withdrawing consent through ads.consent.showPrivacyOptions() drops '
         'live and warm ads', () async {

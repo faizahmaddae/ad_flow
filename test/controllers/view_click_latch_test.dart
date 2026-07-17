@@ -24,16 +24,8 @@ void main() {
     sdk.dispose();
   });
 
-  AdGate gate() => AdGate(
-    canRequestAds: sdk.canRequestAds,
-    isEnabled: () => true,
-    caps: StoredFrequencyCapPolicy(
-      store: InMemoryKeyValueStore(),
-      slotCaps: const {},
-      globalCap: const FrequencyCap(),
-    ),
-    coordinator: coordinator,
-  );
+  AdGate gate() =>
+      AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true);
 
   test('a banner CLICK arms the latch; the next foreground consume is '
       'suppressed exactly once', () async {

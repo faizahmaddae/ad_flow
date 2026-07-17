@@ -43,8 +43,6 @@ void main() {
         gate: AdGate(
           canRequestAds: () async => consented && sdk.canRequestAdsResult,
           isEnabled: () => true,
-          caps: caps,
-          coordinator: coordinator,
         ),
         caps: caps,
         coordinator: coordinator,
@@ -113,12 +111,7 @@ void main() {
     final introGate = Completer<bool>();
     final c = RewardedInterstitialAdController(
       sdk: sdk,
-      gate: AdGate(
-        canRequestAds: sdk.canRequestAds,
-        isEnabled: () => true,
-        caps: caps,
-        coordinator: coordinator,
-      ),
+      gate: AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true),
       caps: caps,
       coordinator: coordinator,
       config: const RewardedInterstitialConfig(
@@ -149,12 +142,7 @@ void main() {
     final introGate = Completer<bool>();
     final c = RewardedInterstitialAdController(
       sdk: sdk,
-      gate: AdGate(
-        canRequestAds: sdk.canRequestAds,
-        isEnabled: () => true,
-        caps: caps,
-        coordinator: coordinator,
-      ),
+      gate: AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true),
       caps: caps,
       coordinator: coordinator,
       config: const RewardedInterstitialConfig(

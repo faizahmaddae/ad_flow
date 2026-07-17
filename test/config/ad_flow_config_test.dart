@@ -159,7 +159,6 @@ void main() {
 
       const appOpen = AppOpenConfig(adUnitId: PlatformAdUnitId(android: 'a'));
       expect(appOpen.expiry, const Duration(hours: 4));
-      expect(appOpen.showOnColdStart, isFalse);
     });
 
     test('NativeConfig requires exactly one rendering path', () {

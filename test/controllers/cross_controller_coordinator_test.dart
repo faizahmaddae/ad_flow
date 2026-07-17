@@ -31,8 +31,6 @@ void main() {
       final gate = AdGate(
         canRequestAds: sdk.canRequestAds,
         isEnabled: () => true,
-        caps: caps,
-        coordinator: coordinator,
       );
 
       final interstitial = InterstitialAdController(

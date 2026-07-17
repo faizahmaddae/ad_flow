@@ -33,12 +33,7 @@ void main() {
 
   InterstitialAdController controller() => InterstitialAdController(
     sdk: sdk,
-    gate: AdGate(
-      canRequestAds: sdk.canRequestAds,
-      isEnabled: () => true,
-      caps: caps,
-      coordinator: coordinator,
-    ),
+    gate: AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true),
     caps: caps,
     coordinator: coordinator,
     config: const InterstitialConfig(

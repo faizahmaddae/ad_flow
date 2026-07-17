@@ -6,9 +6,7 @@ import 'package:ad_flow/src/core/ad_block_reason.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/core/ad_load_state.dart';
 import 'package:ad_flow/src/policy/ad_gate.dart';
-import 'package:ad_flow/src/policy/frequency_cap_policy.dart';
 import 'package:ad_flow/src/policy/full_screen_ad_coordinator.dart';
-import 'package:ad_flow/src/policy/key_value_store.dart';
 import 'package:ad_flow/src/policy/retry_policy.dart';
 import 'package:ad_flow/src/seam/ad_sdk_types.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
@@ -37,12 +35,6 @@ void main() {
   AdGate gate() => AdGate(
     canRequestAds: () async => consented && sdk.canRequestAdsResult,
     isEnabled: () => enabled,
-    caps: StoredFrequencyCapPolicy(
-      store: InMemoryKeyValueStore(),
-      slotCaps: const {},
-      globalCap: const FrequencyCap(),
-    ),
-    coordinator: coordinator,
   );
 
   BannerAdController controller({
@@ -170,7 +162,7 @@ void main() {
       sdk.banners.single.simulatePaid(event);
       // Tagged with the slot so one onPaidEvent listener can log per-format
       // revenue (2026-07 audit).
-      expect(paid, [event.taggedWithSlot(BannerAdController.slot)]);
+      expect(paid, [event.taggedWithSlot(BannerAdController.slotName)]);
       c.dispose();
     });
   });

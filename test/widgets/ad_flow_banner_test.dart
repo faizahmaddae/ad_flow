@@ -1,12 +1,13 @@
 import 'package:ad_flow/src/config/ad_flow_config.dart';
+import 'package:ad_flow/src/config/ad_platform.dart';
 import 'package:ad_flow/src/controllers/banner_ad_controller.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/core/ad_load_state.dart';
 import 'package:ad_flow/src/policy/ad_gate.dart';
-import 'package:ad_flow/src/policy/frequency_cap_policy.dart';
 import 'package:ad_flow/src/policy/full_screen_ad_coordinator.dart';
 import 'package:ad_flow/src/policy/key_value_store.dart';
 import 'package:ad_flow/src/policy/retry_policy.dart';
+import 'package:ad_flow/src/facade/ad_flow.dart';
 import 'package:ad_flow/src/seam/ad_sdk_types.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
 import 'package:ad_flow/src/widgets/ad_flow_banner.dart';
@@ -30,16 +31,7 @@ void main() {
 
   BannerAdController controller({BannerConfig? config}) => BannerAdController(
     sdk: sdk,
-    gate: AdGate(
-      canRequestAds: sdk.canRequestAds,
-      isEnabled: () => true,
-      caps: StoredFrequencyCapPolicy(
-        store: InMemoryKeyValueStore(),
-        slotCaps: const {},
-        globalCap: const FrequencyCap(),
-      ),
-      coordinator: coordinator,
-    ),
+    gate: AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true),
     config:
         config ??
         const BannerConfig(adUnitId: PlatformAdUnitId(android: 'unit-b')),
@@ -427,6 +419,40 @@ void main() {
       );
     },
   );
+
+  group('widget-first creation (3.0)', () {
+    testWidgets('AdFlowBanner(adFlow:) creates, loads, hosts and DISPOSES its '
+        'own controller — the build()-minted-controller footgun is '
+        'unrepresentable', (tester) async {
+      final ads = await AdFlow.initialize(
+        const AdFlowConfig(
+          banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
+        ),
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+      );
+      await ads.whenReady;
+
+      await tester.pumpWidget(host(AdFlowBanner(adFlow: ads)));
+      await tester.pumpAndSettle();
+
+      expect(sdk.banners, hasLength(1));
+      final live = sdk.banners.single;
+      expect(find.byKey(ObjectKey(live)), findsOneWidget);
+
+      // Rebuilding with the SAME AdFlow must not mint a new controller/load.
+      await tester.pumpWidget(host(AdFlowBanner(adFlow: ads)));
+      await tester.pumpAndSettle();
+      expect(sdk.banners, hasLength(1));
+
+      // Unmount disposes the self-created controller and its ad.
+      await tester.pumpWidget(host(const SizedBox()));
+      await tester.pumpAndSettle();
+      expect(live.disposed, isTrue);
+      ads.dispose();
+    });
+  });
 
   testWidgets('an adopted controller swap remounts the native ad subtree too', (
     tester,

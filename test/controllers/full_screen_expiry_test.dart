@@ -40,12 +40,7 @@ void main() {
       InterstitialAdController(
         onBlocked: (slot, reason) => blocked.add(reason),
         sdk: sdk,
-        gate: AdGate(
-          canRequestAds: sdk.canRequestAds,
-          isEnabled: () => true,
-          caps: caps,
-          coordinator: coordinator,
-        ),
+        gate: AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true),
         caps: caps,
         coordinator: coordinator,
         config: InterstitialConfig(

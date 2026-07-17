@@ -3,37 +3,69 @@ import 'package:flutter/widgets.dart';
 import '../config/ad_flow_config.dart';
 import '../controllers/banner_ad_controller.dart';
 import '../core/ad_load_state.dart';
+import '../facade/ad_flow.dart';
 
 /// Drop-in banner widget.
 ///
 /// Reserves a fixed height from the first frame (no layout shift — shifting
 /// ads trigger accidental-click policy enforcement), triggers the first
 /// load with its real layout width, hosts the ad once loaded, and disposes
-/// with the element when it owns the controller.
+/// the controller it owns when unmounted.
+///
+/// The recommended usage (3.0) creates and owns the controller internally —
+/// the "fresh controller minted inside build()" footgun (ADR-029, a
+/// permanently blank ad) is unrepresentable this way:
+///
+/// ```dart
+/// AdFlowBanner(adFlow: ads)                       // global banner config
+/// AdFlowBanner(adFlow: ads, config: BannerConfig(...)) // per-placement
+/// ```
+///
+/// Advanced: pass your own [controller] instead (with [ownsController] to
+/// transfer disposal), e.g. to share state inspection with other widgets.
 class AdFlowBanner extends StatefulWidget {
-  /// Creates a banner widget driven by [controller].
+  /// Creates a banner widget.
   ///
-  /// Set [ownsController] when this widget should dispose [controller] on
-  /// unmount (true when the controller was created just for this widget).
+  /// Provide exactly one of [adFlow] (the widget creates and owns a
+  /// controller — recommended) or [controller] (advanced; set
+  /// [ownsController] when this widget should dispose it on unmount).
+  /// [config] optionally overrides the global banner config and requires
+  /// [adFlow].
   const AdFlowBanner({
-    required this.controller,
+    this.adFlow,
+    this.config,
+    this.controller,
     this.ownsController = false,
     this.placeholderHeight,
     super.key,
-  });
+  }) : assert(
+         (controller != null) ^ (adFlow != null),
+         'Provide exactly one of adFlow or controller.',
+       ),
+       assert(
+         config == null || adFlow != null,
+         'config is only used with adFlow.',
+       );
 
-  /// The controller that loads this slot.
-  final BannerAdController controller;
+  /// The facade to mint this placement's controller from (recommended path).
+  final AdFlow? adFlow;
 
-  /// Whether unmounting disposes [controller].
+  /// Per-placement override of the global banner config ([adFlow] mode).
+  final BannerConfig? config;
+
+  /// An externally created controller (advanced path).
+  final BannerAdController? controller;
+
+  /// Whether unmounting disposes [controller] (ignored in [adFlow] mode —
+  /// a self-created controller is always owned).
   final bool ownsController;
 
   /// Height reserved before the ad loads. Defaults to the controller's
   /// exact size for fixed banners, or a device-aware estimate for
-  /// adaptive banners (see [_estimatedHeight]) — pass this explicitly for
-  /// adaptive placements if you know the real height in advance (e.g.
-  /// from a previous load) to avoid any residual shift (review finding
-  /// #8).
+  /// adaptive banners (see [_AdFlowBannerState._estimatedHeight]) — pass
+  /// this explicitly for adaptive placements if you know the real height
+  /// in advance (e.g. from a previous load) to avoid any residual shift
+  /// (review finding #8).
   final double? placeholderHeight;
 
   @override
@@ -41,27 +73,50 @@ class AdFlowBanner extends StatefulWidget {
 }
 
 class _AdFlowBannerState extends State<AdFlowBanner> {
+  late BannerAdController _controller;
+  late bool _ownsController;
   bool _loadRequested = false;
   int? _requestedWidth;
 
   @override
+  void initState() {
+    super.initState();
+    _adopt();
+  }
+
+  void _adopt() {
+    final adFlow = widget.adFlow;
+    if (adFlow != null) {
+      _controller = adFlow.banner(widget.config);
+      _ownsController = true;
+    } else {
+      _controller = widget.controller!;
+      _ownsController = widget.ownsController;
+    }
+    _loadRequested = false;
+    _requestedWidth = null;
+  }
+
+  @override
   void didUpdateWidget(AdFlowBanner oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // If a different controller is passed in on rebuild, adopt it: dispose
-    // the old one (if we owned it) and re-arm the first-load path so the new
-    // controller loads on the next layout pass. Without this, a caller that
-    // (mistakenly) builds a fresh controller inside build() would leak the
-    // old controller and never re-request against the new one.
-    if (!identical(oldWidget.controller, widget.controller)) {
-      if (oldWidget.ownsController) oldWidget.controller.dispose();
-      _loadRequested = false;
-      _requestedWidth = null;
+    // Adopt a changed source: a different external controller (dispose the
+    // old one if we owned it — the ADR-029 safety net for controllers
+    // mistakenly built inside build()), or a different AdFlow/config in the
+    // self-owned mode. A stable source hits the identical fast-path.
+    final sourceChanged = widget.adFlow != null
+        ? !identical(oldWidget.adFlow, widget.adFlow) ||
+              oldWidget.config != widget.config
+        : !identical(oldWidget.controller, widget.controller);
+    if (sourceChanged) {
+      if (_ownsController) _controller.dispose();
+      _adopt();
     }
   }
 
   @override
   void dispose() {
-    if (widget.ownsController) widget.controller.dispose();
+    if (_ownsController) _controller.dispose();
     super.dispose();
   }
 
@@ -75,7 +130,7 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
             _loadRequested = true;
             _requestedWidth = width;
             // Kick off the first load with the real layout width.
-            widget.controller.load(width: width);
+            _controller.load(width: width);
           } else if (width != _requestedWidth) {
             // The placement got wider or narrower — a rotation, an unfolding
             // device, or a resizable/split-screen window. An adaptive banner is
@@ -84,7 +139,7 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
             // plain rebuild (or a keyboard opening, which changes height only)
             // never re-requests an ad — that would be an ad-request storm.
             _requestedWidth = width;
-            widget.controller.resize(width);
+            _controller.resize(width);
           }
         }
         return ListenableBuilder(
@@ -92,12 +147,12 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
           // AdLoaded → AdLoaded, which does not notify, so a widget listening
           // only to `state` would keep rendering the old, disposed handle.
           listenable: Listenable.merge([
-            widget.controller.state,
-            widget.controller.revision,
+            _controller.state,
+            _controller.revision,
           ]),
           builder: (context, _) {
-            final state = widget.controller.state.value;
-            final handle = widget.controller.handle;
+            final state = _controller.state.value;
+            final handle = _controller.handle;
             if (state is AdLoaded && handle != null) {
               // The box follows `handle.dimensions`, not a one-shot size
               // read: AdMob's server-side auto-refresh can resolve a
@@ -151,8 +206,8 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
   /// Clicks" enforcement; the cost is some unused placeholder whitespace
   /// on devices where the real ad lands shorter. Fixed sizes stay exact.
   double _estimatedHeight(BuildContext context) {
-    if (widget.controller.kind == BannerKind.fixed) {
-      return widget.controller.reservedHeight;
+    if (_controller.kind == BannerKind.fixed) {
+      return _controller.reservedHeight;
     }
     final deviceHeight = MediaQuery.sizeOf(context).height;
     return (deviceHeight * 0.15).clamp(50.0, 90.0);

@@ -1,29 +1,59 @@
 import 'package:flutter/widgets.dart';
 
+import '../config/ad_flow_config.dart';
 import '../controllers/native_ad_controller.dart';
 import '../core/ad_load_state.dart';
+import '../facade/ad_flow.dart';
 
 /// Drop-in native ad widget.
 ///
 /// Reserves a fixed height from the first frame (no layout shift), triggers
-/// the load, hosts the ad once loaded, and disposes with the element when
-/// it owns the controller.
+/// the load, hosts the ad once loaded, and disposes the controller it owns
+/// when unmounted.
+///
+/// The recommended usage (3.0) creates and owns the controller internally —
+/// the "fresh controller minted inside build()" footgun (ADR-029, a
+/// permanently blank ad) is unrepresentable this way:
+///
+/// ```dart
+/// AdFlowNativeAd(adFlow: ads)
+/// AdFlowNativeAd(adFlow: ads, config: NativeConfig(...))
+/// ```
 class AdFlowNativeAd extends StatefulWidget {
-  /// Creates a native ad widget driven by [controller].
+  /// Creates a native ad widget.
   ///
-  /// Set [ownsController] when this widget should dispose [controller] on
-  /// unmount (true when the controller was created just for this widget).
+  /// Provide exactly one of [adFlow] (the widget creates and owns a
+  /// controller — recommended) or [controller] (advanced; set
+  /// [ownsController] when this widget should dispose it on unmount).
+  /// [config] optionally overrides the global native config and requires
+  /// [adFlow].
   const AdFlowNativeAd({
-    required this.controller,
+    this.adFlow,
+    this.config,
+    this.controller,
     this.ownsController = false,
     this.placeholderHeight,
     super.key,
-  });
+  }) : assert(
+         (controller != null) ^ (adFlow != null),
+         'Provide exactly one of adFlow or controller.',
+       ),
+       assert(
+         config == null || adFlow != null,
+         'config is only used with adFlow.',
+       );
 
-  /// The controller that loads this slot.
-  final NativeAdController controller;
+  /// The facade to mint this placement's controller from (recommended path).
+  final AdFlow? adFlow;
 
-  /// Whether unmounting disposes [controller].
+  /// Per-placement override of the global native config ([adFlow] mode).
+  final NativeConfig? config;
+
+  /// An externally created controller (advanced path).
+  final NativeAdController? controller;
+
+  /// Whether unmounting disposes [controller] (ignored in [adFlow] mode —
+  /// a self-created controller is always owned).
   final bool ownsController;
 
   /// Height reserved for the ad. Defaults to the controller's estimate
@@ -35,40 +65,56 @@ class AdFlowNativeAd extends StatefulWidget {
 }
 
 class _AdFlowNativeAdState extends State<AdFlowNativeAd> {
+  late NativeAdController _controller;
+  late bool _ownsController;
+
   @override
   void initState() {
     super.initState();
-    widget.controller.load();
+    _adopt();
+  }
+
+  void _adopt() {
+    final adFlow = widget.adFlow;
+    if (adFlow != null) {
+      _controller = adFlow.native(widget.config);
+      _ownsController = true;
+    } else {
+      _controller = widget.controller!;
+      _ownsController = widget.ownsController;
+    }
+    _controller.load();
   }
 
   @override
   void didUpdateWidget(AdFlowNativeAd oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // If a different controller is passed in on rebuild, adopt it: dispose
-    // the old one (if we owned it) and start the new one's load — [initState]
-    // only ran for the very first controller. Without this, a caller that
-    // (mistakenly) builds a fresh controller inside build() would leave this
-    // widget hosting a never-loaded controller — a permanent blank plus a
-    // leaked, still-loading old controller.
-    if (!identical(oldWidget.controller, widget.controller)) {
-      if (oldWidget.ownsController) oldWidget.controller.dispose();
-      widget.controller.load();
+    // Adopt a changed source — the ADR-029 safety net: dispose the old
+    // controller if we owned it and start the new one's load ([initState]
+    // only ran for the very first source). A stable source is a no-op.
+    final sourceChanged = widget.adFlow != null
+        ? !identical(oldWidget.adFlow, widget.adFlow) ||
+              oldWidget.config != widget.config
+        : !identical(oldWidget.controller, widget.controller);
+    if (sourceChanged) {
+      if (_ownsController) _controller.dispose();
+      _adopt();
     }
   }
 
   @override
   void dispose() {
-    if (widget.ownsController) widget.controller.dispose();
+    if (_ownsController) _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final height = widget.placeholderHeight ?? widget.controller.reservedHeight;
+    final height = widget.placeholderHeight ?? _controller.reservedHeight;
     return ValueListenableBuilder(
-      valueListenable: widget.controller.state,
+      valueListenable: _controller.state,
       builder: (context, state, _) {
-        final handle = widget.controller.handle;
+        final handle = _controller.handle;
         return SizedBox(
           height: height,
           // Keyed by handle identity so a handle replacement (reload, adopted

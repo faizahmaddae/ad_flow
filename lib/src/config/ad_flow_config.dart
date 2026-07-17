@@ -326,7 +326,6 @@ class AppOpenConfig {
     required this.adUnitId,
     this.cap = const FrequencyCap(minGap: Duration(minutes: 4)),
     this.expiry = const Duration(hours: 4),
-    this.showOnColdStart = false,
   });
 
   /// Per-platform app open ad unit IDs.
@@ -338,22 +337,11 @@ class AppOpenConfig {
   /// Loaded ads older than this are discarded and reloaded
   /// (Google mandates 4 hours).
   final Duration expiry;
-
-  /// **Deprecated and ignored** since ADR-043.
-  ///
-  /// It never did what its name promised. `AppStateEventNotifier` does not
-  /// deliver a foreground event for the cold launch at all, so this flag could
-  /// not cause an ad to show on one; all it actually did was un-suppress the
-  /// first *warm* return — which now happens by default, because that return is
-  /// a genuine one and swallowing it cost an impression in every session.
-  ///
-  /// A cold launch still cannot show an ad: nothing is loaded yet.
-  @Deprecated(
-    'Ignored since 2.1.0 (ADR-043): it could never show an ad on a cold launch, '
-    'and the first warm return now shows one by default. Remove it.',
-  )
-  final bool showOnColdStart;
 }
+
+// 3.0: `showOnColdStart` (deprecated + ignored since 2.1.0/ADR-043) is
+// REMOVED. It never could show an ad on a cold launch — no foreground event
+// exists for one — and the first warm return shows by default.
 
 /// Google's official sample ad unit IDs (safe to click; used by
 /// [AdFlowConfig.test] and whenever [AdFlowConfig.testMode] is on).

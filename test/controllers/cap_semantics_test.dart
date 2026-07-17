@@ -34,12 +34,8 @@ void main() {
     sdk.dispose();
   });
 
-  AdGate gate() => AdGate(
-    canRequestAds: sdk.canRequestAds,
-    isEnabled: () => true,
-    caps: caps,
-    coordinator: coordinator,
-  );
+  AdGate gate() =>
+      AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true);
 
   InterstitialAdController interstitial() => InterstitialAdController(
     sdk: sdk,

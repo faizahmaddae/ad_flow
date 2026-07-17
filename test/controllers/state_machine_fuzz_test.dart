@@ -42,12 +42,6 @@ void main() {
             gate: AdGate(
               canRequestAds: sdk.canRequestAds,
               isEnabled: () => enabled,
-              caps: StoredFrequencyCapPolicy(
-                store: InMemoryKeyValueStore(),
-                slotCaps: const {},
-                globalCap: const FrequencyCap(),
-              ),
-              coordinator: coordinator,
             ),
             config: const BannerConfig(
               adUnitId: PlatformAdUnitId(android: 'unit-b'),
@@ -162,13 +156,6 @@ void main() {
             gate: AdGate(
               canRequestAds: sdk.canRequestAds,
               isEnabled: () => enabled,
-              caps: StoredFrequencyCapPolicy(
-                store: InMemoryKeyValueStore(),
-                slotCaps: const {},
-                globalCap: const FrequencyCap(),
-                now: () => now,
-              ),
-              coordinator: coordinator,
             ),
             caps: StoredFrequencyCapPolicy(
               store: InMemoryKeyValueStore(),

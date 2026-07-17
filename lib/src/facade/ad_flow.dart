@@ -84,8 +84,6 @@ class AdFlow {
       // A dead graph's gate must refuse every load, or those leftovers would
       // keep serving ads wired to disposed collaborators (2026-07 audit).
       isEnabled: () => !_disposed && _adsEnabled.value,
-      caps: _caps,
-      coordinator: _coordinator,
       configReady: _configApplied.future,
       settleConsent: _settleConsent,
     );
@@ -304,6 +302,31 @@ class AdFlow {
 
   final ValueNotifier<bool> _adsEnabled = ValueNotifier(true);
 
+  /// Backs [canRequestAds]; refreshed after every consent flow completion
+  /// and every consent mutation through [consent].
+  final ValueNotifier<bool> _canRequestAdsNotifier = ValueNotifier(false);
+
+  /// LIVE consent answer, reactive (3.0): whether ads may currently be
+  /// requested.
+  ///
+  /// Unlike [whenReady] — a one-shot snapshot of the FIRST consent flow —
+  /// this follows later changes too: an ADR-035 retry that succeeds once the
+  /// network returns flips it true; a withdrawal in the privacy-options form
+  /// flips it false. Use it to show/hide consent-dependent UI reactively.
+  ValueListenable<bool> get canRequestAds => _canRequestAdsNotifier;
+
+  /// Re-reads the SDK's consent answer into [canRequestAds] (best-effort).
+  void _refreshCanRequestAds() {
+    unawaited(
+      _sdk
+          .canRequestAds()
+          .then((value) {
+            if (!_disposed) _canRequestAdsNotifier.value = value;
+          })
+          .catchError((Object _) {}),
+    );
+  }
+
   /// Completes once `updateRequestConfiguration` has been applied in [_start]
   /// (or on [dispose]). `AdGate.canLoad` awaits it so no ad request — preload
   /// or on-demand first-frame banner/native — can precede request
@@ -347,6 +370,7 @@ class AdFlow {
   /// requesting ads for it).
   void _afterConsentMutation() {
     if (_disposed) return;
+    _refreshCanRequestAds();
     _recheckAll();
   }
 
@@ -475,6 +499,7 @@ class AdFlow {
     return run
         .then((open) {
           _consentOpen = open;
+          if (!_disposed) _canRequestAdsNotifier.value = open;
           return open;
         })
         .whenComplete(() {
@@ -798,6 +823,7 @@ class AdFlow {
     _appOpenController?.dispose();
     _coordinator.dispose();
     _adsEnabled.dispose();
+    _canRequestAdsNotifier.dispose();
     if (_ownsConsent) _consent.dispose();
     if (identical(_instance, this)) _instance = null;
   }

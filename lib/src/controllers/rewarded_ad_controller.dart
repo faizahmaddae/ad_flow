@@ -46,6 +46,12 @@ class RewardedAdController extends FullScreenAdControllerBase {
     }
   }
 
+  /// Shows the warm rewarded ad; [onReward] fires (at most once) when the
+  /// user earns the reward.
+  @override
+  Future<bool> show({OnUserEarnedReward? onReward}) =>
+      showEngine(onReward: onReward);
+
   @override
   Future<FullScreenAdHandle> loadHandle() => sdk.loadRewarded(
     adUnitId,

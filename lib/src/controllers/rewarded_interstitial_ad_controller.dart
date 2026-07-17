@@ -85,6 +85,6 @@ class RewardedInterstitialAdController extends FullScreenAdControllerBase {
     } finally {
       _introShowing = false;
     }
-    return super.show(onReward: onReward);
+    return showEngine(onReward: onReward);
   }
 }

@@ -84,8 +84,6 @@ void main() {
               return true;
             },
             isEnabled: () => true,
-            caps: caps,
-            coordinator: coordinator,
           ),
           caps: caps,
           coordinator: coordinator,
@@ -169,12 +167,8 @@ void main() {
       sdk.dispose();
     });
 
-    AdGate gate() => AdGate(
-      canRequestAds: sdk.canRequestAds,
-      isEnabled: () => true,
-      caps: caps,
-      coordinator: coordinator,
-    );
+    AdGate gate() =>
+        AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true);
 
     test('full-screen: lands in AdFailed and retries, not stuck AdLoading', () {
       fakeAsync((async) {

@@ -42,8 +42,6 @@ void main() {
         gate: AdGate(
           canRequestAds: () async => consented && sdk.canRequestAdsResult,
           isEnabled: () => true,
-          caps: caps,
-          coordinator: coordinator,
         ),
         caps: caps,
         coordinator: coordinator,

@@ -269,7 +269,13 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   }
 
   @override
-  Future<bool> show({OnUserEarnedReward? onReward}) async {
+  Future<bool> show() => showEngine();
+
+  /// The full show engine, shared by every format. [onReward] is forwarded
+  /// to the handle for the rewarded formats (their public `show(onReward:)`
+  /// overrides call this); the base [show] never passes one.
+  @protected
+  Future<bool> showEngine({OnUserEarnedReward? onReward}) async {
     if (_disposed) return false;
     if (_state.value is AdShowing) return false; // never double-show
     final handle = _handle;

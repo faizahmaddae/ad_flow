@@ -51,8 +51,6 @@ void main() {
     gate: AdGate(
       canRequestAds: () async => consented && sdk.canRequestAdsResult,
       isEnabled: () => true,
-      caps: caps,
-      coordinator: coordinator,
     ),
     caps: caps,
     coordinator: coordinator,
@@ -196,8 +194,6 @@ void main() {
         final gate = AdGate(
           canRequestAds: () async => true,
           isEnabled: () => true,
-          caps: caps,
-          coordinator: coordinator,
           settleConsent: () async {
             settleCalls++;
             if (hangSettle) await Completer<void>().future;
@@ -447,8 +443,6 @@ void main() {
         gate: AdGate(
           canRequestAds: () async => consented && sdk.canRequestAdsResult,
           isEnabled: () => true,
-          caps: caps,
-          coordinator: coordinator,
         ),
         caps: caps,
         coordinator: coordinator,

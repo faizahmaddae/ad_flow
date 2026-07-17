@@ -28,16 +28,7 @@ void main() {
 
   BannerAdController controller({BannerConfig? config}) => BannerAdController(
     sdk: sdk,
-    gate: AdGate(
-      canRequestAds: sdk.canRequestAds,
-      isEnabled: () => true,
-      caps: StoredFrequencyCapPolicy(
-        store: InMemoryKeyValueStore(),
-        slotCaps: const {},
-        globalCap: const FrequencyCap(),
-      ),
-      coordinator: coordinator,
-    ),
+    gate: AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true),
     config:
         config ??
         const BannerConfig(adUnitId: PlatformAdUnitId(android: 'unit-b')),
@@ -330,16 +321,7 @@ void main() {
         final paid = <AdPaidEvent>[];
         final c = BannerAdController(
           sdk: sdk,
-          gate: AdGate(
-            canRequestAds: sdk.canRequestAds,
-            isEnabled: () => true,
-            caps: StoredFrequencyCapPolicy(
-              store: InMemoryKeyValueStore(),
-              slotCaps: const {},
-              globalCap: const FrequencyCap(),
-            ),
-            coordinator: coordinator,
-          ),
+          gate: AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true),
           config: const BannerConfig(
             adUnitId: PlatformAdUnitId(android: 'unit-b'),
             minRefresh: Duration(seconds: 60),
@@ -363,7 +345,7 @@ void main() {
         sdk.banners.last.simulatePaid(event);
 
         expect(paid, hasLength(1));
-        expect(paid.single.slot, BannerAdController.slot);
+        expect(paid.single.slot, BannerAdController.slotName);
         c.dispose();
       });
     });
