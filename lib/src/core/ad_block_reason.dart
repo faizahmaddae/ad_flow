@@ -44,6 +44,19 @@ enum AdBlockReason {
   /// fault — policy working as intended.
   introSkipped,
 
+  /// The SDK request configuration (test devices, COPPA/child-directed and
+  /// under-age tags, max content rating) has not been applied, and the
+  /// effective [RequestConfigFailurePolicy] forbids loading without it.
+  ///
+  /// This is fail-CLOSED protection for policy-critical configuration: a
+  /// child-directed app must never send untagged requests, and a registered
+  /// test device must never receive live ads (invalid-traffic risk), just
+  /// because a config call failed at startup. The apply is retried in the
+  /// background (rate-limited) and every gate re-check re-joins it, so the
+  /// slot recovers the moment it succeeds — observable via `onAdBlocked`
+  /// and the `AdBlocked` state, never a silent revenue stop (4.0 audit).
+  requestConfigNotApplied,
+
   /// A collaborator failed while answering the permission question — the
   /// consent channel threw, an injected gateway rejected, or an app-supplied
   /// hook broke (the underlying error is reported via

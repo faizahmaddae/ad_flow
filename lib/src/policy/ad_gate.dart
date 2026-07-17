@@ -21,26 +21,25 @@ class AdGate {
   /// [canRequestAds] is the *cheap, current* consent answer (wire it to
   /// `AdSdk.canRequestAds`) — it must NOT re-run the consent flow.
   /// [isEnabled] reflects the app's Remove-Ads state.
-  /// [configReady] completes once `updateRequestConfiguration` has been
-  /// applied; [canLoad] awaits it so no ad request (preloaded OR on-demand)
-  /// can go out before test-device / COPPA / content-rating settings are set
-  /// — critical now that startup runs in the background (ADR-032/ADR-033).
-  /// It is bounded by the facade's init timeout, so it never hangs. Omit it
-  /// (the default is an already-complete future) when config timing is not
-  /// under test.
+  /// [settleRequestConfig] joins (and if needed re-attempts) the bounded
+  /// `updateRequestConfiguration` apply and answers whether loads may
+  /// proceed with respect to it — `false` blocks the load with
+  /// [AdBlockReason.requestConfigNotApplied] (the fail-closed policy path,
+  /// 4.0). It must be BOUNDED (the facade's attempts are) so the gate never
+  /// parks a load indefinitely. Omit it when config timing is not in play.
   AdGate({
     required Future<bool> Function() canRequestAds,
     required bool Function() isEnabled,
-    Future<void>? configReady,
+    Future<bool> Function()? settleRequestConfig,
     Future<void> Function()? settleConsent,
   }) : _canRequestAds = canRequestAds,
        _isEnabled = isEnabled,
-       _configReady = configReady ?? Future<void>.value(),
+       _settleRequestConfig = settleRequestConfig,
        _settleConsent = settleConsent;
 
   final Future<bool> Function() _canRequestAds;
   final bool Function() _isEnabled;
-  final Future<void> _configReady;
+  final Future<bool> Function()? _settleRequestConfig;
   final Future<void> Function()? _settleConsent;
 
   /// Whether [slot] may load an ad now.
@@ -67,7 +66,12 @@ class AdGate {
       // on-demand banner/native mounted on the first frame (ADR-032) can reach
       // here while the background init/config is still in flight; loading now
       // would send an untagged/untest-flagged first request (review-fix #5).
-      await _configReady;
+      // The settle callback JOINS the bounded apply attempt; when it answers
+      // false (the apply failed and the policy is fail-closed), the load is
+      // refused — visibly, with retries continuing in the background (4.0).
+      if (!(await _settleRequestConfig?.call() ?? true)) {
+        return AdBlockReason.requestConfigNotApplied;
+      }
       // Then wait for the consent flow to actually SETTLE, rather than reading
       // a still-false canRequestAds() and failing fast.
       //

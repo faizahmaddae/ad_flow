@@ -154,6 +154,33 @@ class RewardIntroContent {
   final String skipLabel;
 }
 
+/// What happens to ad loading when the SDK request configuration
+/// (`updateRequestConfiguration`: test devices, COPPA/under-age tags, max
+/// content rating) could not be applied — it failed, timed out, or SDK init
+/// never completed (4.0 audit).
+///
+/// Never blocks app UI either way: this only decides whether ad REQUESTS may
+/// go out unconfigured. The apply is retried in the background regardless,
+/// and blocked slots recover the moment it succeeds.
+enum RequestConfigFailurePolicy {
+  /// Fail-closed exactly when it matters (the default): loads wait for the
+  /// configuration iff it carries policy-critical fields
+  /// ([AdFlowConfig.requestConfigIsPolicySensitive] — child-directed /
+  /// under-age tags, a content rating, or test device IDs). A config with
+  /// none of those set loses nothing by loading without it, so it fails
+  /// open.
+  auto,
+
+  /// Always load even if the configuration was never applied. Only sensible
+  /// when every field is best-effort for you — a child-directed app must
+  /// NOT choose this.
+  failOpen,
+
+  /// Never load until the configuration has been applied, even when it
+  /// carries no policy-critical fields.
+  failClosed,
+}
+
 /// How a banner slot is sized.
 enum BannerKind {
   /// Anchored adaptive (the recommended, revenue-optimized default).
@@ -480,6 +507,7 @@ class AdFlowConfig {
     this.maxAdContentRating,
     this.tagForUnderAgeOfConsent,
     this.tagForChildDirectedTreatment,
+    this.requestConfigPolicy = RequestConfigFailurePolicy.auto,
   });
 
   /// Validates the configuration, throwing an
@@ -639,6 +667,20 @@ class AdFlowConfig {
 
   /// COPPA tag; null = unspecified.
   final bool? tagForChildDirectedTreatment;
+
+  /// What happens to ad loading when the request configuration could not be
+  /// applied — see [RequestConfigFailurePolicy]. Default: [RequestConfigFailurePolicy.auto].
+  final RequestConfigFailurePolicy requestConfigPolicy;
+
+  /// Whether this configuration carries fields whose silent loss is a policy
+  /// or invalid-traffic risk: child-directed / under-age tags, a maximum
+  /// content rating, or registered test devices. Drives
+  /// [RequestConfigFailurePolicy.auto].
+  bool get requestConfigIsPolicySensitive =>
+      tagForChildDirectedTreatment != null ||
+      tagForUnderAgeOfConsent != null ||
+      maxAdContentRating != null ||
+      testDeviceIds.isNotEmpty;
 
   /// The banner ad unit ID to actually request for [platform]
   /// (the test ID when [testMode] is on), or null if the slot is off.

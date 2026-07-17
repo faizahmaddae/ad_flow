@@ -29,7 +29,14 @@ class FakeAdSdk implements AdSdk {
   int initializeCalls = 0;
 
   /// Every configuration passed to [updateRequestConfiguration], in order.
+  /// Recorded on COMPLETION (after the hold/error knobs) — see
+  /// [updateRequestConfigurationCalls] for dispatch counting.
   final List<AdRequestConfig> requestConfigs = [];
+
+  /// Number of [updateRequestConfiguration] DISPATCHES (counted at entry,
+  /// before the hold/error knobs) — lets a test assert the ADR-028 rule that
+  /// no config call may even be dispatched while `initialize` is in flight.
+  int updateRequestConfigurationCalls = 0;
 
   /// Every consent info update request, in order.
   final List<ConsentUpdateCall> consentUpdateCalls = [];
@@ -237,6 +244,7 @@ class FakeAdSdk implements AdSdk {
 
   @override
   Future<void> updateRequestConfiguration(AdRequestConfig config) async {
+    updateRequestConfigurationCalls++;
     final hold = updateRequestConfigurationHold;
     if (hold != null) await hold.future;
     final error = updateRequestConfigurationError;
