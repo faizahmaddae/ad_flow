@@ -740,6 +740,10 @@ class _GmaRewardedHandle extends _GmaFullScreenHandle<gma.RewardedAd>
   @override
   Future<void> show({OnUserEarnedReward? onUserEarnedReward}) =>
       _ad.show(onUserEarnedReward: wrapReward(onUserEarnedReward));
+
+  @override
+  Future<void> updateServerSideVerification(ServerSideVerification ssv) =>
+      _updateSsv(() => _ad.setServerSideOptions(toGmaSsvOptions(ssv)));
 }
 
 class _GmaRewardedInterstitialHandle
@@ -752,6 +756,22 @@ class _GmaRewardedInterstitialHandle
   @override
   Future<void> show({OnUserEarnedReward? onUserEarnedReward}) =>
       _ad.show(onUserEarnedReward: wrapReward(onUserEarnedReward));
+
+  @override
+  Future<void> updateServerSideVerification(ServerSideVerification ssv) =>
+      _updateSsv(() => _ad.setServerSideOptions(toGmaSsvOptions(ssv)));
+}
+
+/// Normalizes an SSV attach failure — unlike the silent best-effort attach
+/// during load (where failing the whole load over SSV would cost the ad),
+/// an explicit update must SURFACE failure: the caller is about to grant a
+/// high-value reward on the strength of this payload.
+Future<void> _updateSsv(Future<void> Function() call) async {
+  try {
+    await call();
+  } catch (e) {
+    throw asAdFlowError(e, AdFlowErrorKind.unknown);
+  }
 }
 
 class _GmaAppOpenHandle extends _GmaFullScreenHandle<gma.AppOpenAd>

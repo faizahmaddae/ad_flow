@@ -45,12 +45,24 @@ class RewardedInterstitialAdController extends FullScreenAdControllerBase {
   final RewardedInterstitialConfig _config;
   final RewardedIntroPresenter _showIntro;
   bool _introShowing = false;
+  ServerSideVerification? _ssvOverride;
+
+  /// Applies [ssv] to the currently warm ad AND every future load,
+  /// replacing [RewardedInterstitialConfig.ssv] — see
+  /// `RewardedAdController.setServerSideVerification`.
+  Future<void> setServerSideVerification(ServerSideVerification ssv) async {
+    _ssvOverride = ssv;
+    final handle = currentHandle;
+    if (handle is RewardedInterstitialHandle) {
+      await handle.updateServerSideVerification(ssv);
+    }
+  }
 
   @override
   Future<FullScreenAdHandle> loadHandle() => sdk.loadRewardedInterstitial(
     adUnitId,
     const AdRequestOptions(),
-    ssv: _config.ssv,
+    ssv: _ssvOverride ?? _config.ssv,
   );
 
   @override

@@ -28,8 +28,28 @@ class RewardedAdController extends FullScreenAdControllerBase {
   static const slotName = 'rewarded';
 
   final RewardedConfig _config;
+  ServerSideVerification? _ssvOverride;
+
+  /// Applies [ssv] to the currently warm ad AND every future load,
+  /// replacing [RewardedConfig.ssv] (2026-07 audit).
+  ///
+  /// Config-time SSV is frozen at startup, but real apps learn the SSV
+  /// `userId` at login and the per-show `customData` (which mission earned
+  /// the reward) moments before `show()`. Call this any time; rethrows an
+  /// `AdFlowError` if attaching to the warm ad fails — a caller granting
+  /// high-value rewards must know its verification payload did not attach.
+  Future<void> setServerSideVerification(ServerSideVerification ssv) async {
+    _ssvOverride = ssv;
+    final handle = currentHandle;
+    if (handle is RewardedHandle) {
+      await handle.updateServerSideVerification(ssv);
+    }
+  }
 
   @override
-  Future<FullScreenAdHandle> loadHandle() =>
-      sdk.loadRewarded(adUnitId, const AdRequestOptions(), ssv: _config.ssv);
+  Future<FullScreenAdHandle> loadHandle() => sdk.loadRewarded(
+    adUnitId,
+    const AdRequestOptions(),
+    ssv: _ssvOverride ?? _config.ssv,
+  );
 }

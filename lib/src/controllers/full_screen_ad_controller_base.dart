@@ -142,6 +142,12 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   /// Whether a loaded ad is warm and ready to show.
   bool get isReady => _state.value is AdLoaded && _handle != null;
 
+  /// The warm handle, for subclasses that must talk to the loaded ad
+  /// directly (e.g. the rewarded formats applying runtime SSV). Null unless
+  /// [isReady].
+  @protected
+  FullScreenAdHandle? get currentHandle => _handle;
+
   /// Whether the warm ad has outlived its maximum age and must not be shown.
   ///
   /// Google documents full-screen ads as expiring after ~1 hour (4 hours for

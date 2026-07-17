@@ -34,14 +34,27 @@ abstract interface class FullScreenAdHandle {
 abstract interface class InterstitialHandle implements FullScreenAdHandle {}
 
 /// A loaded rewarded ad.
-abstract interface class RewardedHandle implements FullScreenAdHandle {}
+abstract interface class RewardedHandle implements FullScreenAdHandle {
+  /// Applies (or replaces) server-side verification options on this
+  /// already-loaded ad — call any time before `show()`.
+  ///
+  /// Real apps set the SSV `userId` after login and per-show `customData`
+  /// (which mission/level earned the reward), long after the ad preloaded
+  /// (2026-07 audit). Throws an `AdFlowError` on failure — a caller granting
+  /// high-value rewards must know its verification payload did not attach.
+  Future<void> updateServerSideVerification(ServerSideVerification ssv);
+}
 
 /// A loaded rewarded interstitial ad.
 ///
 /// Policy: callers must present an intro screen with clear reward messaging
 /// and a skip option *before* showing this ad.
 abstract interface class RewardedInterstitialHandle
-    implements FullScreenAdHandle {}
+    implements FullScreenAdHandle {
+  /// Applies (or replaces) server-side verification options on this
+  /// already-loaded ad — see [RewardedHandle.updateServerSideVerification].
+  Future<void> updateServerSideVerification(ServerSideVerification ssv);
+}
 
 /// A loaded app open ad.
 ///

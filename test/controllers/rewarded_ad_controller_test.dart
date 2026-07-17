@@ -105,4 +105,69 @@ void main() {
     expect(c.isReady, isTrue);
     c.dispose();
   });
+
+  group('runtime SSV (2026-07 audit)', () {
+    test('setServerSideVerification applies to the WARM ad immediately', () async {
+      final c = controller();
+      await c.load();
+      expect(c.isReady, isTrue);
+
+      const ssv = ServerSideVerification(
+        userId: 'user-42',
+        customData: 'mission-7',
+      );
+      await c.setServerSideVerification(ssv);
+
+      expect(sdk.rewardeds.single.ssvUpdates, [ssv]);
+      c.dispose();
+    });
+
+    test('the override replaces config SSV on every FUTURE load too', () async {
+      final c = controller(
+        config: const RewardedConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-r'),
+          ssv: ServerSideVerification(userId: 'config-user'),
+        ),
+      );
+      await c.load();
+      expect(sdk.rewardedSsvs.last?.userId, 'config-user');
+
+      const ssv = ServerSideVerification(userId: 'user-42');
+      await c.setServerSideVerification(ssv);
+
+      // Spend the ad; the automatic reload must carry the override.
+      await c.show(onReward: (_) {});
+      sdk.rewardeds.single.simulateDismissed();
+      await Future<void>.delayed(Duration.zero);
+      expect(sdk.rewardedSsvs.last?.userId, 'user-42');
+      c.dispose();
+    });
+
+    test('set BEFORE any load: the first load already carries it', () async {
+      final c = controller();
+      await c.setServerSideVerification(
+        const ServerSideVerification(userId: 'early'),
+      );
+      await c.load();
+      expect(sdk.rewardedSsvs.last?.userId, 'early');
+      c.dispose();
+    });
+
+    test('an attach failure on the warm ad SURFACES to the caller', () async {
+      final c = controller();
+      await c.load();
+      sdk.rewardeds.single.ssvUpdateError = StateError('channel down');
+
+      await expectLater(
+        c.setServerSideVerification(
+          const ServerSideVerification(userId: 'user-42'),
+        ),
+        throwsA(isA<StateError>()),
+        reason:
+            'a caller granting high-value rewards must know its '
+            'verification payload did not attach',
+      );
+      c.dispose();
+    });
+  });
 }

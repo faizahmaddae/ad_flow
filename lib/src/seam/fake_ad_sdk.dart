@@ -436,6 +436,19 @@ class FakeFullScreenAdHandle
   /// matching the real SDK's single-use ad instances.
   bool _dismissed = false;
 
+  /// SSV payloads applied via [updateServerSideVerification], in order.
+  final List<ServerSideVerification> ssvUpdates = [];
+
+  /// If set, [updateServerSideVerification] throws this.
+  Object? ssvUpdateError;
+
+  @override
+  Future<void> updateServerSideVerification(ServerSideVerification ssv) async {
+    final error = ssvUpdateError;
+    if (error != null) throw error;
+    ssvUpdates.add(ssv);
+  }
+
   @override
   Stream<FullScreenAdEvent> get contentEvents => _content.stream;
 
