@@ -43,6 +43,10 @@ class RetryPolicy {
   /// auto re-arming.
   Duration get cooldown => _config.cooldown;
 
+  /// The per-load watchdog bound (null = disabled) — see
+  /// [RetryConfig.loadTimeout].
+  Duration? get loadTimeout => _config.loadTimeout;
+
   /// How long to wait before re-checking a gate that was CLOSED (consent not
   /// settled yet, or ads disabled) — as opposed to a load that FAILED.
   ///

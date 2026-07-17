@@ -8,6 +8,7 @@ import '../core/ad_controller.dart';
 import '../core/ad_flow_error.dart';
 import '../core/ad_load_state.dart';
 import '../core/callback_guard.dart';
+import '../core/load_watchdog.dart';
 import '../policy/ad_gate.dart';
 import '../policy/full_screen_ad_coordinator.dart';
 import '../policy/retry_policy.dart';
@@ -256,12 +257,20 @@ class BannerAdController implements AdController {
           size = FixedSizeSpec(_config.fixedSize);
       }
 
-      final handle = await _sdk.loadBanner(
-        BannerLoadSpec(
-          adUnitId: _adUnitId,
-          size: size,
-          collapsible: _config.collapsible,
+      // Watchdog: a load callback that never arrives (the plugin has no
+      // timeout of its own) fails this attempt instead of pinning the slot at
+      // AdLoading; a late handle is disposed, never installed (I-C).
+      final handle = await watchAdLoad(
+        pending: _sdk.loadBanner(
+          BannerLoadSpec(
+            adUnitId: _adUnitId,
+            size: size,
+            collapsible: _config.collapsible,
+          ),
         ),
+        timeout: _retry.loadTimeout,
+        disposeLate: (late) => late.dispose(),
+        slot: slotName,
       );
       if (_disposed) {
         unawaited(handle.dispose());
@@ -372,12 +381,19 @@ class BannerAdController implements AdController {
       final requestWidth = _width;
       final size = _sizeSpec();
       if (size == null) return; // adaptive with no width — cannot refresh
-      final handle = await _sdk.loadBanner(
-        BannerLoadSpec(
-          adUnitId: _adUnitId,
-          size: size,
-          collapsible: _config.collapsible,
+      // Watchdog: a hung replacement load lands in the catch below (keep the
+      // live ad, back off); its late handle is disposed, never swapped in.
+      final handle = await watchAdLoad(
+        pending: _sdk.loadBanner(
+          BannerLoadSpec(
+            adUnitId: _adUnitId,
+            size: size,
+            collapsible: _config.collapsible,
+          ),
         ),
+        timeout: _retry.loadTimeout,
+        disposeLate: (late) => late.dispose(),
+        slot: slotName,
       );
       if (_disposed || _state.value is! AdLoaded) {
         // The world changed while the replacement was loading: the controller

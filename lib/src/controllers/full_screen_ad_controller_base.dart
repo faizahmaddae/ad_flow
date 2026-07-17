@@ -8,6 +8,7 @@ import '../core/ad_controller.dart';
 import '../core/ad_flow_error.dart';
 import '../core/ad_load_state.dart';
 import '../core/callback_guard.dart';
+import '../core/load_watchdog.dart';
 import '../policy/ad_gate.dart';
 import '../policy/frequency_cap_policy.dart';
 import '../policy/full_screen_ad_coordinator.dart';
@@ -224,7 +225,15 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         return;
       }
 
-      final handle = await loadHandle();
+      // Watchdog: the plugin has no load timeout of its own — a callback that
+      // never arrives must fail this attempt (and dispose its late handle if
+      // one ever shows up) instead of pinning the slot at AdLoading (I-C).
+      final handle = await watchAdLoad(
+        pending: loadHandle(),
+        timeout: _retry.loadTimeout,
+        disposeLate: (late) => late.dispose(),
+        slot: slot,
+      );
       if (_disposed) {
         unawaited(handle.dispose());
         return;

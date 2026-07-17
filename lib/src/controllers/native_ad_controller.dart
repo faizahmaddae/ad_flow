@@ -8,6 +8,7 @@ import '../core/ad_controller.dart';
 import '../core/ad_flow_error.dart';
 import '../core/ad_load_state.dart';
 import '../core/callback_guard.dart';
+import '../core/load_watchdog.dart';
 import '../policy/ad_gate.dart';
 import '../policy/full_screen_ad_coordinator.dart';
 import '../policy/retry_policy.dart';
@@ -142,13 +143,21 @@ class NativeAdController implements AdController {
         return;
       }
 
-      final handle = await _sdk.loadNative(
-        NativeLoadSpec(
-          adUnitId: _adUnitId,
-          templateKind: _config.templateKind,
-          factoryId: _config.factoryId,
-          factoryExtras: _config.factoryExtras,
+      // Watchdog: a load callback that never arrives (the plugin has no
+      // timeout of its own) fails this attempt instead of pinning the slot at
+      // AdLoading; a late handle is disposed, never installed (I-C).
+      final handle = await watchAdLoad(
+        pending: _sdk.loadNative(
+          NativeLoadSpec(
+            adUnitId: _adUnitId,
+            templateKind: _config.templateKind,
+            factoryId: _config.factoryId,
+            factoryExtras: _config.factoryExtras,
+          ),
         ),
+        timeout: _retry.loadTimeout,
+        disposeLate: (late) => late.dispose(),
+        slot: slotName,
       );
       if (_disposed) {
         unawaited(handle.dispose());

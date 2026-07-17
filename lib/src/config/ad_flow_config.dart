@@ -73,6 +73,7 @@ class RetryConfig {
     this.maxDelay = const Duration(minutes: 1),
     this.cooldown = const Duration(minutes: 5),
     this.jitterFactor = 0.25,
+    this.loadTimeout = const Duration(seconds: 60),
   }) : assert(maxAttempts >= 0, 'maxAttempts must be >= 0'),
        assert(
          jitterFactor >= 0 && jitterFactor <= 1,
@@ -81,6 +82,18 @@ class RetryConfig {
 
   /// Total load attempts before entering [cooldown]. 0 disables retries.
   final int maxAttempts;
+
+  /// Watchdog for a single ad load: if the SDK's load callback has not
+  /// arrived within this bound, the attempt is failed
+  /// (`AdFlowError(timeout)`) and retried on the normal backoff; a late
+  /// completion is disposed, never installed. Null disables the watchdog.
+  ///
+  /// The plugin has NO load timeout of its own (verified against the 9.0.0
+  /// source), so a dropped channel callback used to pin the slot at
+  /// `AdLoading` for the rest of the session (4.0 audit). 60s is far above
+  /// any legitimate load (a no-fill answer arrives in seconds) — this only
+  /// fires when the callback is genuinely lost.
+  final Duration? loadTimeout;
 
   /// Delay before the first retry; doubles each attempt.
   final Duration baseDelay;
@@ -102,11 +115,18 @@ class RetryConfig {
       other.baseDelay == baseDelay &&
       other.maxDelay == maxDelay &&
       other.cooldown == cooldown &&
-      other.jitterFactor == jitterFactor;
+      other.jitterFactor == jitterFactor &&
+      other.loadTimeout == loadTimeout;
 
   @override
-  int get hashCode =>
-      Object.hash(maxAttempts, baseDelay, maxDelay, cooldown, jitterFactor);
+  int get hashCode => Object.hash(
+    maxAttempts,
+    baseDelay,
+    maxDelay,
+    cooldown,
+    jitterFactor,
+    loadTimeout,
+  );
 }
 
 /// Copy for the mandatory rewarded-interstitial intro screen
@@ -540,6 +560,10 @@ class AdFlowConfig {
       'retry.maxDelay must be >= retry.baseDelay.',
     );
     check(retry.cooldown >= Duration.zero, 'retry.cooldown is negative.');
+    check(
+      retry.loadTimeout == null || retry.loadTimeout! > Duration.zero,
+      'retry.loadTimeout must be positive (or null to disable).',
+    );
     for (final id in testDeviceIds) {
       check(id.trim().isNotEmpty, 'testDeviceIds contains an empty string.');
     }
