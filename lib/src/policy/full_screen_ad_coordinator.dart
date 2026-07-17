@@ -39,6 +39,12 @@ class FullScreenAdCoordinator {
   bool blockingViewAdVisible = false;
 
   bool _viewAdOpened = false;
+  DateTime? _viewAdClosedAt;
+
+  /// How long the [noteViewAdOpened] latch survives after
+  /// [noteViewAdClosed]. See [noteViewAdClosed] for why this exists and why
+  /// it is short.
+  static const viewAdCloseGrace = Duration(seconds: 3);
 
   /// Records that a banner/native ad was opened or clicked, so the foreground
   /// event that follows is understood as a return FROM THAT AD (ADR-042).
@@ -48,17 +54,46 @@ class FullScreenAdCoordinator {
   /// foreground return — indistinguishable, from the manager's point of view,
   /// from the user coming back from their home screen. Showing an app-open ad
   /// on it means the user closes an ad and is immediately handed another one.
-  void noteViewAdOpened() => _viewAdOpened = true;
+  void noteViewAdOpened() {
+    _viewAdOpened = true;
+    _viewAdClosedAt = null;
+  }
+
+  /// Records the ad's `onAdClosed` — the user left the ad's overlay/landing
+  /// page (2026-07 audit).
+  ///
+  /// Not every click backgrounds the app: an in-app overlay (typical for iOS
+  /// banner clicks) opens and closes with NO foreground event ever firing, so
+  /// a bare latch would sit armed and silently eat the NEXT genuine warm
+  /// return — one lost app-open impression per overlay click. But the latch
+  /// cannot simply clear here either: on the external-browser flow (typical
+  /// Android), `onAdClosed` and the resume-driven foreground event both fire
+  /// around the same moment, in either order — clearing immediately would
+  /// re-open the exact ADR-042 hole. So a close starts a short grace clock
+  /// ([viewAdCloseGrace]): a foreground event within it still counts as the
+  /// return from the ad; after it, the latch is treated as expired.
+  void noteViewAdClosed() {
+    if (_viewAdOpened) _viewAdClosedAt = _now();
+  }
 
   /// Reads and clears the [noteViewAdOpened] latch.
   ///
-  /// A latch, not a time window: the user may spend seconds or minutes on the
-  /// landing page, so no timeout can tell "returning from the ad" apart from
-  /// "returning from elsewhere". Exactly one foreground event is suppressed.
+  /// A latch, not a time window from OPEN: the user may spend seconds or
+  /// minutes on the landing page, so no open-based timeout can tell
+  /// "returning from the ad" apart from "returning from elsewhere". Exactly
+  /// one foreground event is suppressed — unless the ad's close outran the
+  /// [viewAdCloseGrace] window with no foreground event (an in-app overlay),
+  /// in which case the latch has expired and this returns false.
   bool consumeViewAdOpened() {
     final opened = _viewAdOpened;
+    final closedAt = _viewAdClosedAt;
     _viewAdOpened = false;
-    return opened;
+    _viewAdClosedAt = null;
+    if (!opened) return false;
+    if (closedAt != null && _now().difference(closedAt) > viewAdCloseGrace) {
+      return false;
+    }
+    return true;
   }
 
   /// Reactive view of [isFullScreenAdVisible].

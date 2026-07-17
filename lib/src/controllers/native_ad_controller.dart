@@ -204,7 +204,11 @@ class NativeAdController implements AdController {
     switch (event) {
       case ViewAdEvent.opened || ViewAdEvent.clicked:
         _coordinator?.noteViewAdOpened();
-      case ViewAdEvent.closed || ViewAdEvent.impression:
+      case ViewAdEvent.closed:
+        // See BannerAdController._onViewEvent: starts the latch's grace
+        // window so an in-app overlay click cannot strand it.
+        _coordinator?.noteViewAdClosed();
+      case ViewAdEvent.impression:
         break;
     }
   }

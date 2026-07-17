@@ -80,6 +80,23 @@ class AdGate {
     return null;
   }
 
+  /// Why [slot] may not SHOW an already-loaded ad right now, or null if it
+  /// may — the cheap, current checks only (2026-07 audit).
+  ///
+  /// Unlike [loadBlockReason] this never awaits [AdGate]'s config gate or the
+  /// consent settle: a warm handle exists, so both were already satisfied at
+  /// load time, and `FullScreenAdControllerBase.show()` calls this while
+  /// HOLDING the shared coordinator claim — joining a network-bound consent
+  /// re-attempt there (up to the 30s info-update timeout) would freeze every
+  /// full-screen format behind one controller's show call. The
+  /// `canRequestAds()` read is still live, so a consent withdrawal between
+  /// load and show is still respected.
+  Future<AdBlockReason?> showBlockReason(String slot) async {
+    if (!_isEnabled()) return AdBlockReason.adsDisabled;
+    if (!await _canRequestAds()) return AdBlockReason.consentNotGranted;
+    return null;
+  }
+
   /// Whether [slot] could show a full-screen ad right now — a best-effort,
   /// **non-atomic** snapshot for informational/UI use only (e.g. graying
   /// out a "Watch Ad" button).

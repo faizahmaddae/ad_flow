@@ -231,7 +231,13 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     // app-open) for the rest of the session. Review finding #1 fixed only the
     // symmetric hole around `handle.show()`; this is the other half.
     try {
-      final blocked = await _gate.loadBlockReason(slot);
+      // The CHEAP show checks, not loadBlockReason: a warm handle proves the
+      // config gate and consent settle already passed at load time, and this
+      // runs while holding the coordinator claim — awaiting a network-bound
+      // consent re-attempt here would freeze every full-screen format behind
+      // it (2026-07 audit). canRequestAds() is still read live, so a consent
+      // withdrawal between load and show is still respected.
+      final blocked = await _gate.showBlockReason(slot);
       if (blocked != null) {
         noteBlocked(blocked);
         return rejectAndRollBack();

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/controllers/app_open_ad_controller.dart';
 import 'package:ad_flow/src/controllers/interstitial_ad_controller.dart';
@@ -182,6 +184,66 @@ void main() {
       expect(sdk.interstitials, hasLength(2));
       c.dispose();
     });
+  });
+
+  group('show path is cheap (2026-07 audit)', () {
+    test(
+      'show() must not re-run the consent settle while holding the '
+      'coordinator claim',
+      () {
+        fakeAsync((async) {
+          var settleCalls = 0;
+          var hangSettle = false;
+          final gate = AdGate(
+            canRequestAds: () async => true,
+            isEnabled: () => true,
+            caps: caps,
+            coordinator: coordinator,
+            settleConsent: () async {
+              settleCalls++;
+              if (hangSettle) await Completer<void>().future;
+            },
+          );
+          final c = InterstitialAdController(
+            sdk: sdk,
+            gate: gate,
+            caps: caps,
+            coordinator: coordinator,
+            config: const InterstitialConfig(
+              adUnitId: PlatformAdUnitId(android: 'unit-i'),
+            ),
+            adUnitId: 'unit-i',
+            retry: RetryPolicy(const RetryConfig(), random: () => 0.5),
+          );
+          c.load();
+          async.flushMicrotasks();
+          expect(c.isReady, isTrue);
+          final callsAfterLoad = settleCalls;
+
+          // A consent re-settle would now BLOCK (e.g. the ADR-035 retry of a
+          // failed flow, network-bound, up to the 30s info-update timeout).
+          // The warm ad already passed consent AND request configuration at
+          // load time; show() holds the shared coordinator claim across its
+          // checks, so joining a consent flow here would freeze EVERY
+          // full-screen format behind it.
+          hangSettle = true;
+          var shown = false;
+          unawaited(c.show().then((v) => shown = v));
+          async.flushMicrotasks();
+
+          expect(
+            shown,
+            isTrue,
+            reason:
+                'show() must use the cheap current consent answer, never '
+                'join/re-run the consent flow',
+          );
+          expect(settleCalls, callsAfterLoad);
+          expect(coordinator.isFullScreenAdVisible, isTrue);
+          c.dispose();
+        });
+      },
+    );
   });
 
   group('user-action pacing', () {

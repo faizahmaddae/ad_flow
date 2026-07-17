@@ -67,4 +67,72 @@ void main() {
       expect(second, isFalse);
     });
   });
+
+  group('view-ad click latch (ADR-042 + 2026-07 audit grace window)', () {
+    late DateTime now;
+    late FullScreenAdCoordinator clocked;
+
+    setUp(() {
+      now = DateTime(2026, 7, 17, 12);
+      clocked = FullScreenAdCoordinator(now: () => now);
+    });
+    tearDown(() => clocked.dispose());
+
+    test('open then foreground (no close event): suppressed, one-shot', () {
+      clocked.noteViewAdOpened();
+      expect(clocked.consumeViewAdOpened(), isTrue);
+      expect(
+        clocked.consumeViewAdOpened(),
+        isFalse,
+        reason: 'exactly one foreground event is suppressed',
+      );
+    });
+
+    test('open → close → foreground moments later (Android external-browser '
+        'return: onAdClosed and the foreground event both fire at resume, '
+        'in either order): still suppressed', () {
+      clocked.noteViewAdOpened();
+      clocked.noteViewAdClosed();
+      now = now.add(const Duration(milliseconds: 500));
+      expect(
+        clocked.consumeViewAdOpened(),
+        isTrue,
+        reason:
+            'a close arriving just before the resume-driven foreground '
+            'event is the SAME return-from-ad — clearing the latch here '
+            'would show an app-open ad right behind the ad the user just '
+            'left (the exact ADR-042 violation)',
+      );
+    });
+
+    test('open → close → much later foreground (iOS in-app overlay: the app '
+        'never backgrounded): NOT suppressed', () {
+      clocked.noteViewAdOpened();
+      clocked.noteViewAdClosed();
+      now = now.add(const Duration(minutes: 5));
+      expect(
+        clocked.consumeViewAdOpened(),
+        isFalse,
+        reason:
+            'an in-app overlay click never produces a foreground event, so '
+            'a stranded latch would silently eat the NEXT genuine warm '
+            'return — one lost app-open impression per banner click',
+      );
+    });
+
+    test('a close without a prior open is ignored', () {
+      clocked.noteViewAdClosed();
+      expect(clocked.consumeViewAdOpened(), isFalse);
+    });
+
+    test('re-open after a close re-arms cleanly', () {
+      clocked.noteViewAdOpened();
+      clocked.noteViewAdClosed();
+      now = now.add(const Duration(minutes: 5));
+      expect(clocked.consumeViewAdOpened(), isFalse);
+
+      clocked.noteViewAdOpened();
+      expect(clocked.consumeViewAdOpened(), isTrue);
+    });
+  });
 }

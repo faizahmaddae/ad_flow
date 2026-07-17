@@ -438,7 +438,13 @@ class BannerAdController implements AdController {
     switch (event) {
       case ViewAdEvent.opened || ViewAdEvent.clicked:
         _coordinator?.noteViewAdOpened();
-      case ViewAdEvent.closed || ViewAdEvent.impression:
+      case ViewAdEvent.closed:
+        // The user left the ad's overlay/landing page — starts the latch's
+        // short grace window so an in-app overlay click (which never
+        // produces a foreground event) cannot strand the latch and eat the
+        // next genuine warm return (2026-07 audit).
+        _coordinator?.noteViewAdClosed();
+      case ViewAdEvent.impression:
         break;
     }
   }
