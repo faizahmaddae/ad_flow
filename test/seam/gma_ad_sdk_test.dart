@@ -48,11 +48,17 @@ void main() {
   /// failing to produce a size.
   Object? platformAdSizeResult;
 
+  /// If set, the mock handler throws this on `setServerSideVerificationOptions`
+  /// — simulates the one SSV-attach failure the plugin can actually surface
+  /// (a channel-level error; the native handlers ack success unconditionally).
+  Object? ssvAttachRejectsWith;
+
   setUp(() {
     log = <MethodCall>[];
     showRejectsWith = null;
     loadDispatchRejectsWith = null;
     platformAdSizeResult = null;
+    ssvAttachRejectsWith = null;
     instanceManager = AdInstanceManager('plugins.flutter.io/google_mobile_ads');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(instanceManager.channel, (call) async {
@@ -67,6 +73,9 @@ void main() {
               throw loadDispatchRejectsWith!;
             case 'getAdSize':
               return platformAdSizeResult;
+            case 'setServerSideVerificationOptions'
+                when ssvAttachRejectsWith != null:
+              throw ssvAttachRejectsWith!;
             case 'loadBannerAd':
             case 'loadInterstitialAd':
             case 'loadRewardedAd':
@@ -318,6 +327,69 @@ void main() {
       });
       await pumpEventQueue();
       expect(rewards, [const RewardEarned(amount: 10, type: 'coins')]);
+    });
+
+    test('SSV attach failure FAILS the load and releases the ad — never a '
+        '"ready" ad that silently lost its server-side verification '
+        '(4.0 audit)', () async {
+      ssvAttachRejectsWith = PlatformException(code: 'ssv-attach');
+      final sdk = GmaAdSdk();
+      final future = sdk.loadRewarded(
+        'unit-r',
+        const AdRequestOptions(),
+        ssv: const ServerSideVerification(userId: 'u-1'),
+      );
+      final expectation = expectLater(
+        future,
+        throwsA(
+          isA<AdFlowError>().having((e) => e.kind, 'kind', AdFlowErrorKind.ssv),
+        ),
+      );
+      await pumpEventQueue();
+      await sendAdEvent(0, 'onAdLoaded');
+      await expectation;
+      await pumpEventQueue();
+      expect(
+        log.map((c) => c.method),
+        contains('disposeAd'),
+        reason: 'the un-verifiable ad must be released, not leaked',
+      );
+    });
+
+    test(
+      'rewarded interstitial: SSV attach failure fails the load too',
+      () async {
+        ssvAttachRejectsWith = PlatformException(code: 'ssv-attach');
+        final sdk = GmaAdSdk();
+        final future = sdk.loadRewardedInterstitial(
+          'unit-ri',
+          const AdRequestOptions(),
+          ssv: const ServerSideVerification(userId: 'u-1'),
+        );
+        final expectation = expectLater(
+          future,
+          throwsA(
+            isA<AdFlowError>().having(
+              (e) => e.kind,
+              'kind',
+              AdFlowErrorKind.ssv,
+            ),
+          ),
+        );
+        await pumpEventQueue();
+        await sendAdEvent(0, 'onAdLoaded');
+        await expectation;
+      },
+    );
+
+    test('no SSV configured: an SSV-channel fault cannot fail the load '
+        '(nothing to attach)', () async {
+      ssvAttachRejectsWith = PlatformException(code: 'ssv-attach');
+      final sdk = GmaAdSdk();
+      final future = sdk.loadRewarded('unit-r', const AdRequestOptions());
+      await pumpEventQueue();
+      await sendAdEvent(0, 'onAdLoaded');
+      expect(await future, isA<RewardedHandle>());
     });
 
     test('runtime SSV update reaches the channel', () async {

@@ -1,4 +1,4 @@
-# Native Ads with ad_flow (v2)
+# Native Ads with ad_flow
 
 ad_flow supports both of the plugin's native-ad rendering paths:
 
@@ -21,8 +21,14 @@ final ads = await AdFlow.initialize(AdFlowConfig(
 ```
 
 ```dart
+// Recommended (widget-first, since 3.0): the widget creates and owns its
+// controller — the "controller minted inside build()" footgun cannot happen.
+AdFlowNativeAd(adFlow: ads)
+
+// Advanced (share the controller with other widgets): create it ONCE, never
+// inside build().
 class _MyScreenState extends State<MyScreen> {
-  late final _native = ads.native(); // create ONCE, never inside build()
+  late final _native = ads.native();
 
   @override
   Widget build(BuildContext context) =>
@@ -62,7 +68,8 @@ the widget when `ownsController` is true. Native ads never auto-refresh; call
    ),
    ```
 
-3. Host it exactly as in Path A (`AdFlowNativeAd`); pass `placeholderHeight`
+3. Host it exactly as in Path A (`AdFlowNativeAd(adFlow: ads)`, or the
+   advanced controller form); pass `placeholderHeight`
    matching your layout (the default reservation for factory rendering is
    100 logical px).
 

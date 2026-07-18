@@ -29,6 +29,34 @@ void main() {
       final request = toGmaAdRequest(options, extras: {'merged': '1'});
       expect(request.extras, {'merged': '1'});
     });
+
+    test('mediationExtras map onto the plugin MediationExtras contract '
+        '(4.0)', () {
+      const options = AdRequestOptions(
+        mediationExtras: [
+          MediationNetworkExtras(
+            androidClassName: 'com.example.LiftoffExtras',
+            iosClassName: 'LiftoffExtras',
+            extras: {'placement': 'home', 'muted': true},
+          ),
+        ],
+      );
+      final request = toGmaAdRequest(options);
+      final mapped = request.mediationExtras!.single;
+      expect(mapped.getAndroidClassName(), 'com.example.LiftoffExtras');
+      expect(mapped.getIOSClassName(), 'LiftoffExtras');
+      expect(mapped.getExtras(), {'placement': 'home', 'muted': true});
+    });
+
+    test('no mediationExtras → null through to the plugin', () {
+      expect(toGmaAdRequest(const AdRequestOptions()).mediationExtras, isNull);
+      expect(
+        toGmaAdRequest(
+          const AdRequestOptions(mediationExtras: []),
+        ).mediationExtras,
+        isNull,
+      );
+    });
   });
 
   group('mergeCollapsibleExtras', () {

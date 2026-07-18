@@ -1,24 +1,30 @@
-# AdMob Mediation with ad_flow (v2)
+# AdMob Mediation with ad_flow
 
 AdMob **mediation** serves ads from multiple networks (bidding + waterfall)
 through your existing AdMob integration, raising fill rate and eCPM. ad_flow
-v2 is mediation-transparent: mediation is configured in the AdMob console and
-in your app's dependencies — ad_flow's Dart API does not change, and no
-ad_flow configuration is needed to enable it.
+is mediation-transparent for *serving*: mediation groups live in the AdMob
+console and adapters in your app's dependencies — no ad_flow configuration
+is needed for ads to flow.
+
+**Consent is different.** ad_flow drives UMP, which *collects* consent and
+writes the standard strings to local storage. What UMP does **not** do — and
+what Google's own partner pages state explicitly — is push that consent into
+every partner SDK: *"You are responsible for verifying consent is propagated
+to each ad source in your mediation chain. Google is unable to pass the
+user's consent choice to such networks automatically."* Section 4 below
+spells out exactly what is automatic and what remains your job.
 
 > **Migrating from ad_flow v1?** v1 shipped a `MediationHelper` with
-> per-network Dart wiring. v2 deliberately does not: the plugin and each
-> adapter do the work natively, and consent signalling is handled by UMP (the
-> IAB TCF string), which ad_flow already drives. Delete any `MediationHelper`
-> usage; the steps below are all that is required.
+> per-network Dart wiring. Delete it; use the surfaces in §4 instead.
 
 ## 1. Console
 
 1. AdMob console → **Mediation** → create/edit a mediation group per format.
 2. Add your networks (bidding where available; waterfall otherwise).
-3. **Privacy & messaging → your GDPR message → Ad partners**: register every
-   mediation partner so UMP consent covers them. This is a compliance
-   requirement, not an optimization.
+3. **Privacy & messaging → your GDPR message → Ad partners**: select every
+   mediation partner so UMP collects consent that covers them. This is a
+   compliance requirement, not an optimization. Do the same in the **US
+   states** message if you serve regulated US states.
 4. Update **app-ads.txt** with each partner's lines (listed on the partner's
    AdMob mediation page) — missing lines cost fill.
 
@@ -28,8 +34,8 @@ ad_flow configuration is needed to enable it.
 (`gma_mediation_<network>` on pub.dev — e.g. `gma_mediation_applovin`,
 `gma_mediation_unityads`, `gma_mediation_meta`). Add the ones for your
 networks to `pubspec.yaml`; they bundle the correct native adapter on both
-platforms and are versioned against `google_mobile_ads`. Check each package's
-compatibility with `google_mobile_ads` 9.x before adding.
+platforms and usually expose the network's privacy APIs as Dart calls.
+Check each package's compatibility with `google_mobile_ads` 9.x first.
 
 **Fallback (no Flutter package for the network):** add the native adapter
 yourself —
@@ -63,13 +69,69 @@ Google's own identifiers ship with the SDK, but partner identifiers do not,
 and missing entries silently cost you attributed (paid) installs. Each
 partner's AdMob mediation page lists theirs.
 
-## 4. Consent signals
+## 4. Consent signals — what is automatic, what is yours
 
-Nothing to do in ad_flow: UMP writes the IAB TCF consent string, and
-certified adapters read it themselves. Register the partners in Privacy &
-messaging (step 1.3). For a network with an extra, non-TCF consent API,
-follow that partner's page — such calls are made from your app directly, not
-through ad_flow.
+What ad_flow + UMP give you:
+
+- UMP collects consent for the partners you selected in Privacy & messaging
+  and writes the results to the platform's default preferences per the IAB
+  specs: `IABTCF_TCString` / `IABTCF_gdprApplies` / purpose flags (TCF),
+  `IABTCF_AddtlConsent` (Google's Additional Consent string, for partners
+  not on the IAB vendor list — Meta is one), and `IABGPP_HDR_GppString` /
+  `IABGPP_GppSID` for US-state frameworks.
+- **TCF-reading SDKs pick the TC string up themselves.** AppLovin does this
+  automatically since its SDK 12.0.0 for GDPR consent, for example.
+
+What remains **your** responsibility (Google's docs are explicit that it is
+not propagated for you):
+
+- **Networks that need their own privacy API calls.** As of this writing
+  (2026-07, verify against each partner's current AdMob page):
+  - *Unity Ads*: explicit `MetaData` calls — `gdpr.consent` and
+    `privacy.consent` (US states) — recommended before requesting ads
+    (`GmaMediationUnity.setGDPRConsent` / `setCCPAConsent` in the Flutter
+    adapter package).
+  - *AppLovin*: US-state `setDoNotSell` (and `setHasUserConsent` for
+    SDK < 12) — the AppLovin flags must be set **before the Google Mobile
+    Ads SDK initializes**.
+  - *Meta Audience Network*: GDPR consent arrives via the Additional
+    Consent string, but California **Limited Data Use** requires
+    `setDataProcessingOptions` on Meta's SDK, set **before the mediation
+    SDK initializes** (may require platform-native code).
+- **Reading the user's choices** to forward them: read the `IABTCF_*` /
+  `IABGPP_*` keys from `SharedPreferences` (Android) / `NSUserDefaults`
+  (iOS) — e.g. via `shared_preferences` — per Google's "How to read consent
+  choices" guidance.
+
+ad_flow's surfaces for this:
+
+- **`AdFlow.onConsentChanged`** — fires after every consent flow or
+  mutation (initial gather, a retry that finally succeeds offline→online, a
+  privacy-options change). Forward per-network signals there:
+
+  ```dart
+  ads.onConsentChanged = () async {
+    final prefs = await SharedPreferences.getInstance();
+    final gdprApplies = prefs.getInt('IABTCF_gdprApplies') == 1;
+    // e.g. GmaMediationUnity().setGDPRConsent(consented);
+  };
+  ```
+
+- **`AdFlowConfig.deferMediationInit: true`** — calls the plugin's
+  `disableMediationInitialization()` before SDK init, so partner SDKs
+  initialize lazily at the first ad request *after* consent settled and
+  your `onConsentChanged` ran — the only reliable ordering for flags that
+  must precede a partner SDK's startup. Google notes deferral "may
+  negatively impact your mediation performance"; use it only when a partner
+  requires pre-init flags.
+- **Per-network request extras** — `AdRequestOptions.mediationExtras` on
+  any slot's `request` maps to the plugin's `MediationExtras` mechanism
+  (platform adapter classes, typically from the `gma_mediation_*` package).
+
+**The honest summary:** ad_flow guarantees UMP collection, storage, and the
+hooks above. It does not — and cannot — guarantee that every partner SDK
+received every signal; that wiring is per-network and stays yours. Verify
+with each partner's AdMob mediation page and the Ad Inspector.
 
 ## 5. Verifying mediation
 
@@ -84,8 +146,11 @@ through ad_flow.
 ## Checklist
 
 - [ ] Mediation group per format in the console
-- [ ] Partners registered under Privacy & messaging (GDPR)
+- [ ] Partners selected under Privacy & messaging (GDPR + US states)
 - [ ] Adapters added (`gma_mediation_*` package, or native build files)
+- [ ] Per-network consent APIs wired in `onConsentChanged` (Unity, AppLovin
+      US flag, Meta LDU, …) — see §4
+- [ ] `deferMediationInit` if any partner needs pre-init privacy flags
 - [ ] iOS: partner `SKAdNetworkItems` in `Info.plist`
 - [ ] `app-ads.txt` updated with partner lines
 - [ ] Verified with Ad Inspector on a test device

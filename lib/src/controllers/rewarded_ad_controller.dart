@@ -55,7 +55,7 @@ class RewardedAdController extends FullScreenAdControllerBase {
   @override
   Future<FullScreenAdHandle> loadHandle() => sdk.loadRewarded(
     adUnitId,
-    const AdRequestOptions(),
+    _config.request,
     ssv: _ssvOverride ?? _config.ssv,
   );
 }

@@ -15,6 +15,7 @@ import '../controllers/rewarded_interstitial_ad_controller.dart';
 import '../core/ad_block_reason.dart';
 import '../core/ad_controller.dart';
 import '../core/ad_flow_error.dart';
+import '../core/callback_guard.dart';
 import '../lifecycle/app_open_ad_manager.dart';
 import '../policy/ad_gate.dart';
 import '../policy/frequency_cap_policy.dart';
@@ -64,17 +65,18 @@ class AdFlow {
               config.rewardedInterstitial!.cap,
       },
       globalCap: config.globalFrequencyCap,
-      // The global cap paces INVOLUNTARY ads (interstitial, app-open). The
-      // rewarded formats are reached only by an explicit user action — a tap on
-      // "watch an ad for a reward", and for the rewarded interstitial a tap on
-      // the mandatory intro's continue button — so the global cap must never
-      // block them: the user would get no ad, no reward and no explanation
-      // (ADR-039). Their impressions are still RECORDED globally, so an
-      // interstitial cannot fire straight after one.
-      globalCapExemptSlots: const {
-        RewardedAdController.slotName,
-        RewardedInterstitialAdController.slotName,
-      },
+      // The global cap paces INVOLUNTARY interruptions. Classic rewarded is
+      // exempt: it is reached only by an explicit "watch an ad for a reward"
+      // tap, and refusing that tap means no ad, no reward, no explanation
+      // (ADR-039). The rewarded INTERSTITIAL is NOT exempt (4.0, revising
+      // ADR-039): its intro appears at an app-chosen transition the user did
+      // not ask for — the intro itself is the interruption the global cap
+      // exists to pace — and since the whole sequence is now preflighted
+      // BEFORE the intro (atomic reservation), a capped sequence simply never
+      // starts; the user is never promised an ad and then refused one.
+      // Impressions of BOTH rewarded formats are still recorded globally, so
+      // an interstitial cannot fire straight after either.
+      globalCapExemptSlots: const {RewardedAdController.slotName},
     );
     _gate = AdGate(
       canRequestAds: _sdk.canRequestAds,
@@ -84,7 +86,7 @@ class AdFlow {
       // A dead graph's gate must refuse every load, or those leftovers would
       // keep serving ads wired to disposed collaborators (2026-07 audit).
       isEnabled: () => !_disposed && _adsEnabled.value,
-      configReady: _configApplied.future,
+      settleRequestConfig: _settleRequestConfig,
       settleConsent: _settleConsent,
     );
 
@@ -327,11 +329,121 @@ class AdFlow {
     );
   }
 
-  /// Completes once `updateRequestConfiguration` has been applied in [_start]
-  /// (or on [dispose]). `AdGate.canLoad` awaits it so no ad request — preload
-  /// or on-demand first-frame banner/native — can precede request
-  /// configuration now that startup runs in the background (ADR-033).
-  final Completer<void> _configApplied = Completer<void>();
+  // ── Request configuration, and its retry (4.0 audit) ─────────────────────
+  //
+  // `updateRequestConfiguration` is a PROCESS like consent, not a one-shot:
+  // its failure/timeout must be retryable and — when the config carries
+  // policy-critical fields — must fail CLOSED for ad loading rather than
+  // silently degrade (a child-directed app sending untagged requests, a
+  // registered test device receiving live ads). The old design released a
+  // one-shot gate in a `finally`, so any failure meant every session load
+  // went out unconfigured, invisibly, forever.
+  //
+  // Ordering is load-bearing (ADR-028): the plugin services
+  // `updateRequestConfiguration` synchronously on the platform thread and it
+  // races a still-running background `initialize()` bootstrap into a
+  // platform-thread deadlock — so an apply attempt NEVER dispatches while
+  // init is genuinely in flight, not even after our bounded wait timed out.
+
+  /// The ACTUAL native init completion (error-contained), regardless of the
+  /// bounded wait in [_start] timing out.
+  Future<void>? _initInFlight;
+  bool _initDone = false;
+
+  /// FACT: `updateRequestConfiguration` has been applied successfully.
+  bool _requestConfigApplied = false;
+  Future<void>? _configAttemptInFlight;
+  bool _configRetryArmed = true;
+  Timer? _configRetryTimer;
+
+  /// Whether a failed/absent request configuration must BLOCK loads.
+  bool get _configFailurePolicyIsClosed =>
+      switch (_config.requestConfigPolicy) {
+        RequestConfigFailurePolicy.failClosed => true,
+        RequestConfigFailurePolicy.failOpen => false,
+        RequestConfigFailurePolicy.auto =>
+          _config.requestConfigIsPolicySensitive,
+      };
+
+  /// Awaited by `AdGate.canLoad` before every load: joins the in-flight
+  /// bounded apply attempt (or starts one, rate-limited), then answers
+  /// whether loads may proceed with respect to request configuration.
+  Future<bool> _settleRequestConfig() async {
+    if (_disposed) return false;
+    if (_requestConfigApplied) return true;
+    final inFlight = _configAttemptInFlight;
+    if (inFlight != null) {
+      await inFlight;
+    } else if (_configRetryArmed) {
+      await _runConfigAttempt();
+    }
+    return _requestConfigApplied || !_configFailurePolicyIsClosed;
+  }
+
+  /// Runs one bounded apply attempt, published on [_configAttemptInFlight]
+  /// so concurrent gate checks join it instead of stacking channel calls.
+  Future<void> _runConfigAttempt() {
+    _configRetryArmed = false;
+    final attempt = _applyRequestConfigOnce();
+    _configAttemptInFlight = attempt;
+    return attempt.whenComplete(() {
+      if (identical(_configAttemptInFlight, attempt)) {
+        _configAttemptInFlight = null;
+      }
+      if (_disposed || _requestConfigApplied) return;
+      _configRetryTimer?.cancel();
+      _configRetryTimer = Timer(
+        _consentRetryInterval,
+        () => _configRetryArmed = true,
+      );
+    });
+  }
+
+  /// How long one apply attempt waits for a still-pending init before
+  /// answering "not applied yet". Short by design: a normally-pending init
+  /// (~1s on a warm device) is joined inline — the ADR-033 first-frame load
+  /// then proceeds with config applied, no backoff detour — while a genuinely
+  /// hung init fails attempts FAST into a visible AdBlocked instead of
+  /// parking every gate pass for the full init timeout.
+  static const _configInitJoinBound = Duration(seconds: 2);
+
+  Future<void> _applyRequestConfigOnce() async {
+    // ADR-028: never dispatch while native init is in flight — the plugin
+    // services updateRequestConfiguration synchronously on the platform
+    // thread and it races a live init bootstrap into a deadlock. If init has
+    // not completed, join it briefly; past the bound, report not-applied and
+    // let the init-completion hook / retry machinery finish the job.
+    if (!_initDone) {
+      final init = _initInFlight;
+      if (init == null) return;
+      try {
+        await init.timeout(_configInitJoinBound);
+      } catch (_) {
+        return;
+      }
+    }
+    if (_disposed || _requestConfigApplied) return;
+    try {
+      await _sdk
+          .updateRequestConfiguration(_config.toRequestConfig())
+          .timeout(_initTimeout);
+      _requestConfigApplied = true;
+    } catch (error, stack) {
+      // Contained and REPORTED — a silent config loss is the failure mode
+      // this machinery exists to remove.
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stack,
+          library: 'ad_flow',
+          context: ErrorDescription(
+            'while applying the ad request configuration (will retry; loads '
+            'are ${_configFailurePolicyIsClosed ? "BLOCKED until it succeeds" : "proceeding without it"} per RequestConfigFailurePolicy)',
+          ),
+        ),
+      );
+    }
+  }
 
   InterstitialAdController? _interstitial;
   RewardedAdController? _rewarded;
@@ -371,6 +483,7 @@ class AdFlow {
   void _afterConsentMutation() {
     if (_disposed) return;
     _refreshCanRequestAds();
+    _dispatchConsentChanged();
     _recheckAll();
   }
 
@@ -426,6 +539,26 @@ class AdFlow {
   void Function(AdPaidEvent event)? onPaidEvent;
 
   void _dispatchPaid(AdPaidEvent event) => onPaidEvent?.call(event);
+
+  /// Called (isolated) after every consent flow or consent mutation
+  /// completes: the initial background flow, an ADR-035 retry that finally
+  /// succeeds, a privacy-options form the user may have used to change or
+  /// withdraw consent, and a test reset (4.0).
+  ///
+  /// This is the hook for forwarding consent to mediation networks that do
+  /// not read the IAB TCF string themselves: read the UMP-written state
+  /// (`IABTCF_*` / `IABGPP_*` keys in the platform's default preferences)
+  /// and call the partner SDK's own privacy APIs here — Google explicitly
+  /// does NOT propagate consent to such networks automatically. See
+  /// doc/MEDIATION_SETUP.md, and [AdFlowConfig.deferMediationInit] for
+  /// partners that need their flags before their SDK spins up.
+  void Function()? onConsentChanged;
+
+  void _dispatchConsentChanged() {
+    final onChanged = onConsentChanged;
+    if (onChanged == null) return;
+    guardedCallback(onChanged, debugName: 'onConsentChanged');
+  }
 
   /// Called whenever a load or show is REFUSED, with the slot name and the
   /// reason (ADR-045). Assignable at any time.
@@ -499,7 +632,12 @@ class AdFlow {
     return run
         .then((open) {
           _consentOpen = open;
-          if (!_disposed) _canRequestAdsNotifier.value = open;
+          if (!_disposed) {
+            _canRequestAdsNotifier.value = open;
+            // Every completed consent flow (initial, or a retry that finally
+            // resolved) is a forwarding point for mediation privacy signals.
+            _dispatchConsentChanged();
+          }
           return open;
         })
         .whenComplete(() {
@@ -518,12 +656,8 @@ class AdFlow {
   Future<bool> _start(ConsentDebugOptions? debug) async {
     // Consent (UMP) is independent of the Ads SDK and safe to run in
     // parallel with everything below.
-    //
-    // This call is INSIDE the try below (not before it): AdGate.canLoad awaits
-    // _configApplied, so any throw that escapes before the `finally` runs
-    // would hang EVERY ad load in the app forever. An injected ConsentGateway
-    // whose ensureCanRequestAds throws synchronously is enough to trigger it.
-    final Future<bool> consent;
+    _consentDebug = debug;
+    final consent = _runConsent(debug);
 
     // Initialize the Ads SDK FIRST, and let it finish, BEFORE touching the
     // request configuration. This ordering is load-bearing, not cosmetic:
@@ -543,42 +677,59 @@ class AdFlow {
     // Flutter engine (and the Dart isolate with it) hard enough that no
     // Dart-side timeout can recover — the exact "wedged at
     // ChimeraMobileAdsSettingManagerCreatorImpl" hang triaged in ADR-027.
-    // Awaiting init first means the module is already loaded, so applying
-    // the request configuration is a cheap, safe platform-thread call.
     //
-    // `catchError` keeps a failed/slow init from bricking the app; loads
-    // retry independently.
-    //
-    // Everything up to releasing the config gate runs in a try/finally: the
-    // config gate (_configApplied) MUST be released no matter what, or every
-    // ad load — which now awaits it in AdGate.canLoad (ADR-033) — would hang
-    // forever on a startup hiccup (worst on weak internet). The timeouts bound
-    // a *hung* init/config; the `finally` covers any *thrown* path.
-    try {
-      _consentDebug = debug;
-      consent = _runConsent(debug);
-
-      await _sdk.initialize().timeout(_initTimeout).catchError((Object _) {});
-
-      // Now that the Ads SDK is initialized, apply request configuration.
-      // This still runs UNCONDITIONALLY (not gated on the consent *result*):
-      // it sends no ad request, and controllers loading ads later must have
-      // testDeviceIds/tagForChildDirectedTreatment/maxAdContentRating/
-      // tagForUnderAgeOfConsent applied regardless of how or when consent
-      // resolves (review finding #5: otherwise a registered test device gets
-      // live ads, and a child-directed app serves untagged/wrongly-rated
-      // ads). Bounded by _initTimeout so a hung config call can't wedge loads.
-      await _sdk
-          .updateRequestConfiguration(_config.toRequestConfig())
-          .timeout(_initTimeout)
-          .catchError((Object _) {});
-    } finally {
-      // ALWAYS release the config gate — even if init/config threw, timed out,
-      // or hung past the timeout. A failed/slow config setter must let loads
-      // DEGRADE (proceed without config) rather than await forever; that is no
-      // worse than not using ad_flow at all.
-      if (!_configApplied.isCompleted) _configApplied.complete();
+    // 4.0 hardening: the config attempt keys off the ACTUAL init completion
+    // (`_initDone`), not our bounded wait below — the old code dispatched
+    // config right after the 30s wait timed out, which is exactly when the
+    // native init may still be mid-bootstrap, quietly re-opening the ADR-028
+    // race on the slowest devices. If init lands later, the completion hook
+    // below applies the configuration then.
+    // Opt-in mediation-init deferral (4.0): must precede initialize() (the
+    // plugin no-ops it afterwards). Best-effort — a failure here only means
+    // adapters auto-init as usual.
+    if (_config.deferMediationInit) {
+      try {
+        await _sdk.disableMediationInitialization();
+      } catch (_) {}
     }
+
+    Future<void>? init;
+    try {
+      init = _sdk.initialize();
+    } catch (_) {
+      // A synchronously-throwing seam: no init future at all. The config
+      // attempt will refuse to dispatch (never safe), and loads degrade per
+      // the RequestConfigFailurePolicy.
+    }
+    if (init != null) {
+      final tracked = init.catchError((Object _) {});
+      _initInFlight = tracked;
+      unawaited(
+        tracked.whenComplete(() {
+          _initDone = true;
+          // Late init (past the bounded wait): apply the configuration now —
+          // fail-open sessions get it from this point on; fail-closed slots
+          // unblock on their next gate re-check.
+          if (!_disposed && !_requestConfigApplied) {
+            unawaited(_settleRequestConfig());
+          }
+        }),
+      );
+      try {
+        await tracked.timeout(_initTimeout);
+      } catch (_) {
+        // Init is merely slow — carry on; the hook above finishes the job.
+      }
+    }
+
+    // Apply request configuration (first attempt; retried on failure, and
+    // every gate check joins/re-kicks it). Still UNCONDITIONAL with respect
+    // to the consent *result* (review finding #5): it sends no ad request,
+    // and test-device/COPPA/rating settings must reach the SDK regardless of
+    // how consent resolves. Skipped while init is still pending — the
+    // completion hook above owns the late apply, and waiting a second
+    // 30s bound here would double the worst-case `whenReady` for nothing.
+    if (_initDone) await _settleRequestConfig();
 
     // Gate ad loads on consent (init already awaited above).
     final canRequestAds = await consent;
@@ -811,11 +962,11 @@ class AdFlow {
     _recheckAll();
     _consentRetryTimer?.cancel();
     _consentRetryTimer = null;
-    // Release any load parked in AdGate.canLoad awaiting config (a background
-    // startup may not have applied it yet) — the controllers are disposed
-    // below, so those loads then bail on their own _disposed guard instead of
-    // waiting out the init timeout.
-    if (!_configApplied.isCompleted) _configApplied.complete();
+    _configRetryTimer?.cancel();
+    _configRetryTimer = null;
+    // Loads parked in a joined config attempt resolve when that bounded
+    // attempt does; _settleRequestConfig answers false on a disposed graph
+    // and the controllers bail on their own _disposed guard.
     _appOpen?.dispose();
     _interstitial?.dispose();
     _rewarded?.dispose();

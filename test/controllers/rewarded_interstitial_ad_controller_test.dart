@@ -166,6 +166,110 @@ void main() {
     expect(handle.showCalls, 0);
   });
 
+  group('atomic show reservation (4.0 audit)', () {
+    test('a capped slot never presents the intro — the user cannot accept '
+        'and then get nothing', () async {
+      caps = StoredFrequencyCapPolicy(
+        store: InMemoryKeyValueStore(),
+        slotCaps: const {
+          RewardedInterstitialAdController.slotName: FrequencyCap(
+            minGap: Duration(hours: 1),
+          ),
+        },
+        globalCap: const FrequencyCap(),
+      );
+      await caps.recordImpression(RewardedInterstitialAdController.slotName);
+
+      final c = controller();
+      await c.load();
+      final shown = await c.show(onReward: (_) {});
+
+      expect(shown, isFalse);
+      expect(
+        introsShown,
+        isEmpty,
+        reason:
+            'every policy check must run BEFORE the intro: presenting it and '
+            'then refusing the ad breaks the promise the intro just made',
+      );
+      expect(c.isReady, isTrue, reason: 'the warm ad is kept for later');
+      c.dispose();
+    });
+
+    test('the coordinator is CLAIMED while the intro is on screen — nothing '
+        '(e.g. an app-open on a warm return) can stack over it', () async {
+      final introGate = Completer<bool>();
+      final c = RewardedInterstitialAdController(
+        sdk: sdk,
+        gate: AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true),
+        caps: caps,
+        coordinator: coordinator,
+        config: const RewardedInterstitialConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-ri'),
+        ),
+        adUnitId: 'unit-ri',
+        showIntro: (content) => introGate.future,
+      );
+      await c.load();
+
+      final pending = c.show(onReward: (_) {});
+      await Future<void>.delayed(Duration.zero); // intro is now "on screen"
+
+      expect(
+        coordinator.isFullScreenAdVisible,
+        isTrue,
+        reason:
+            'the intro is the start of the show sequence: if the claim is '
+            'taken only after it, a warm-return app-open fires OVER the '
+            'intro, and the user who then taps "watch" gets nothing',
+      );
+      expect(coordinator.tryEnter(), isFalse);
+
+      introGate.complete(true);
+      expect(await pending, isTrue);
+      expect(coordinator.isFullScreenAdVisible, isTrue); // now the ad itself
+      c.dispose();
+    });
+
+    test(
+      'a THROWING intro presenter rolls back: no ad, warm kept, '
+      'coordinator free, show() returns false instead of rejecting',
+      () async {
+        final c = RewardedInterstitialAdController(
+          sdk: sdk,
+          gate: AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true),
+          caps: caps,
+          coordinator: coordinator,
+          config: const RewardedInterstitialConfig(
+            adUnitId: PlatformAdUnitId(android: 'unit-ri'),
+          ),
+          adUnitId: 'unit-ri',
+          showIntro: (content) async => throw StateError('presenter bug'),
+        );
+        await c.load();
+        final handle = sdk.rewardedInterstitials.single;
+
+        final shown = await c.show(onReward: (_) {});
+
+        expect(shown, isFalse);
+        expect(handle.showCalls, 0, reason: 'policy: no intro, no ad');
+        expect(c.isReady, isTrue);
+        expect(coordinator.isFullScreenAdVisible, isFalse);
+        c.dispose();
+      },
+    );
+
+    test('skip releases the claim and returns to AdLoaded', () async {
+      introAnswer = false;
+      final c = controller();
+      await c.load();
+      expect(await c.show(onReward: (_) {}), isFalse);
+      expect(coordinator.isFullScreenAdVisible, isFalse);
+      expect(c.isReady, isTrue);
+      c.dispose();
+    });
+  });
+
   test('forwards SSV options to the seam', () async {
     final c = controller();
     await c.load();

@@ -73,6 +73,7 @@ class RetryConfig {
     this.maxDelay = const Duration(minutes: 1),
     this.cooldown = const Duration(minutes: 5),
     this.jitterFactor = 0.25,
+    this.loadTimeout = const Duration(seconds: 60),
   }) : assert(maxAttempts >= 0, 'maxAttempts must be >= 0'),
        assert(
          jitterFactor >= 0 && jitterFactor <= 1,
@@ -81,6 +82,18 @@ class RetryConfig {
 
   /// Total load attempts before entering [cooldown]. 0 disables retries.
   final int maxAttempts;
+
+  /// Watchdog for a single ad load: if the SDK's load callback has not
+  /// arrived within this bound, the attempt is failed
+  /// (`AdFlowError(timeout)`) and retried on the normal backoff; a late
+  /// completion is disposed, never installed. Null disables the watchdog.
+  ///
+  /// The plugin has NO load timeout of its own (verified against the 9.0.0
+  /// source), so a dropped channel callback used to pin the slot at
+  /// `AdLoading` for the rest of the session (4.0 audit). 60s is far above
+  /// any legitimate load (a no-fill answer arrives in seconds) — this only
+  /// fires when the callback is genuinely lost.
+  final Duration? loadTimeout;
 
   /// Delay before the first retry; doubles each attempt.
   final Duration baseDelay;
@@ -102,11 +115,18 @@ class RetryConfig {
       other.baseDelay == baseDelay &&
       other.maxDelay == maxDelay &&
       other.cooldown == cooldown &&
-      other.jitterFactor == jitterFactor;
+      other.jitterFactor == jitterFactor &&
+      other.loadTimeout == loadTimeout;
 
   @override
-  int get hashCode =>
-      Object.hash(maxAttempts, baseDelay, maxDelay, cooldown, jitterFactor);
+  int get hashCode => Object.hash(
+    maxAttempts,
+    baseDelay,
+    maxDelay,
+    cooldown,
+    jitterFactor,
+    loadTimeout,
+  );
 }
 
 /// Copy for the mandatory rewarded-interstitial intro screen
@@ -134,6 +154,33 @@ class RewardIntroContent {
   final String skipLabel;
 }
 
+/// What happens to ad loading when the SDK request configuration
+/// (`updateRequestConfiguration`: test devices, COPPA/under-age tags, max
+/// content rating) could not be applied — it failed, timed out, or SDK init
+/// never completed (4.0 audit).
+///
+/// Never blocks app UI either way: this only decides whether ad REQUESTS may
+/// go out unconfigured. The apply is retried in the background regardless,
+/// and blocked slots recover the moment it succeeds.
+enum RequestConfigFailurePolicy {
+  /// Fail-closed exactly when it matters (the default): loads wait for the
+  /// configuration iff it carries policy-critical fields
+  /// ([AdFlowConfig.requestConfigIsPolicySensitive] — child-directed /
+  /// under-age tags, a content rating, or test device IDs). A config with
+  /// none of those set loses nothing by loading without it, so it fails
+  /// open.
+  auto,
+
+  /// Always load even if the configuration was never applied. Only sensible
+  /// when every field is best-effort for you — a child-directed app must
+  /// NOT choose this.
+  failOpen,
+
+  /// Never load until the configuration has been applied, even when it
+  /// carries no policy-critical fields.
+  failClosed,
+}
+
 /// How a banner slot is sized.
 enum BannerKind {
   /// Anchored adaptive (the recommended, revenue-optimized default).
@@ -156,10 +203,15 @@ class BannerConfig {
     this.maxInlineHeight,
     this.collapsible,
     this.minRefresh,
+    this.request = const AdRequestOptions(),
   });
 
   /// Per-platform banner ad unit IDs.
   final PlatformAdUnitId adUnitId;
+
+  /// Request options for this slot (keywords, contentUrl, non-personalized,
+  /// AdMob-adapter extras, per-network mediation extras).
+  final AdRequestOptions request;
 
   /// Sizing strategy. Prefer [BannerKind.anchoredAdaptive] over fixed sizes.
   final BannerKind kind;
@@ -206,7 +258,8 @@ class BannerConfig {
       other.fixedSize == fixedSize &&
       other.maxInlineHeight == maxInlineHeight &&
       other.collapsible == collapsible &&
-      other.minRefresh == minRefresh;
+      other.minRefresh == minRefresh &&
+      other.request == request;
 
   @override
   int get hashCode => Object.hash(
@@ -216,6 +269,7 @@ class BannerConfig {
     maxInlineHeight,
     collapsible,
     minRefresh,
+    request,
   );
 }
 
@@ -227,10 +281,14 @@ class InterstitialConfig {
     this.cap = const FrequencyCap(minGap: Duration(seconds: 30)),
     this.minActionsBetween = 2,
     this.maxAdAge = const Duration(minutes: 55),
+    this.request = const AdRequestOptions(),
   }) : assert(minActionsBetween >= 0, 'minActionsBetween must be >= 0');
 
   /// Per-platform interstitial ad unit IDs.
   final PlatformAdUnitId adUnitId;
+
+  /// Request options for this slot — see [BannerConfig.request].
+  final AdRequestOptions request;
 
   /// Per-slot frequency cap (v1 default: 30s minimum gap).
   final FrequencyCap cap;
@@ -258,10 +316,14 @@ class RewardedConfig {
     this.cap = const FrequencyCap(),
     this.ssv,
     this.maxAdAge = const Duration(minutes: 55),
+    this.request = const AdRequestOptions(),
   });
 
   /// Per-platform rewarded ad unit IDs.
   final PlatformAdUnitId adUnitId;
+
+  /// Request options for this slot — see [BannerConfig.request].
+  final AdRequestOptions request;
 
   /// Per-slot frequency cap. **Unlimited by default**, and deliberately so: a
   /// rewarded ad is one the user explicitly asked for, in exchange for
@@ -292,15 +354,23 @@ class RewardedInterstitialConfig {
     this.intro = const RewardIntroContent(),
     this.ssv,
     this.maxAdAge = const Duration(minutes: 55),
+    this.request = const AdRequestOptions(),
   });
 
   /// Per-platform rewarded interstitial ad unit IDs.
   final PlatformAdUnitId adUnitId;
 
+  /// Request options for this slot — see [BannerConfig.request].
+  final AdRequestOptions request;
+
   /// Per-slot frequency cap. Unlimited by default — see [RewardedConfig.cap].
-  /// The user reaches this ad only by tapping "continue" on the mandatory
-  /// intro screen, so it too is exempt from
-  /// [AdFlowConfig.globalFrequencyCap] (ADR-039).
+  ///
+  /// Unlike classic rewarded, this slot IS paced by
+  /// [AdFlowConfig.globalFrequencyCap] (4.0, revising ADR-039): the mandatory
+  /// intro appears at an app-chosen transition — an interruption the user did
+  /// not ask for — so it is subject to involuntary-ad pacing. All checks run
+  /// BEFORE the intro is presented, so a capped sequence never starts (the
+  /// user is never promised an ad and then refused one).
   final FrequencyCap cap;
 
   /// Copy for the mandatory intro/skip screen shown before the ad.
@@ -326,6 +396,7 @@ class NativeConfig {
     this.templateKind,
     this.factoryId,
     this.factoryExtras,
+    this.request = const AdRequestOptions(),
   }) : assert(
          (templateKind != null) ^ (factoryId != null),
          'Provide exactly one of templateKind or factoryId.',
@@ -333,6 +404,9 @@ class NativeConfig {
 
   /// Per-platform native ad unit IDs.
   final PlatformAdUnitId adUnitId;
+
+  /// Request options for this slot — see [BannerConfig.request].
+  final AdRequestOptions request;
 
   /// Render with a built-in template of this kind.
   final NativeTemplateKind? templateKind;
@@ -359,12 +433,18 @@ class NativeConfig {
     return other.adUnitId == adUnitId &&
         other.templateKind == templateKind &&
         other.factoryId == factoryId &&
+        other.request == request &&
         extrasEqual;
   }
 
   @override
-  int get hashCode =>
-      Object.hash(adUnitId, templateKind, factoryId, factoryExtras?.length);
+  int get hashCode => Object.hash(
+    adUnitId,
+    templateKind,
+    factoryId,
+    factoryExtras?.length,
+    request,
+  );
 }
 
 /// Configuration for the app open slot.
@@ -374,10 +454,14 @@ class AppOpenConfig {
     required this.adUnitId,
     this.cap = const FrequencyCap(minGap: Duration(minutes: 4)),
     this.expiry = const Duration(hours: 4),
+    this.request = const AdRequestOptions(),
   });
 
   /// Per-platform app open ad unit IDs.
   final PlatformAdUnitId adUnitId;
+
+  /// Request options for this slot — see [BannerConfig.request].
+  final AdRequestOptions request;
 
   /// Per-slot frequency cap.
   final FrequencyCap cap;
@@ -456,6 +540,8 @@ class AdFlowConfig {
     this.maxAdContentRating,
     this.tagForUnderAgeOfConsent,
     this.tagForChildDirectedTreatment,
+    this.requestConfigPolicy = RequestConfigFailurePolicy.auto,
+    this.deferMediationInit = false,
   });
 
   /// Validates the configuration, throwing an
@@ -540,6 +626,10 @@ class AdFlowConfig {
       'retry.maxDelay must be >= retry.baseDelay.',
     );
     check(retry.cooldown >= Duration.zero, 'retry.cooldown is negative.');
+    check(
+      retry.loadTimeout == null || retry.loadTimeout! > Duration.zero,
+      'retry.loadTimeout must be positive (or null to disable).',
+    );
     for (final id in testDeviceIds) {
       check(id.trim().isNotEmpty, 'testDeviceIds contains an empty string.');
     }
@@ -611,6 +701,34 @@ class AdFlowConfig {
 
   /// COPPA tag; null = unspecified.
   final bool? tagForChildDirectedTreatment;
+
+  /// What happens to ad loading when the request configuration could not be
+  /// applied — see [RequestConfigFailurePolicy]. Default: [RequestConfigFailurePolicy.auto].
+  final RequestConfigFailurePolicy requestConfigPolicy;
+
+  /// Defer mediation adapter initialization out of SDK init (default false).
+  ///
+  /// When true, ad_flow calls the plugin's `disableMediationInitialization`
+  /// BEFORE `MobileAds.initialize()`: mediation adapters then initialize
+  /// lazily at the first ad request for their network instead of during SDK
+  /// init. Use it when a partner SDK needs privacy flags set before it spins
+  /// up (e.g. Meta's Limited Data Use, AppLovin's US-state flag) and those
+  /// flags depend on the UMP consent outcome — forward them in
+  /// `AdFlow.onConsentChanged`, and the first ad request (which already
+  /// waits for consent, invariant 1) initializes the adapters afterwards.
+  /// Google notes deferral "may negatively impact mediation performance" —
+  /// leave it off unless you need this ordering. See doc/MEDIATION_SETUP.md.
+  final bool deferMediationInit;
+
+  /// Whether this configuration carries fields whose silent loss is a policy
+  /// or invalid-traffic risk: child-directed / under-age tags, a maximum
+  /// content rating, or registered test devices. Drives
+  /// [RequestConfigFailurePolicy.auto].
+  bool get requestConfigIsPolicySensitive =>
+      tagForChildDirectedTreatment != null ||
+      tagForUnderAgeOfConsent != null ||
+      maxAdContentRating != null ||
+      testDeviceIds.isNotEmpty;
 
   /// The banner ad unit ID to actually request for [platform]
   /// (the test ID when [testMode] is on), or null if the slot is off.

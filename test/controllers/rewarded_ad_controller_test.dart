@@ -1,5 +1,7 @@
 import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/controllers/rewarded_ad_controller.dart';
+import 'package:ad_flow/src/core/ad_flow_error.dart';
+import 'package:ad_flow/src/core/ad_load_state.dart';
 import 'package:ad_flow/src/policy/ad_gate.dart';
 import 'package:ad_flow/src/policy/frequency_cap_policy.dart';
 import 'package:ad_flow/src/policy/full_screen_ad_coordinator.dart';
@@ -60,6 +62,30 @@ void main() {
     await c.load();
     expect(sdk.loadLog, ['rewarded:unit-r']);
     expect(c.isReady, isTrue);
+    c.dispose();
+  });
+
+  test('an SSV attach failure is a FAILED load, never a ready ad that '
+      'silently lost its server-side verification (4.0 audit)', () async {
+    sdk.ssvAttachError = const AdFlowError(
+      AdFlowErrorKind.ssv,
+      'SSV could not be attached',
+    );
+    final c = controller(
+      config: const RewardedConfig(
+        adUnitId: PlatformAdUnitId(android: 'unit-r'),
+        ssv: ServerSideVerification(userId: 'user-1'),
+      ),
+    );
+    await c.load();
+    expect(
+      c.isReady,
+      isFalse,
+      reason:
+          'a reward the publisher configured as server-verified must never '
+          'be served without that verification attached',
+    );
+    expect(c.state.value, isA<AdFailed>());
     c.dispose();
   });
 

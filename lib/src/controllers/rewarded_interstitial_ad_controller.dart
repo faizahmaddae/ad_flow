@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../config/ad_flow_config.dart';
 import '../core/ad_block_reason.dart';
+import '../core/ad_load_state.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
 import 'full_screen_ad_controller_base.dart';
@@ -44,7 +45,6 @@ class RewardedInterstitialAdController extends FullScreenAdControllerBase {
 
   final RewardedInterstitialConfig _config;
   final RewardedIntroPresenter _showIntro;
-  bool _introShowing = false;
   ServerSideVerification? _ssvOverride;
 
   /// Applies [ssv] to the currently warm ad AND every future load,
@@ -61,30 +61,41 @@ class RewardedInterstitialAdController extends FullScreenAdControllerBase {
   @override
   Future<FullScreenAdHandle> loadHandle() => sdk.loadRewardedInterstitial(
     adUnitId,
-    const AdRequestOptions(),
+    _config.request,
     ssv: _ssvOverride ?? _config.ssv,
   );
 
+  /// Shows the mandatory intro, then the ad — as ONE atomic reservation
+  /// (4.0 audit).
+  ///
+  /// The base engine runs every policy check (consent, per-slot AND global
+  /// frequency caps, expiry, coordinator) BEFORE the intro is presented, and
+  /// holds the full-screen claim through it. Two failure modes this removes:
+  /// a user who accepted the intro could still be refused by a check that
+  /// only ran afterwards ("no ad, no reward, no explanation"), and a warm
+  /// return during the intro could stack an app-open ad over it.
   @override
   Future<bool> show({OnUserEarnedReward? onReward}) async {
+    // Re-entrant show while the sequence (intro or ad) is on screen: the
+    // engine's AdShowing guard would reject anyway, but bail here so the
+    // notReady branch below cannot misreport it.
+    if (state.value is AdShowing) return false;
     // Only bother the user with the intro when an ad is actually warm.
     if (!isReady) {
       noteBlocked(AdBlockReason.notReady);
       unawaited(load());
       return false;
     }
-    if (_introShowing) return false;
-    _introShowing = true;
-    try {
-      final proceed = await _showIntro(_config.intro);
-      if (!proceed) {
-        // Skipped — policy working as intended, not a fault.
-        noteBlocked(AdBlockReason.introSkipped);
-        return false;
-      }
-    } finally {
-      _introShowing = false;
+    return showEngine(onReward: onReward, confirm: _presentIntro);
+  }
+
+  /// The engine's confirm hook: presents the intro; false = skipped.
+  Future<bool> _presentIntro() async {
+    final proceed = await _showIntro(_config.intro);
+    if (!proceed) {
+      // Skipped — policy working as intended, not a fault.
+      noteBlocked(AdBlockReason.introSkipped);
     }
-    return showEngine(onReward: onReward);
+    return proceed;
   }
 }

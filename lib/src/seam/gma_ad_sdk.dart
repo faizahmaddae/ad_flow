@@ -7,6 +7,7 @@ import 'package:flutter/widgets.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart' as gma;
 
 import '../core/ad_flow_error.dart';
+import '../core/callback_guard.dart';
 import 'ad_sdk.dart';
 import 'ad_sdk_types.dart';
 
@@ -32,6 +33,10 @@ class GmaAdSdk implements AdSdk {
       toGmaRequestConfiguration(config),
     );
   }
+
+  @override
+  Future<void> disableMediationInitialization() =>
+      gma.MobileAds.instance.disableMediationInitialization();
 
   @override
   Future<InterstitialHandle> loadInterstitial(
@@ -65,15 +70,14 @@ class GmaAdSdk implements AdSdk {
         adUnitId: adUnitId,
         request: toGmaAdRequest(options),
         rewardedAdLoadCallback: gma.RewardedAdLoadCallback(
-          onAdLoaded: (ad) => unawaited(() async {
-            // SSV must be attached before show; failures must not lose the ad.
-            if (ssv != null) {
-              try {
-                await ad.setServerSideOptions(toGmaSsvOptions(ssv));
-              } catch (_) {}
-            }
-            completer.complete(_GmaRewardedHandle(adUnitId, ad));
-          }()),
+          onAdLoaded: (ad) => unawaited(
+            _attachSsvThenComplete(
+              completer,
+              ad,
+              ssv,
+              () => _GmaRewardedHandle(adUnitId, ad),
+            ),
+          ),
           onAdFailedToLoad: (e) => completer.completeError(loadErrorFrom(e)),
         ),
       ),
@@ -94,22 +98,65 @@ class GmaAdSdk implements AdSdk {
         request: toGmaAdRequest(options),
         rewardedInterstitialAdLoadCallback:
             gma.RewardedInterstitialAdLoadCallback(
-              onAdLoaded: (ad) => unawaited(() async {
-                if (ssv != null) {
-                  try {
-                    await ad.setServerSideOptions(toGmaSsvOptions(ssv));
-                  } catch (_) {}
-                }
-                completer.complete(
-                  _GmaRewardedInterstitialHandle(adUnitId, ad),
-                );
-              }()),
+              onAdLoaded: (ad) => unawaited(
+                _attachSsvThenComplete(
+                  completer,
+                  ad,
+                  ssv,
+                  () => _GmaRewardedInterstitialHandle(adUnitId, ad),
+                ),
+              ),
               onAdFailedToLoad: (e) =>
                   completer.completeError(loadErrorFrom(e)),
             ),
       ),
     );
     return completer.future;
+  }
+
+  /// Attaches [ssv] to a freshly loaded rewarded/rewarded-interstitial [ad],
+  /// then completes the load — or FAILS it (4.0 audit).
+  ///
+  /// If the publisher configured server-side verification, an ad whose SSV
+  /// payload could not be attached must never be reported ready: it would be
+  /// shown, the user would earn the reward, and the publisher's SSV endpoint
+  /// would receive a callback with no userId/customData to validate against —
+  /// a silent removal of exactly the protection SSV exists to provide. The
+  /// controller's normal retry path reloads (and re-attaches) instead.
+  ///
+  /// Detectability note (verified against the plugin source): the native
+  /// handlers acknowledge `setServerSideVerificationOptions` unconditionally,
+  /// so only channel-level faults (a dead engine, MissingPluginException) are
+  /// observable here. A hang is bounded by the controller's load watchdog.
+  static Future<void> _attachSsvThenComplete<T>(
+    Completer<T> completer,
+    gma.AdWithoutView ad,
+    ServerSideVerification? ssv,
+    T Function() buildHandle,
+  ) async {
+    if (ssv != null) {
+      try {
+        switch (ad) {
+          case final gma.RewardedAd rewarded:
+            await rewarded.setServerSideOptions(toGmaSsvOptions(ssv));
+          case final gma.RewardedInterstitialAd rewardedInterstitial:
+            await rewardedInterstitial.setServerSideOptions(
+              toGmaSsvOptions(ssv),
+            );
+        }
+      } catch (e) {
+        unawaited(ad.dispose());
+        completer.completeError(
+          AdFlowError(
+            AdFlowErrorKind.ssv,
+            'Server-side verification could not be attached to the loaded '
+            'ad: $e',
+          ),
+        );
+        return;
+      }
+    }
+    completer.complete(buildHandle());
   }
 
   /// Known upstream limitation (plugin 9.0.0, verified in
@@ -533,13 +580,36 @@ gma.AdRequest toGmaAdRequest(
   AdRequestOptions options, {
   Map<String, String>? extras,
 }) {
+  final mediationExtras = options.mediationExtras;
   return gma.AdRequest(
     keywords: options.keywords,
     contentUrl: options.contentUrl,
     neighboringContentUrls: options.neighboringContentUrls,
     nonPersonalizedAds: options.nonPersonalizedAds,
     extras: extras ?? options.extras,
+    mediationExtras: mediationExtras == null || mediationExtras.isEmpty
+        ? null
+        : [for (final e in mediationExtras) GmaMediationExtrasAdapter(e)],
   );
+}
+
+/// Adapts the seam's plugin-free [MediationNetworkExtras] onto the plugin's
+/// `MediationExtras` contract (public for the pure-mapper tests only).
+class GmaMediationExtrasAdapter implements gma.MediationExtras {
+  /// Wraps [extras].
+  const GmaMediationExtrasAdapter(this.extras);
+
+  /// The seam value being adapted.
+  final MediationNetworkExtras extras;
+
+  @override
+  String getAndroidClassName() => extras.androidClassName;
+
+  @override
+  String getIOSClassName() => extras.iosClassName;
+
+  @override
+  Map<String, dynamic> getExtras() => Map<String, dynamic>.of(extras.extras);
 }
 
 /// Merges the collapsible placement into request extras.
@@ -732,15 +802,27 @@ abstract class _GmaFullScreenHandle<T extends gma.AdWithoutView> {
 
   gma.OnUserEarnedRewardCallback wrapReward(
     OnUserEarnedReward? onUserEarnedReward,
-  ) =>
-      (ad, item) => onUserEarnedReward?.call(
+  ) => (ad, item) {
+    // Isolated: this fires from inside the plugin's platform callback — an
+    // app bug in the grant handler must not escape into the channel dispatch.
+    if (onUserEarnedReward == null) return;
+    guardedCallback(
+      () => onUserEarnedReward(
         RewardEarned(amount: item.amount, type: item.type),
-      );
+      ),
+      debugName: 'onUserEarnedReward',
+    );
+  };
 
   Future<void> dispose() async {
-    await _ad.dispose();
-    await _content.close();
-    await _paid.close();
+    // The channel dispose can reject (dead engine, torn-down channel); the
+    // stream controllers must still close or their listeners leak.
+    try {
+      await _ad.dispose();
+    } finally {
+      await _content.close();
+      await _paid.close();
+    }
   }
 }
 
@@ -827,9 +909,14 @@ abstract class _GmaViewAdHandle {
   Widget buildWidget() => gma.AdWidget(ad: _adWithView);
 
   Future<void> dispose() async {
-    await _adWithView.dispose();
-    await _events.close();
-    await _paid.close();
+    // See the full-screen handle's dispose: close the streams even when the
+    // channel dispose rejects.
+    try {
+      await _adWithView.dispose();
+    } finally {
+      await _events.close();
+      await _paid.close();
+    }
   }
 }
 

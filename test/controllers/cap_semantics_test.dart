@@ -18,14 +18,14 @@ void main() {
       ..canRequestAdsResult = true;
     coordinator = FullScreenAdCoordinator();
     now = DateTime(2026, 7, 14, 12);
+    // Mirrors the facade's wiring (4.0): only CLASSIC rewarded is exempt —
+    // the rewarded interstitial's intro is an app-chosen interruption, so its
+    // sequence is paced by the global cap like any other involuntary ad.
     caps = StoredFrequencyCapPolicy(
       store: InMemoryKeyValueStore(),
       slotCaps: const {},
       globalCap: globalCap,
-      globalCapExemptSlots: const {
-        RewardedAdController.slotName,
-        RewardedInterstitialAdController.slotName,
-      },
+      globalCapExemptSlots: const {RewardedAdController.slotName},
       now: () => now,
     );
   });
@@ -87,6 +87,49 @@ void main() {
         r.dispose();
       },
     );
+
+    test('the rewarded-interstitial SEQUENCE is paced by the global cap — '
+        'and the intro is never presented for a capped one (4.0)', () async {
+      final i = interstitial();
+      await i.load();
+      expect(await i.show(), isTrue);
+      sdk.interstitials.single.simulateShowed();
+      sdk.interstitials.single.simulateDismissed();
+
+      now = now.add(const Duration(seconds: 1));
+      final intros = <RewardIntroContent>[];
+      final ri = RewardedInterstitialAdController(
+        sdk: sdk,
+        gate: gate(),
+        caps: caps,
+        coordinator: coordinator,
+        config: const RewardedInterstitialConfig(
+          adUnitId: PlatformAdUnitId(android: 'ri'),
+        ),
+        adUnitId: 'ri',
+        showIntro: (content) async {
+          intros.add(content);
+          return true;
+        },
+      );
+      await ri.load();
+
+      expect(
+        await ri.show(onReward: (_) {}),
+        isFalse,
+        reason:
+            'the intro appears at an app-chosen transition the user did not '
+            'ask for — an interruption 1s after an interstitial is exactly '
+            'what the global cap paces',
+      );
+      expect(
+        intros,
+        isEmpty,
+        reason: 'a capped sequence never starts — no promise, no refusal',
+      );
+      i.dispose();
+      ri.dispose();
+    });
 
     test('an INTERSTITIAL is still blocked by the same global gap', () async {
       final r = rewarded();

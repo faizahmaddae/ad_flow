@@ -29,7 +29,14 @@ class FakeAdSdk implements AdSdk {
   int initializeCalls = 0;
 
   /// Every configuration passed to [updateRequestConfiguration], in order.
+  /// Recorded on COMPLETION (after the hold/error knobs) — see
+  /// [updateRequestConfigurationCalls] for dispatch counting.
   final List<AdRequestConfig> requestConfigs = [];
+
+  /// Number of [updateRequestConfiguration] DISPATCHES (counted at entry,
+  /// before the hold/error knobs) — lets a test assert the ADR-028 rule that
+  /// no config call may even be dispatched while `initialize` is in flight.
+  int updateRequestConfigurationCalls = 0;
 
   /// Every consent info update request, in order.
   final List<ConsentUpdateCall> consentUpdateCalls = [];
@@ -76,6 +83,10 @@ class FakeAdSdk implements AdSdk {
   /// Every [NativeLoadSpec] passed to [loadNative], in order.
   final List<NativeLoadSpec> nativeSpecs = [];
 
+  /// The [AdRequestOptions] of every full-screen load (interstitial,
+  /// rewarded, rewarded interstitial, app open), in order.
+  final List<AdRequestOptions> fullScreenRequests = [];
+
   /// The `ssv` argument of every [loadRewarded] call, in order.
   final List<ServerSideVerification?> rewardedSsvs = [];
 
@@ -104,6 +115,12 @@ class FakeAdSdk implements AdSdk {
 
   /// If set, [updateRequestConfiguration] throws this instead of recording.
   AdFlowError? updateRequestConfigurationError;
+
+  /// If set (and the load carries a non-null `ssv`), [loadRewarded] /
+  /// [loadRewardedInterstitial] throw this instead of returning a handle —
+  /// mirrors the real seam FAILING a load whose server-side verification
+  /// could not be attached (4.0 audit; `AdFlowErrorKind.ssv`).
+  Object? ssvAttachError;
 
   /// If set, [requestConsentInfoUpdate] throws this.
   AdFlowError? consentUpdateError;
@@ -213,13 +230,28 @@ class FakeAdSdk implements AdSdk {
   Future<FakeFullScreenAdHandle> _loadFullScreen(
     String format,
     String adUnitId,
-    List<FakeFullScreenAdHandle> into,
-  ) async {
+    List<FakeFullScreenAdHandle> into, {
+    AdRequestOptions options = const AdRequestOptions(),
+  }) async {
     await _checkLoadAllowed(format, adUnitId);
     loadLog.add('$format:$adUnitId');
+    fullScreenRequests.add(options);
     final handle = FakeFullScreenAdHandle(adUnitId);
     into.add(handle);
     return handle;
+  }
+
+  /// Number of [disableMediationInitialization] calls.
+  int disableMediationInitializationCalls = 0;
+
+  /// Whether [disableMediationInitialization] was called before the first
+  /// [initialize] — the only ordering in which the real plugin honours it.
+  bool? mediationInitDisabledBeforeInitialize;
+
+  @override
+  Future<void> disableMediationInitialization() async {
+    disableMediationInitializationCalls++;
+    mediationInitDisabledBeforeInitialize ??= initializeCalls == 0;
   }
 
   @override
@@ -231,6 +263,7 @@ class FakeAdSdk implements AdSdk {
 
   @override
   Future<void> updateRequestConfiguration(AdRequestConfig config) async {
+    updateRequestConfigurationCalls++;
     final hold = updateRequestConfigurationHold;
     if (hold != null) await hold.future;
     final error = updateRequestConfigurationError;
@@ -242,7 +275,12 @@ class FakeAdSdk implements AdSdk {
   Future<InterstitialHandle> loadInterstitial(
     String adUnitId,
     AdRequestOptions options,
-  ) async => _loadFullScreen('interstitial', adUnitId, interstitials);
+  ) async => _loadFullScreen(
+    'interstitial',
+    adUnitId,
+    interstitials,
+    options: options,
+  );
 
   @override
   Future<RewardedHandle> loadRewarded(
@@ -250,8 +288,21 @@ class FakeAdSdk implements AdSdk {
     AdRequestOptions options, {
     ServerSideVerification? ssv,
   }) async {
-    final handle = await _loadFullScreen('rewarded', adUnitId, rewardeds);
+    final handle = await _loadFullScreen(
+      'rewarded',
+      adUnitId,
+      rewardeds,
+      options: options,
+    );
     rewardedSsvs.add(ssv);
+    final ssvError = ssvAttachError;
+    if (ssv != null && ssvError != null) {
+      // Mirrors the real seam: the un-verifiable ad is released and the load
+      // FAILS — never a ready ad that silently lost its SSV payload.
+      rewardeds.remove(handle);
+      unawaited(handle.dispose());
+      throw ssvError;
+    }
     return handle;
   }
 
@@ -265,8 +316,15 @@ class FakeAdSdk implements AdSdk {
       'rewarded_interstitial',
       adUnitId,
       rewardedInterstitials,
+      options: options,
     );
     rewardedInterstitialSsvs.add(ssv);
+    final ssvError = ssvAttachError;
+    if (ssv != null && ssvError != null) {
+      rewardedInterstitials.remove(handle);
+      unawaited(handle.dispose());
+      throw ssvError;
+    }
     return handle;
   }
 
@@ -274,7 +332,7 @@ class FakeAdSdk implements AdSdk {
   Future<AppOpenHandle> loadAppOpen(
     String adUnitId,
     AdRequestOptions options,
-  ) async => _loadFullScreen('app_open', adUnitId, appOpens);
+  ) async => _loadFullScreen('app_open', adUnitId, appOpens, options: options);
 
   @override
   Future<BannerHandle> loadBanner(BannerLoadSpec spec) async {

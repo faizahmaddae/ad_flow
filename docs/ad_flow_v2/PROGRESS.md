@@ -1,14 +1,58 @@
-# PROGRESS — ad_flow v2/v3
+# PROGRESS — ad_flow v2/v3/v4
 
 ## Current phase
-**Phase 18 — 3.0.0 API cleanup (2026-07-17)** — ✅ shipped on branch
-**`v3-design`** (built on top of `production-hardening-2.2.0`; 14 commits
-total over main; NOT merged, NOT tagged, NOT published — Faiz reviews/merges/
-tags when ready). Version **3.0.0**. The maintainer lifted the
-backward-compat constraint; ADR-055 records what 3.0 breaks (AdBlocked state,
-widget-first widgets, honest show(), purified AdGate, removals) and — as
-importantly — the redesigns it deliberately REJECTS. Verify:
-`flutter analyze && flutter test --concurrency=2` → clean, **413 tests**.
+**Phase 19 — 4.0.0 independent production audit + hardening (2026-07-17)** —
+✅ implemented on branch **`production-audit-3.x`** (7 slices, committed;
+NOT merged, NOT tagged, NOT published — Faiz reviews/merges/tags when
+ready). Version **4.0.0**. An adversarial audit of published 3.0.0 confirmed
+7 externally-suggested findings (all fixed) and the fixes ship as coherent
+invariants, each with fail-first tests:
+
+1. Containment (ADR-056): gate never throws; app callbacks isolated;
+   `AdBlockReason.internalError`; indeterminate never drops a live ad.
+2. Per-load watchdog (ADR-057): `RetryConfig.loadTimeout` 60s; late
+   completions disposed, never installed.
+3. SSV fail-closed (ADR-058): `AdFlowErrorKind.ssv`; un-attachable SSV =
+   failed load; plugin ack limits documented honestly.
+4. RI atomic reservation (ADR-059): preflight before the intro, claim held
+   through it; RI now under the global cap (classic rewarded stays exempt).
+5. Memory-authoritative caps (ADR-060): sync decisions, serialized
+   write-behind, bounded hydration.
+6. Request-config failure policy (ADR-061): retried process;
+   auto/failOpen/failClosed; `AdBlocked(requestConfigNotApplied)`; never
+   dispatches while init in flight (ADR-028 hardening).
+7. Honest mediation surfaces (ADR-062): per-slot request options,
+   `MediationNetworkExtras`, `onConsentChanged`, `deferMediationInit`;
+   MEDIATION_SETUP/README rewritten off the "UMP handles it all" overclaim.
+
+Verify: `flutter analyze && flutter test --concurrency=2` → clean, **448
+tests**. Also green this session: `dart format` (committed), `dart pub
+publish --dry-run` (0 warnings), `pana` **160/160**, example
+`flutter build apk --debug` ✓ and `flutter build ios --simulator --debug` ✓,
+coverage **83.9%** (was 81.2%), and an on-simulator smoke run (iPhone 16
+Pro, iOS 18.6): HomeScreen rendered, interstitial/rewarded/RI all `ready`
+through the NEW config-settle machinery, native validator "No
+implementation issues found", live adaptive test banner. NOT re-verified
+on-device this session: the RI intro interactive flow (its presenter is
+unchanged from the 3.0 on-device pass; only the pure-Dart ordering
+changed, which is fakeAsync-covered) and Android runtime. Docs updated:
+CHANGELOG 4.0.0, MIGRATION 3.x→4.0, README claims softened to
+"policy-aware", MEDIATION_SETUP rewritten honest, NATIVE_ADS_SETUP
+widget-first, garbled `slotName` dartdoc prose fixed, pubspec 4.0.0, CI
+gained an iOS example build job.
+
+## Open items for Faiz (4.0.0)
+- Review + merge `production-audit-3.x`; tag `v4.0.0` when ready (tag
+  auto-publishes). The v3.0.0 tag is untouched.
+- Optional on-device sanity: one rewarded-interstitial interactive cycle
+  (intro → watch → reward) and one Android emulator session.
+- If you use mediation partners today: wire `onConsentChanged` per the new
+  doc/MEDIATION_SETUP.md §4 (Unity/Meta/AppLovin signals are yours).
+
+## Previous phase
+**Phase 18 — 3.0.0 API cleanup (2026-07-17)** — shipped, merged, tagged
+v3.0.0, published. ADR-055 records what 3.0 broke and the redesigns it
+deliberately rejected.
 
 ## Previous phase
 **Phase 17 — production-hardening audit + fixes (2026-07-17)** — ✅ shipped on

@@ -7,6 +7,8 @@ import '../core/ad_block_reason.dart';
 import '../core/ad_controller.dart';
 import '../core/ad_flow_error.dart';
 import '../core/ad_load_state.dart';
+import '../core/callback_guard.dart';
+import '../core/load_watchdog.dart';
 import '../policy/ad_gate.dart';
 import '../policy/frequency_cap_policy.dart';
 import '../policy/full_screen_ad_coordinator.dart';
@@ -82,10 +84,17 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   AdBlockReason? get lastBlockReason => _lastBlockReason;
 
   /// Records a refusal and notifies `AdFlow.onAdBlocked`.
+  ///
+  /// The app callback is ISOLATED: it fires from inside load/show
+  /// transitions, so a throw from it used to corrupt the very transition
+  /// that reported the refusal (4.0 audit).
   @protected
   void noteBlocked(AdBlockReason reason) {
     _lastBlockReason = reason;
-    _onBlocked?.call(slot, reason);
+    final onBlocked = _onBlocked;
+    if (onBlocked != null) {
+      guardedCallback(() => onBlocked(slot, reason), debugName: 'onAdBlocked');
+    }
   }
 
   final ValueNotifier<AdLoadState> _state = ValueNotifier(const AdIdle());
@@ -198,29 +207,40 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     // the loser's ad).
     _state.value = const AdLoading();
 
-    final blocked = await _gate.loadBlockReason(slot);
-    if (_disposed) return;
-    if (blocked != null) {
-      noteBlocked(blocked);
-      // A refused load is a STATE, not a side channel (3.0): consent still
-      // pending, Remove-Ads on and "nothing requested yet" used to be
-      // indistinguishable AdIdle.
-      _state.value = AdBlocked(blocked);
-      _scheduleGateRecheck();
-      return;
-    }
-
+    // ONE try around the whole async body — the gate await included. The gate
+    // itself no longer throws, but the rule stands regardless of collaborator
+    // promises: from the moment AdLoading is written, ANY escape path that is
+    // not a state write + timer arm leaves the slot wedged forever (4.0
+    // audit; the gate await used to sit outside this try).
     try {
-      final handle = await loadHandle();
+      final blocked = await _gate.loadBlockReason(slot);
+      if (_disposed) return;
+      if (blocked != null) {
+        noteBlocked(blocked);
+        // A refused load is a STATE, not a side channel (3.0): consent still
+        // pending, Remove-Ads on and "nothing requested yet" used to be
+        // indistinguishable AdIdle.
+        _state.value = AdBlocked(blocked);
+        _scheduleGateRecheck();
+        return;
+      }
+
+      // Watchdog: the plugin has no load timeout of its own — a callback that
+      // never arrives must fail this attempt (and dispose its late handle if
+      // one ever shows up) instead of pinning the slot at AdLoading (I-C).
+      final handle = await watchAdLoad(
+        pending: loadHandle(),
+        timeout: _retry.loadTimeout,
+        disposeLate: (late) => late.dispose(),
+        slot: slot,
+      );
       if (_disposed) {
         unawaited(handle.dispose());
         return;
       }
       _handle = handle;
       _contentSub = handle.contentEvents.listen(_onContentEvent);
-      _paidSub = handle.paidEvents.listen(
-        (event) => _onPaid?.call(event.taggedWithSlot(slot)),
-      );
+      _paidSub = handle.paidEvents.listen(_dispatchPaid);
       _attempts = 0;
       _gateAttempts = 0;
       _lastBlockReason = null;
@@ -252,6 +272,10 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       // permitted?" (Remove-Ads bought, consent withdrawn, graph disposed).
       final blocked = await _gate.showBlockReason(slot);
       if (_disposed || blocked == null) return;
+      // Indeterminate is not "revoked": a transient channel hiccup while
+      // re-checking permission must never destroy the perfectly good warm ad
+      // (4.0 audit). Definite answers (adsDisabled, consentNotGranted) drop.
+      if (blocked == AdBlockReason.internalError) return;
       if (_state.value is! AdLoaded) return; // changed while awaiting
       _timer?.cancel();
       _dropHandle();
@@ -274,8 +298,21 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   /// The full show engine, shared by every format. [onReward] is forwarded
   /// to the handle for the rewarded formats (their public `show(onReward:)`
   /// overrides call this); the base [show] never passes one.
+  ///
+  /// [confirm], when supplied, runs AFTER every policy check has passed and
+  /// WHILE the coordinator claim is held, immediately before the ad is
+  /// dispatched — the rewarded interstitial presents its mandatory intro
+  /// there (4.0 audit). Ordering is the point, twice over: (a) every
+  /// consent/cap/pacing refusal happens BEFORE the user is promised an ad,
+  /// so accepting the intro can no longer end in "no ad, no reward"; (b) the
+  /// claim spans the intro, so a warm-return app-open cannot stack over it.
+  /// Returning false (the user skipped; report the reason yourself before
+  /// returning) or throwing rolls everything back to a warm [AdLoaded].
   @protected
-  Future<bool> showEngine({OnUserEarnedReward? onReward}) async {
+  Future<bool> showEngine({
+    OnUserEarnedReward? onReward,
+    Future<bool> Function()? confirm,
+  }) async {
     if (_disposed) return false;
     if (_state.value is AdShowing) return false; // never double-show
     final handle = _handle;
@@ -349,6 +386,18 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         noteBlocked(AdBlockReason.userActionPacing);
         return rejectAndRollBack();
       }
+      // The confirm hook (the rewarded-interstitial intro) runs LAST, with
+      // every policy check already passed and the claim held. It is
+      // user-facing and unbounded — the state is AdShowing throughout, so
+      // the expiry timer cannot discard the handle mid-intro and re-entrant
+      // show() calls bail on the AdShowing guard.
+      if (confirm != null && !await confirm()) {
+        return rejectAndRollBack();
+      }
+      // The confirm hook can outlive the graph (the user backgrounds the
+      // app on the intro and the screen is popped): dispose() already
+      // released the claim and dropped the handle — do not show.
+      if (_disposed) return false;
     } catch (_) {
       // Degrade to "don't show", never to "wedged forever".
       return rejectAndRollBack();
@@ -356,12 +405,15 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
 
     OnUserEarnedReward? onRewardOnce;
     if (onReward != null) {
-      // A reward is granted at most once per ad, even if the SDK misfires.
+      // A reward is granted at most once per ad, even if the SDK misfires —
+      // and the app's grant callback is isolated, so an app bug inside it
+      // cannot corrupt the show flow or become an unhandled platform-callback
+      // error (4.0 audit).
       var granted = false;
       onRewardOnce = (reward) {
         if (granted) return;
         granted = true;
-        onReward(reward);
+        guardedCallback(() => onReward(reward), debugName: 'onReward');
       };
     }
     try {
@@ -423,6 +475,17 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       case AdImpressionEvent() || AdClickedEvent():
         break;
     }
+  }
+
+  /// Forwards a paid event to the app with its slot tag, isolated (an
+  /// analytics-hook bug must never surface as an unhandled stream error).
+  void _dispatchPaid(AdPaidEvent event) {
+    final onPaid = _onPaid;
+    if (onPaid == null) return;
+    guardedCallback(
+      () => onPaid(event.taggedWithSlot(slot)),
+      debugName: 'onPaidEvent',
+    );
   }
 
   /// Records the impression for an ad that reached the screen, exactly once.

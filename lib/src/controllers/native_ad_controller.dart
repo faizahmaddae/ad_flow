@@ -7,19 +7,21 @@ import '../core/ad_block_reason.dart';
 import '../core/ad_controller.dart';
 import '../core/ad_flow_error.dart';
 import '../core/ad_load_state.dart';
+import '../core/callback_guard.dart';
+import '../core/load_watchdog.dart';
 import '../policy/ad_gate.dart';
 import '../policy/full_screen_ad_coordinator.dart';
 import '../policy/retry_policy.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
 
-/// Loads one native ad slotName (template or platform-factory rendering).
+/// Loads one native ad slot (template or platform-factory rendering).
 ///
 /// Same load discipline as the banner controller — gate-checked loads,
 /// retry with backoff, cooldown, auto re-arm — but no refresh loop: native
 /// ads stay until [reload] or [dispose].
 class NativeAdController implements AdController {
-  /// Creates a controller for the native slotName.
+  /// Creates a controller for the native slot.
   ///
   /// [coordinator] — when given, a click/open on this native ad is reported to
   /// it, so the app-open manager does not stack an app-open ad on the foreground
@@ -44,7 +46,7 @@ class NativeAdController implements AdController {
        _onBlocked = onBlocked,
        _onDisposed = onDisposed;
 
-  /// The gate/cap slotName name for native ads.
+  /// The gate/cap slot name for native ads.
   static const slotName = 'native';
 
   final AdSdk _sdk;
@@ -62,14 +64,31 @@ class NativeAdController implements AdController {
 
   AdBlockReason? _lastBlockReason;
 
-  /// Why this slotName last refused to load, or null if nothing is blocking it
+  /// Why this slot last refused to load, or null if nothing is blocking it
   /// (ADR-045). A gate-blocked load reports [AdIdle], which is also what "not
   /// requested yet" looks like — this is what tells them apart.
   AdBlockReason? get lastBlockReason => _lastBlockReason;
 
   void _noteBlocked(AdBlockReason reason) {
     _lastBlockReason = reason;
-    _onBlocked?.call(slotName, reason);
+    final onBlocked = _onBlocked;
+    if (onBlocked != null) {
+      guardedCallback(
+        () => onBlocked(slotName, reason),
+        debugName: 'onAdBlocked',
+      );
+    }
+  }
+
+  /// Forwards a paid event to the app with its slot tag, isolated (an
+  /// analytics-hook bug must never surface as an unhandled stream error).
+  void _dispatchPaid(AdPaidEvent event) {
+    final onPaid = _onPaid;
+    if (onPaid == null) return;
+    guardedCallback(
+      () => onPaid(event.taggedWithSlot(slotName)),
+      debugName: 'onPaidEvent',
+    );
   }
 
   final ValueNotifier<AdLoadState> _state = ValueNotifier(const AdIdle());
@@ -110,33 +129,43 @@ class NativeAdController implements AdController {
     // loser's ad).
     _state.value = const AdLoading();
 
-    final blocked = await _gate.loadBlockReason(slotName);
-    if (_disposed) return;
-    if (blocked != null) {
-      _noteBlocked(blocked);
-      // A refused load is a STATE (3.0) — see AdBlocked.
-      _state.value = AdBlocked(blocked);
-      _scheduleGateRecheck();
-      return;
-    }
-
+    // ONE try around the whole async body, gate await included — any escape
+    // path that is not a state write + timer arm leaves the slot pinned at
+    // AdLoading forever (4.0 audit; the gate await used to sit outside).
     try {
-      final handle = await _sdk.loadNative(
-        NativeLoadSpec(
-          adUnitId: _adUnitId,
-          templateKind: _config.templateKind,
-          factoryId: _config.factoryId,
-          factoryExtras: _config.factoryExtras,
+      final blocked = await _gate.loadBlockReason(slotName);
+      if (_disposed) return;
+      if (blocked != null) {
+        _noteBlocked(blocked);
+        // A refused load is a STATE (3.0) — see AdBlocked.
+        _state.value = AdBlocked(blocked);
+        _scheduleGateRecheck();
+        return;
+      }
+
+      // Watchdog: a load callback that never arrives (the plugin has no
+      // timeout of its own) fails this attempt instead of pinning the slot at
+      // AdLoading; a late handle is disposed, never installed (I-C).
+      final handle = await watchAdLoad(
+        pending: _sdk.loadNative(
+          NativeLoadSpec(
+            adUnitId: _adUnitId,
+            templateKind: _config.templateKind,
+            factoryId: _config.factoryId,
+            factoryExtras: _config.factoryExtras,
+            request: _config.request,
+          ),
         ),
+        timeout: _retry.loadTimeout,
+        disposeLate: (late) => late.dispose(),
+        slot: slotName,
       );
       if (_disposed) {
         unawaited(handle.dispose());
         return;
       }
       _handle = handle;
-      _paidSub = handle.paidEvents.listen(
-        (event) => _onPaid?.call(event.taggedWithSlot(slotName)),
-      );
+      _paidSub = handle.paidEvents.listen(_dispatchPaid);
       _eventSub = handle.events.listen(_onViewEvent);
       _attempts = 0;
       _gateAttempts = 0;
@@ -145,7 +174,7 @@ class NativeAdController implements AdController {
     } catch (e) {
       // See BannerAdController.load: catch everything, not just AdFlowError —
       // a raw platform exception must degrade to AdFailed + retry, never pin
-      // the slotName at AdLoading forever.
+      // the slot at AdLoading forever.
       if (_disposed) return;
       _state.value = AdFailed(asAdFlowError(e, AdFlowErrorKind.loadFailed));
       _scheduleRetry();
@@ -176,6 +205,9 @@ class NativeAdController implements AdController {
     if (state is AdLoaded) {
       final blocked = await _gate.loadBlockReason(slotName);
       if (_disposed || blocked == null) return;
+      // Indeterminate is not "revoked": a transient collaborator hiccup must
+      // never destroy the live mounted ad (4.0 audit).
+      if (blocked == AdBlockReason.internalError) return;
       if (_state.value is! AdLoaded) return; // changed while awaiting
       // No longer permitted (Remove-Ads, consent withdrawn, graph disposed):
       // native ads have no refresh loop at all, so nothing else would ever
@@ -216,7 +248,7 @@ class NativeAdController implements AdController {
   }
 
   /// Re-checks the gate after a backoff when a load was blocked (consent not
-  /// settled / ads disabled) rather than failed — otherwise a slotName whose one
+  /// settled / ads disabled) rather than failed — otherwise a slot whose one
   /// load attempt happened to land while the gate was shut stays idle forever
   /// with nothing left to prompt a reload.
   ///

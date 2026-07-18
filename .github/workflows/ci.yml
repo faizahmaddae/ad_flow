@@ -63,6 +63,23 @@ jobs:
         working-directory: example
         run: flutter build apk --debug
 
+  # iOS must keep compiling too (the ATT pod + scene-lifecycle requirements
+  # only surface on an iOS build).
+  example-build-ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Build example iOS (simulator, no codesign)
+        working-directory: example
+        run: flutter build ios --simulator --debug
+
   # pub.dev score gate — the package ships at 160/160; don't regress it.
   pana:
     runs-on: ubuntu-latest

@@ -1,3 +1,87 @@
+## 4.0.0
+
+A production-hardening major from an independent adversarial audit of
+3.0.0. Theme: **no silent failure** — collaborator faults, lost SDK
+callbacks, failed policy-critical configuration and unattachable reward
+verification now either recover visibly or refuse visibly, never wedge or
+degrade silently. See MIGRATION.md for the short 3.x → 4.0 checklist.
+
+### BREAKING
+
+- **`AdBlockReason` gained cases** (`requestConfigNotApplied`,
+  `internalError`) and **`AdFlowErrorKind` gained `ssv`** — exhaustive
+  switches over these enums need the new cases.
+- **SSV fail-closed.** A rewarded / rewarded-interstitial load whose
+  configured server-side verification cannot be attached is now a FAILED
+  load (`AdFlowError(ssv)`, normal retry) instead of a ready ad that
+  silently lost its verification payload. Honesty note: the plugin acks the
+  SSV call unconditionally native-side, so only channel-level faults are
+  detectable — final confirmation is always your SSV endpoint.
+- **Rewarded interstitial: atomic show reservation.** Every policy check
+  (consent, per-slot AND global caps, pacing, expiry, coordinator) now runs
+  BEFORE the mandatory intro, and the full-screen claim is held through it:
+  accepting the intro can no longer end in "no ad, no reward", nothing can
+  stack over the intro (app-open included), and a throwing intro presenter
+  rolls back instead of rejecting `show()`. **Behavior change (revises
+  ADR-039): the rewarded interstitial is no longer exempt from the global
+  frequency cap** — its intro is an app-chosen interruption; a capped
+  sequence simply never starts. Classic rewarded stays exempt.
+- **Request configuration is a retried process with a failure policy.**
+  `RequestConfigFailurePolicy {auto, failOpen, failClosed}` on
+  `AdFlowConfig` (default `auto`): when `updateRequestConfiguration` fails
+  or times out and the config carries policy-critical fields (COPPA /
+  under-age tags, content rating, test device IDs), loads BLOCK visibly
+  (`AdBlocked(requestConfigNotApplied)`) and recover when the retried apply
+  succeeds — instead of silently sending untagged requests. A config with
+  no such fields keeps failing open. The apply also never races a live SDK
+  init (ADR-028 hardening; it previously dispatched right after a timed-out
+  init — the exact deadlock window).
+- **`AdGate` constructor:** `configReady` (future) replaced by
+  `settleRequestConfig` (bounded callback).
+- **Implementer note:** `AdSdk` gained `disableMediationInitialization()`;
+  `FakeAdSdk` gained knobs (`ssvAttachError`, dispatch counters,
+  `fullScreenRequests`). Package-provided fakes are updated; external
+  `AdSdk` implementations must add the new member.
+
+### Added
+
+- **Per-load watchdog** — `RetryConfig.loadTimeout` (default 60s, null
+  disables): the plugin has no load timeout of its own, so a lost SDK
+  callback used to pin a slot at `AdLoading` for the whole session. A
+  timed-out attempt fails into the normal retry path; a LATE completion is
+  disposed, never installed, and can never stomp a newer attempt.
+- **Per-slot `AdRequestOptions`** on every format config (keywords,
+  contentUrl, nonPersonalizedAds, AdMob-adapter extras) plus
+  `MediationNetworkExtras` mapped onto the plugin's mediation-extras
+  mechanism.
+- **`AdFlow.onConsentChanged`** — fires (isolated) after every consent flow
+  or mutation: the forwarding point for per-network mediation consent APIs
+  (Google does not propagate consent to non-TCF networks automatically).
+- **`AdFlowConfig.deferMediationInit`** — defers mediation adapter init out
+  of SDK init so pre-init privacy flags can be set after consent settles.
+
+### Fixed (correctness / revenue / reward integrity)
+
+- **No collaborator or app-callback throw can wedge a controller.** The
+  permission gate never throws (contained → `AdBlockReason.internalError`,
+  re-checked on backoff); the whole load body sits in one try; app
+  callbacks (`onPaidEvent`, `onAdBlocked`, reward grants,
+  `onConsentChanged`) are isolated via `FlutterError.reportError`. A
+  throwing `canRequestAds()` used to pin slots at `AdLoading` forever with
+  an unhandled async error.
+- **Indeterminate permission never drops a live ad** — a transient channel
+  hiccup during a gate re-check keeps the mounted banner/native earning;
+  only definite answers (Remove-Ads, consent withdrawn) take ads down.
+- **Frequency caps are memory-authoritative.** An impression recorded at
+  dismiss binds the very next check from ANY controller (min-gap/hourly
+  state used to be read back from storage mid-write — two full-screen ads
+  could run back to back). Persistence is a serialized write-behind
+  snapshot chain (no lost updates); a hanging/corrupt store degrades to
+  session-only capping instead of blocking every show.
+- `UmpConsentGateway.ensureCanRequestAds` honours its "never throws"
+  contract on the final `canRequestAds()` read; Gma handles close their
+  event streams even when the channel dispose rejects.
+
 ## 3.0.0
 
 Two releases in one (2.2.0 was never published): the production-hardening

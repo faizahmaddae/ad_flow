@@ -4,11 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`ad_flow` (v2.0.0) — a Flutter package that wraps **`google_mobile_ads ^9.0.0`** (AdMob) into a policy-compliant, DI-based ad layer: banner, interstitial, rewarded, rewarded-interstitial, native and app-open ads, plus UMP consent and (opt-in) iOS ATT. Android + iOS only. Also depends on `app_tracking_transparency` (iOS ATT, opt-in mode) and `shared_preferences` (frequency-cap persistence).
+`ad_flow` (v4.0.0; the docs/ai folder history says "v2" — same architecture) — a Flutter package that wraps **`google_mobile_ads ^9.0.0`** (AdMob) into a policy-compliant, DI-based ad layer: banner, interstitial, rewarded, rewarded-interstitial, native and app-open ads, plus UMP consent and (opt-in) iOS ATT. Android + iOS only. Also depends on `app_tracking_transparency` (iOS ATT, opt-in mode) and `shared_preferences` (frequency-cap persistence).
 
 v2 is a ground-up rewrite: **no global singletons** (config and collaborators are injected). Public entry point is `AdFlow.initialize(config, {...}) → Future<AdFlow>`; `AdFlow.instance` is only a thin convenience pointer to the last-initialized instance.
-
-> Ignore `.github/copilot-instructions.md` — it documents the **v1** architecture (singleton `*AdManager`s, `EasyBannerAd`, `MediationHelper`, `google_mobile_ads ^7.0.0`, blocking sequential init) and is **wrong** for v2. It should be deleted or rewritten.
 
 ## Read these FIRST (the real operating manual)
 

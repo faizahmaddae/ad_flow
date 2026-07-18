@@ -233,7 +233,19 @@ class UmpConsentGateway implements ConsentGateway {
     // Degrade to the SDK's own answer: consent obtained on a previous
     // launch (or not required at all) keeps serving ads through transient
     // consent-flow failures.
-    return _sdk.canRequestAds();
+    //
+    // Contained: the plugin's canRequestAds() force-unwraps its channel
+    // result, so it CAN throw — and this read sits outside the try above.
+    // ensureCanRequestAds's documented contract is "never throws"; a throw
+    // here used to reject the whole run, reaching every joiner
+    // (AdFlow._settleConsent → the gate → every load) as a raw error
+    // (4.0 audit).
+    try {
+      return await _sdk.canRequestAds();
+    } catch (e) {
+      _lastError ??= asAdFlowError(e, AdFlowErrorKind.consent);
+      return false;
+    }
   }
 
   /// Runs the client-driven ATT flow when [_attExplainer] is set and the

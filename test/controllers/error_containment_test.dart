@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:ad_flow/src/config/ad_flow_config.dart';
+import 'package:ad_flow/src/core/ad_block_reason.dart';
 import 'package:ad_flow/src/controllers/banner_ad_controller.dart';
 import 'package:ad_flow/src/controllers/interstitial_ad_controller.dart';
 import 'package:ad_flow/src/controllers/native_ad_controller.dart';
@@ -15,6 +16,7 @@ import 'package:ad_flow/src/seam/ad_sdk.dart';
 import 'package:ad_flow/src/seam/ad_sdk_types.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
 import 'package:fake_async/fake_async.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// A cap policy whose store/clock machinery blows up with a NON-[AdFlowError]
@@ -232,6 +234,253 @@ void main() {
         async.elapse(const Duration(seconds: 1));
 
         expect(controller.state.value, isA<AdFailed>());
+        controller.dispose();
+      });
+    });
+  });
+
+  group('load() contains a throwing GATE collaborator', () {
+    // The gate's collaborators throw in the wild: the plugin's canRequestAds()
+    // force-unwraps a null channel result, and an injected consent gateway can
+    // reject through _settleConsent. Before the fix, that throw escaped
+    // load() — the gate await sat OUTSIDE the try — pinning the slot at
+    // AdLoading (which load()'s own re-entry guard then rejects forever) with
+    // no timer armed and an unhandled async error in the app's zone.
+    late FakeAdSdk sdk;
+    late FullScreenAdCoordinator coordinator;
+    late StoredFrequencyCapPolicy caps;
+    late bool gateThrows;
+
+    setUp(() {
+      sdk = FakeAdSdk()..canRequestAdsResult = true;
+      coordinator = FullScreenAdCoordinator();
+      caps = StoredFrequencyCapPolicy(
+        store: InMemoryKeyValueStore(),
+        slotCaps: const {},
+        globalCap: const FrequencyCap(),
+      );
+      gateThrows = true;
+    });
+    tearDown(() {
+      coordinator.dispose();
+      sdk.dispose();
+    });
+
+    AdGate gate() => AdGate(
+      canRequestAds: () async {
+        if (gateThrows) throw const FormatException('channel error');
+        return true;
+      },
+      isEnabled: () => true,
+    );
+
+    void expectContainedThenRecovers(
+      FakeAsync async,
+      ValueListenable<AdLoadState> state, {
+      required void Function() kickLoad,
+    }) {
+      kickLoad();
+      async.elapse(const Duration(seconds: 1));
+      expect(
+        state.value,
+        isNot(isA<AdLoading>()),
+        reason:
+            'a throwing gate collaborator must never pin the slot at '
+            'AdLoading forever',
+      );
+      // The throw stops (the channel recovers) — the slot must come back on
+      // its own, through the armed recheck/retry timer.
+      gateThrows = false;
+      async.elapse(const Duration(minutes: 6));
+      expect(
+        state.value,
+        isA<AdLoaded>(),
+        reason: 'the slot must recover once the collaborator stops throwing',
+      );
+    }
+
+    test('full-screen: contained, recovers when the gate heals', () {
+      fakeAsync((async) {
+        final controller = InterstitialAdController(
+          sdk: sdk,
+          gate: gate(),
+          caps: caps,
+          coordinator: coordinator,
+          config: const InterstitialConfig(
+            adUnitId: PlatformAdUnitId(android: 'unit-i'),
+          ),
+          adUnitId: 'unit-i',
+          retry: RetryPolicy(const RetryConfig(), random: () => 0.5),
+        );
+        expectContainedThenRecovers(
+          async,
+          controller.state,
+          kickLoad: () => unawaited(controller.load()),
+        );
+        controller.dispose();
+      });
+    });
+
+    test('banner: contained, recovers when the gate heals', () {
+      fakeAsync((async) {
+        final controller = BannerAdController(
+          sdk: sdk,
+          gate: gate(),
+          config: const BannerConfig(
+            adUnitId: PlatformAdUnitId(android: 'unit-b'),
+          ),
+          adUnitId: 'unit-b',
+          retry: RetryPolicy(const RetryConfig(), random: () => 0.5),
+        );
+        expectContainedThenRecovers(
+          async,
+          controller.state,
+          kickLoad: () => unawaited(controller.load(width: 320)),
+        );
+        controller.dispose();
+      });
+    });
+
+    test('native: contained, recovers when the gate heals', () {
+      fakeAsync((async) {
+        final controller = NativeAdController(
+          sdk: sdk,
+          gate: gate(),
+          config: const NativeConfig(
+            adUnitId: PlatformAdUnitId(android: 'unit-n'),
+            templateKind: NativeTemplateKind.small,
+          ),
+          adUnitId: 'unit-n',
+          retry: RetryPolicy(const RetryConfig(), random: () => 0.5),
+        );
+        expectContainedThenRecovers(
+          async,
+          controller.state,
+          kickLoad: () => unawaited(controller.load()),
+        );
+        controller.dispose();
+      });
+    });
+
+    test('recheckGate with a throwing gate keeps a LIVE ad (no drop, '
+        'no unhandled error)', () {
+      fakeAsync((async) {
+        gateThrows = false;
+        final controller = InterstitialAdController(
+          sdk: sdk,
+          gate: gate(),
+          caps: caps,
+          coordinator: coordinator,
+          config: const InterstitialConfig(
+            adUnitId: PlatformAdUnitId(android: 'unit-i'),
+          ),
+          adUnitId: 'unit-i',
+          retry: RetryPolicy(const RetryConfig(), random: () => 0.5),
+        );
+        unawaited(controller.load());
+        async.elapse(const Duration(seconds: 1));
+        expect(controller.state.value, isA<AdLoaded>());
+
+        // A transient channel hiccup during a permission re-check must not
+        // destroy the perfectly good warm ad — indeterminate is not "revoked".
+        gateThrows = true;
+        unawaited(controller.recheckGate());
+        async.elapse(const Duration(seconds: 1));
+        expect(controller.state.value, isA<AdLoaded>());
+        controller.dispose();
+      });
+    });
+  });
+
+  group('a throwing APP callback never corrupts controller state', () {
+    late FakeAdSdk sdk;
+    late FullScreenAdCoordinator coordinator;
+    late StoredFrequencyCapPolicy caps;
+    late List<FlutterErrorDetails> reported;
+    FlutterExceptionHandler? previousOnError;
+
+    setUp(() {
+      sdk = FakeAdSdk()..canRequestAdsResult = true;
+      coordinator = FullScreenAdCoordinator();
+      caps = StoredFrequencyCapPolicy(
+        store: InMemoryKeyValueStore(),
+        slotCaps: const {},
+        globalCap: const FrequencyCap(),
+      );
+      reported = [];
+      previousOnError = FlutterError.onError;
+      FlutterError.onError = reported.add;
+    });
+    tearDown(() {
+      FlutterError.onError = previousOnError;
+      coordinator.dispose();
+      sdk.dispose();
+    });
+
+    test('a throwing onAdBlocked leaves the blocked path intact', () async {
+      var enabled = false;
+      final controller = InterstitialAdController(
+        sdk: sdk,
+        gate: AdGate(canRequestAds: () async => true, isEnabled: () => enabled),
+        caps: caps,
+        coordinator: coordinator,
+        config: const InterstitialConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-i'),
+        ),
+        adUnitId: 'unit-i',
+        retry: RetryPolicy(const RetryConfig(), random: () => 0.5),
+        onBlocked: (_, _) => throw StateError('app bug'),
+      );
+
+      // Must complete normally — the app callback's throw is isolated, the
+      // state still lands in AdBlocked and the recheck timer is still armed.
+      await controller.load();
+      expect(controller.state.value, isA<AdBlocked>());
+      expect(controller.lastBlockReason, AdBlockReason.adsDisabled);
+      expect(
+        reported,
+        isNotEmpty,
+        reason: 'the isolated throw must still be REPORTED, not swallowed',
+      );
+
+      // And show()'s notReady path (also a noteBlocked call site):
+      enabled = true;
+      final shown = await controller.show();
+      expect(shown, isFalse);
+      controller.dispose();
+    });
+
+    test('a throwing onPaid never becomes a zone error or drops state', () {
+      fakeAsync((async) {
+        final controller = InterstitialAdController(
+          sdk: sdk,
+          gate: AdGate(canRequestAds: () async => true, isEnabled: () => true),
+          caps: caps,
+          coordinator: coordinator,
+          config: const InterstitialConfig(
+            adUnitId: PlatformAdUnitId(android: 'unit-i'),
+          ),
+          adUnitId: 'unit-i',
+          retry: RetryPolicy(const RetryConfig(), random: () => 0.5),
+          onPaid: (_) => throw StateError('analytics bug'),
+        );
+        unawaited(controller.load());
+        async.elapse(const Duration(seconds: 1));
+        expect(controller.state.value, isA<AdLoaded>());
+
+        sdk.interstitials.single.simulatePaid(
+          const AdPaidEvent(
+            adUnitId: 'unit-i',
+            valueMicros: 1000,
+            currencyCode: 'USD',
+            precision: AdRevenuePrecision.estimated,
+          ),
+        );
+        // In fakeAsync an unhandled async error would surface on flush and
+        // fail this test — completing cleanly IS the assertion.
+        async.flushMicrotasks();
+        expect(controller.state.value, isA<AdLoaded>());
+        expect(reported, isNotEmpty);
         controller.dispose();
       });
     });

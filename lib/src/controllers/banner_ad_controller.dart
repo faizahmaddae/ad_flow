@@ -7,13 +7,15 @@ import '../core/ad_block_reason.dart';
 import '../core/ad_controller.dart';
 import '../core/ad_flow_error.dart';
 import '../core/ad_load_state.dart';
+import '../core/callback_guard.dart';
+import '../core/load_watchdog.dart';
 import '../policy/ad_gate.dart';
 import '../policy/full_screen_ad_coordinator.dart';
 import '../policy/retry_policy.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
 
-/// Loads and refreshes one banner slotName.
+/// Loads and refreshes one banner slot.
 ///
 /// - Every load is gate-checked (invariant 1).
 /// - Failures retry with [RetryPolicy] backoff; after the attempt budget a
@@ -21,7 +23,7 @@ import '../seam/ad_sdk_types.dart';
 /// - While loaded, the ad refreshes every [BannerConfig.minRefresh]
 ///   (clamped to ≥ 30s per AdMob guidance).
 class BannerAdController implements AdController {
-  /// Creates a controller for the banner slotName.
+  /// Creates a controller for the banner slot.
   ///
   /// [adUnitId] is the already-resolved unit ID for the current platform
   /// (test-mode substitution happens in `AdFlowConfig`). [onPaid] receives
@@ -50,7 +52,7 @@ class BannerAdController implements AdController {
        _onBlocked = onBlocked,
        _onDisposed = onDisposed;
 
-  /// The gate/cap slotName name for banners.
+  /// The gate/cap slot name for banners.
   static const slotName = 'banner';
 
   /// Refresh intervals below this are clamped (AdMob guidance is ≥ 60s;
@@ -72,14 +74,31 @@ class BannerAdController implements AdController {
 
   AdBlockReason? _lastBlockReason;
 
-  /// Why this slotName last refused to load, or null if nothing is blocking it
+  /// Why this slot last refused to load, or null if nothing is blocking it
   /// (ADR-045). A gate-blocked load reports [AdIdle], which is also what "not
   /// requested yet" looks like — this is what tells them apart.
   AdBlockReason? get lastBlockReason => _lastBlockReason;
 
   void _noteBlocked(AdBlockReason reason) {
     _lastBlockReason = reason;
-    _onBlocked?.call(slotName, reason);
+    final onBlocked = _onBlocked;
+    if (onBlocked != null) {
+      guardedCallback(
+        () => onBlocked(slotName, reason),
+        debugName: 'onAdBlocked',
+      );
+    }
+  }
+
+  /// Forwards a paid event to the app with its slot tag, isolated (an
+  /// analytics-hook bug must never surface as an unhandled stream error).
+  void _dispatchPaid(AdPaidEvent event) {
+    final onPaid = _onPaid;
+    if (onPaid == null) return;
+    guardedCallback(
+      () => onPaid(event.taggedWithSlot(slotName)),
+      debugName: 'onPaidEvent',
+    );
   }
 
   final ValueNotifier<AdLoadState> _state = ValueNotifier(const AdIdle());
@@ -115,7 +134,7 @@ class BannerAdController implements AdController {
   /// when nothing is loaded / the SDK reported nothing.
   AdResponseSummary? get response => _handle?.response;
 
-  /// This slotName's sizing strategy — lets [AdFlowBanner] compute a better,
+  /// This slot's sizing strategy — lets [AdFlowBanner] compute a better,
   /// device-aware placeholder for adaptive kinds than [reservedHeight]'s
   /// width-only floor estimate (review finding #8).
   BannerKind get kind => _config.kind;
@@ -148,7 +167,7 @@ class BannerAdController implements AdController {
   ///
   /// An anchored/inline adaptive banner is requested FOR a specific width, so
   /// after a rotation an ad sized for the old width sits letterboxed in the
-  /// slotName — poor viewability, lost revenue — and, because the controller
+  /// slot — poor viewability, lost revenue — and, because the controller
   /// cached the stale width, EVERY subsequent refresh re-requested that wrong
   /// size too. Google's guidance is to reload an adaptive banner when the
   /// orientation changes.
@@ -195,60 +214,71 @@ class BannerAdController implements AdController {
     // loser's banner).
     _state.value = const AdLoading();
 
-    final blocked = await _gate.loadBlockReason(slotName);
-    if (_disposed) return;
-    if (blocked != null) {
-      _noteBlocked(blocked);
-      // A refused load is a STATE (3.0) — see AdBlocked.
-      _state.value = AdBlocked(blocked);
-      _scheduleGateRecheck();
-      return;
-    }
-
-    // The width this request is being made AT. _width can change underneath us
-    // while the load is in flight (the user rotates), so capture it here and
-    // reconcile after the load completes rather than mislabelling the ad.
-    final requestWidth = _width;
-
-    final BannerSizeSpec size;
-    switch (_config.kind) {
-      case BannerKind.anchoredAdaptive || BannerKind.inlineAdaptive
-          when _width == null:
-        _state.value = const AdFailed(
-          AdFlowError(
-            AdFlowErrorKind.invalidConfig,
-            'Adaptive banners need a width: call load(width: ...) or host '
-            'the controller in an AdFlowBanner.',
-          ),
-        );
-        return;
-      case BannerKind.anchoredAdaptive:
-        size = AnchoredAdaptiveSizeSpec(width: _width!);
-      case BannerKind.inlineAdaptive:
-        size = InlineAdaptiveSizeSpec(
-          width: _width!,
-          maxHeight: _config.maxInlineHeight,
-        );
-      case BannerKind.fixed:
-        size = FixedSizeSpec(_config.fixedSize);
-    }
-
+    // ONE try around the whole async body, gate await included — any escape
+    // path that is not a state write + timer arm leaves the slot pinned at
+    // AdLoading forever (4.0 audit; the gate await used to sit outside).
     try {
-      final handle = await _sdk.loadBanner(
-        BannerLoadSpec(
-          adUnitId: _adUnitId,
-          size: size,
-          collapsible: _config.collapsible,
+      final blocked = await _gate.loadBlockReason(slotName);
+      if (_disposed) return;
+      if (blocked != null) {
+        _noteBlocked(blocked);
+        // A refused load is a STATE (3.0) — see AdBlocked.
+        _state.value = AdBlocked(blocked);
+        _scheduleGateRecheck();
+        return;
+      }
+
+      // The width this request is being made AT. _width can change underneath
+      // us while the load is in flight (the user rotates), so capture it here
+      // and reconcile after the load completes rather than mislabelling the
+      // ad.
+      final requestWidth = _width;
+
+      final BannerSizeSpec size;
+      switch (_config.kind) {
+        case BannerKind.anchoredAdaptive || BannerKind.inlineAdaptive
+            when _width == null:
+          _state.value = const AdFailed(
+            AdFlowError(
+              AdFlowErrorKind.invalidConfig,
+              'Adaptive banners need a width: call load(width: ...) or host '
+              'the controller in an AdFlowBanner.',
+            ),
+          );
+          return;
+        case BannerKind.anchoredAdaptive:
+          size = AnchoredAdaptiveSizeSpec(width: _width!);
+        case BannerKind.inlineAdaptive:
+          size = InlineAdaptiveSizeSpec(
+            width: _width!,
+            maxHeight: _config.maxInlineHeight,
+          );
+        case BannerKind.fixed:
+          size = FixedSizeSpec(_config.fixedSize);
+      }
+
+      // Watchdog: a load callback that never arrives (the plugin has no
+      // timeout of its own) fails this attempt instead of pinning the slot at
+      // AdLoading; a late handle is disposed, never installed (I-C).
+      final handle = await watchAdLoad(
+        pending: _sdk.loadBanner(
+          BannerLoadSpec(
+            adUnitId: _adUnitId,
+            size: size,
+            collapsible: _config.collapsible,
+            request: _config.request,
+          ),
         ),
+        timeout: _retry.loadTimeout,
+        disposeLate: (late) => late.dispose(),
+        slot: slotName,
       );
       if (_disposed) {
         unawaited(handle.dispose());
         return;
       }
       _handle = handle;
-      _paidSub = handle.paidEvents.listen(
-        (event) => _onPaid?.call(event.taggedWithSlot(slotName)),
-      );
+      _paidSub = handle.paidEvents.listen(_dispatchPaid);
       _eventSub = handle.events.listen(_onViewEvent);
       _attempts = 0;
       _gateAttempts = 0;
@@ -278,6 +308,9 @@ class BannerAdController implements AdController {
     if (state is AdLoaded) {
       final blocked = await _gate.loadBlockReason(slotName);
       if (_disposed || blocked == null) return;
+      // Indeterminate is not "revoked": a transient collaborator hiccup must
+      // never destroy the live mounted ad (4.0 audit).
+      if (blocked == AdBlockReason.internalError) return;
       if (_state.value is! AdLoaded) return; // changed while awaiting
       // The mounted ad is no longer PERMITTED (Remove-Ads bought, consent
       // withdrawn, the owning graph disposed). With minRefresh off by
@@ -313,10 +346,10 @@ class BannerAdController implements AdController {
   /// has actually arrived (ADR-041).
   ///
   /// The old code dropped the live handle, went `AdIdle` and started a fresh
-  /// load — so the slotName went BLANK for the entire duration of that load, on
+  /// load — so the slot went BLANK for the entire duration of that load, on
   /// every single refresh cycle. On a weak network that is a multi-second hole
   /// in the middle of the screen, every minute; and a refresh that failed
-  /// (no-fill — routine) left the slotName empty until a retry finally succeeded,
+  /// (no-fill — routine) left the slot empty until a retry finally succeeded,
   /// having destroyed a perfectly good ad to get there.
   Future<void> _refresh() async {
     if (_disposed || _refreshing) return;
@@ -326,10 +359,19 @@ class BannerAdController implements AdController {
       if (_disposed) return;
       final blocked = await _gate.loadBlockReason(slotName);
       if (blocked != null) {
-        // NOT a failure — ads are no longer PERMITTED (Remove-Ads bought,
-        // consent withdrawn). Unlike a failed refresh, the current ad may not
-        // stay: drop it, report why, then re-check the gate later.
         if (_disposed) return;
+        // Indeterminate (a collaborator hiccup) keeps the live ad and skips
+        // this refresh cycle — only a DEFINITE "no longer permitted"
+        // (Remove-Ads bought, consent withdrawn) may take the ad down. Re-arm
+        // the normal refresh timer, or the opt-in refresh loop would die on
+        // one hiccup (4.0 audit).
+        if (blocked == AdBlockReason.internalError) {
+          _scheduleRefresh();
+          return;
+        }
+        // NOT a failure — ads are no longer PERMITTED. Unlike a failed
+        // refresh, the current ad may not stay: drop it, report why, then
+        // re-check the gate later.
         _dropHandle();
         _noteBlocked(blocked);
         _state.value = AdBlocked(blocked);
@@ -340,12 +382,20 @@ class BannerAdController implements AdController {
       final requestWidth = _width;
       final size = _sizeSpec();
       if (size == null) return; // adaptive with no width — cannot refresh
-      final handle = await _sdk.loadBanner(
-        BannerLoadSpec(
-          adUnitId: _adUnitId,
-          size: size,
-          collapsible: _config.collapsible,
+      // Watchdog: a hung replacement load lands in the catch below (keep the
+      // live ad, back off); its late handle is disposed, never swapped in.
+      final handle = await watchAdLoad(
+        pending: _sdk.loadBanner(
+          BannerLoadSpec(
+            adUnitId: _adUnitId,
+            size: size,
+            collapsible: _config.collapsible,
+            request: _config.request,
+          ),
         ),
+        timeout: _retry.loadTimeout,
+        disposeLate: (late) => late.dispose(),
+        slot: slotName,
       );
       if (_disposed || _state.value is! AdLoaded) {
         // The world changed while the replacement was loading: the controller
@@ -353,7 +403,7 @@ class BannerAdController implements AdController {
         // gate closed and dropped it, or a resize-driven reload took over).
         // Installing the replacement now would stomp the newer state and leak
         // whatever it overwrote — release it and let the current owner of the
-        // slotName carry on (2026-07 audit).
+        // slot carry on (2026-07 audit).
         unawaited(handle.dispose());
         return;
       }
@@ -387,11 +437,11 @@ class BannerAdController implements AdController {
       // already on screen — that was the old behaviour's worst property. Keep
       // it, back off, and try again.
       if (_disposed) return;
-      // Only back off if there IS still a current ad to keep. If the slotName
+      // Only back off if there IS still a current ad to keep. If the slot
       // moved on while this refresh was in flight (a gate-closed drop, a
       // resize-driven reload), the shared `_timer` now belongs to THAT path's
       // recovery — cancelling it here and arming a refresh timer (whose
-      // callback no-ops outside AdLoaded) would destroy the slotName's only
+      // callback no-ops outside AdLoaded) would destroy the slot's only
       // re-arm and wedge it blank forever (2026-07 audit).
       if (_state.value is! AdLoaded) return;
       _attempts++;
