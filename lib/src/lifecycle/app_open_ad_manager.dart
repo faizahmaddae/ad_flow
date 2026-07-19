@@ -3,6 +3,7 @@ import 'dart:async';
 import '../config/ad_flow_config.dart';
 import '../controllers/app_open_ad_controller.dart';
 import '../policy/full_screen_ad_coordinator.dart';
+import '../core/callback_guard.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
 
@@ -69,7 +70,7 @@ class AppOpenAdManager {
 
   /// Stops reacting to foreground events (the controller keeps its ad).
   void stop() {
-    unawaited(_sub?.cancel());
+    safeUnawaited(_sub?.cancel(), debugName: 'subscription');
     _sub = null;
   }
 

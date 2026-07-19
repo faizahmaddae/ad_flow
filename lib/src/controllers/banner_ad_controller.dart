@@ -274,7 +274,7 @@ class BannerAdController implements AdController {
         slot: slotName,
       );
       if (_disposed) {
-        unawaited(handle.dispose());
+        safeUnawaited(handle.dispose(), debugName: 'handle');
         return;
       }
       _handle = handle;
@@ -404,7 +404,7 @@ class BannerAdController implements AdController {
         // Installing the replacement now would stomp the newer state and leak
         // whatever it overwrote — release it and let the current owner of the
         // slot carry on (2026-07 audit).
-        unawaited(handle.dispose());
+        safeUnawaited(handle.dispose(), debugName: 'handle');
         return;
       }
       // The replacement is here: swap atomically, THEN release the old ad.
@@ -412,14 +412,17 @@ class BannerAdController implements AdController {
       final oldPaidSub = _paidSub;
       final oldEventSub = _eventSub;
       _handle = handle;
-      _paidSub = handle.paidEvents.listen(
-        (event) => _onPaid?.call(event.taggedWithSlot(slotName)),
-      );
+      // Isolate the paid-event callback exactly like the initial load path —
+      // the refresh swap used a raw `_onPaid?.call(...)`, so a throwing (or
+      // async-rejecting) app `onPaidEvent` on a REFRESHED banner escaped as
+      // an unhandled zone error while the same hook was contained on the
+      // first load (4.1 audit).
+      _paidSub = handle.paidEvents.listen(_dispatchPaid);
       _eventSub = handle.events.listen(_onViewEvent);
       _loadedWidth = requestWidth;
-      unawaited(oldPaidSub?.cancel());
-      unawaited(oldEventSub?.cancel());
-      if (old != null) unawaited(old.dispose());
+      safeUnawaited(oldPaidSub?.cancel(), debugName: 'subscription');
+      safeUnawaited(oldEventSub?.cancel(), debugName: 'subscription');
+      if (old != null) safeUnawaited(old.dispose(), debugName: 'handle');
       // `AdLoaded == AdLoaded`, so writing the state again would NOT notify —
       // the widget would keep rendering the old, now-disposed handle. Bump the
       // revision instead; AdFlowBanner listens to both.
@@ -541,13 +544,13 @@ class BannerAdController implements AdController {
   }
 
   void _dropHandle() {
-    unawaited(_paidSub?.cancel());
-    unawaited(_eventSub?.cancel());
+    safeUnawaited(_paidSub?.cancel(), debugName: 'subscription');
+    safeUnawaited(_eventSub?.cancel(), debugName: 'subscription');
     _paidSub = null;
     _eventSub = null;
     final handle = _handle;
     _handle = null;
-    if (handle != null) unawaited(handle.dispose());
+    if (handle != null) safeUnawaited(handle.dispose(), debugName: 'handle');
   }
 
   @override

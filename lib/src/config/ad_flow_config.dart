@@ -575,6 +575,17 @@ class AdFlowConfig {
 
     void checkCap(FrequencyCap cap, String name) {
       check(cap.minGap >= Duration.zero, '$name.minGap is negative.');
+      // Mirror the constructor asserts: they are STRIPPED in release builds
+      // (`assert(...)` is a no-op there), so validate() is the only guard a
+      // shipped app actually runs (4.1 audit).
+      check(
+        cap.maxPerSession == null || cap.maxPerSession! >= 0,
+        '$name.maxPerSession must be >= 0.',
+      );
+      check(
+        cap.maxPerHour == null || cap.maxPerHour! >= 0,
+        '$name.maxPerHour must be >= 0.',
+      );
     }
 
     void checkAge(Duration? age, String name) {
@@ -598,6 +609,10 @@ class AdFlowConfig {
       checkUnitId(interstitial.adUnitId, 'interstitial');
       checkCap(interstitial.cap, 'interstitial.cap');
       checkAge(interstitial.maxAdAge, 'interstitial.maxAdAge');
+      check(
+        interstitial.minActionsBetween >= 0,
+        'interstitial.minActionsBetween must be >= 0.',
+      );
     }
     final rewarded = this.rewarded;
     if (rewarded != null) {
@@ -612,7 +627,13 @@ class AdFlowConfig {
       checkAge(rewardedInterstitial.maxAdAge, 'rewardedInterstitial.maxAdAge');
     }
     final nativeAd = this.nativeAd;
-    if (nativeAd != null) checkUnitId(nativeAd.adUnitId, 'nativeAd');
+    if (nativeAd != null) {
+      checkUnitId(nativeAd.adUnitId, 'nativeAd');
+      check(
+        (nativeAd.templateKind != null) ^ (nativeAd.factoryId != null),
+        'nativeAd must set exactly one of templateKind or factoryId.',
+      );
+    }
     final appOpen = this.appOpen;
     if (appOpen != null) {
       checkUnitId(appOpen.adUnitId, 'appOpen');
@@ -629,6 +650,12 @@ class AdFlowConfig {
     check(
       retry.loadTimeout == null || retry.loadTimeout! > Duration.zero,
       'retry.loadTimeout must be positive (or null to disable).',
+    );
+    // Mirror RetryConfig's constructor asserts (stripped in release).
+    check(retry.maxAttempts >= 0, 'retry.maxAttempts must be >= 0.');
+    check(
+      retry.jitterFactor >= 0 && retry.jitterFactor <= 1,
+      'retry.jitterFactor must be within [0, 1].',
     );
     for (final id in testDeviceIds) {
       check(id.trim().isNotEmpty, 'testDeviceIds contains an empty string.');

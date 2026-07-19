@@ -235,7 +235,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         slot: slot,
       );
       if (_disposed) {
-        unawaited(handle.dispose());
+        safeUnawaited(handle.dispose(), debugName: 'handle');
         return;
       }
       _handle = handle;
@@ -551,13 +551,13 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   }
 
   void _dropHandle() {
-    unawaited(_contentSub?.cancel());
-    unawaited(_paidSub?.cancel());
+    safeUnawaited(_contentSub?.cancel(), debugName: 'subscription');
+    safeUnawaited(_paidSub?.cancel(), debugName: 'subscription');
     _contentSub = null;
     _paidSub = null;
     final handle = _handle;
     _handle = null;
-    if (handle != null) unawaited(handle.dispose());
+    if (handle != null) safeUnawaited(handle.dispose(), debugName: 'handle');
   }
 
   @override

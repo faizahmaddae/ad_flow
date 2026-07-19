@@ -161,7 +161,7 @@ class NativeAdController implements AdController {
         slot: slotName,
       );
       if (_disposed) {
-        unawaited(handle.dispose());
+        safeUnawaited(handle.dispose(), debugName: 'handle');
         return;
       }
       _handle = handle;
@@ -281,13 +281,13 @@ class NativeAdController implements AdController {
   }
 
   void _dropHandle() {
-    unawaited(_paidSub?.cancel());
-    unawaited(_eventSub?.cancel());
+    safeUnawaited(_paidSub?.cancel(), debugName: 'subscription');
+    safeUnawaited(_eventSub?.cancel(), debugName: 'subscription');
     _paidSub = null;
     _eventSub = null;
     final handle = _handle;
     _handle = null;
-    if (handle != null) unawaited(handle.dispose());
+    if (handle != null) safeUnawaited(handle.dispose(), debugName: 'handle');
   }
 
   @override
