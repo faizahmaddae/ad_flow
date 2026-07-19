@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/controllers/rewarded_ad_controller.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
@@ -193,6 +194,67 @@ void main() {
         reason:
             'a caller granting high-value rewards must know its '
             'verification payload did not attach',
+      );
+      c.dispose();
+    });
+
+    test('an attach failure DROPS the stale warm ad so it cannot be shown '
+        'with the wrong verification (4.1 audit)', () async {
+      final c = controller();
+      await c.load();
+      final stale = sdk.rewardeds.single;
+      stale.ssvUpdateError = StateError('channel down');
+
+      await expectLater(
+        c.setServerSideVerification(
+          const ServerSideVerification(userId: 'user-42'),
+        ),
+        throwsA(isA<StateError>()),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        stale.disposed,
+        isTrue,
+        reason:
+            'the ad whose SSV could not be updated must not remain showable '
+            'carrying the OLD verification payload',
+      );
+      // A fresh ad is warmed to replace it, carrying the new override.
+      expect(sdk.rewardeds.length, greaterThan(1));
+      expect(sdk.rewardedSsvs.last?.userId, 'user-42');
+      c.dispose();
+    });
+
+    test('set during an IN-FLIGHT load: the installed ad carries the new ssv, '
+        'not the stale value the load dispatched with (4.1 audit)', () async {
+      final c = controller();
+      // Park the load in flight (the handle is not installed yet, so
+      // setServerSideVerification finds no warm ad to update directly).
+      sdk.loadHold = Completer<void>();
+      final loading = c.load();
+      await Future<void>.delayed(Duration.zero);
+      expect(c.isReady, isFalse);
+
+      // The app learns the userId (login) while the ad is still loading.
+      await c.setServerSideVerification(
+        const ServerSideVerification(userId: 'late-login'),
+      );
+
+      // The load lands.
+      sdk.loadHold!.complete();
+      sdk.loadHold = null;
+      await loading;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(c.isReady, isTrue);
+      expect(
+        sdk.rewardeds.single.ssvUpdates.map((s) => s.userId),
+        contains('late-login'),
+        reason:
+            'the ad installed by a load that was in flight when '
+            'setServerSideVerification ran must be re-attached the latest '
+            'ssv, or it silently carries the pre-update payload',
       );
       c.dispose();
     });
