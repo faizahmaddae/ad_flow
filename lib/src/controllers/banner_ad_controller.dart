@@ -233,6 +233,10 @@ class BannerAdController implements AdController {
       // and reconcile after the load completes rather than mislabelling the
       // ad.
       final requestWidth = _width;
+      // The consent generation this request is dispatched under (release gate
+      // #2): a mutation landing while the request is in flight makes the ad
+      // stale-consent, and invalidateForConsentChange no-ops on AdLoading.
+      final requestGeneration = _gate.consentGeneration;
 
       final BannerSizeSpec size;
       switch (_config.kind) {
@@ -275,6 +279,15 @@ class BannerAdController implements AdController {
       );
       if (_disposed) {
         safeUnawaited(handle.dispose(), debugName: 'handle');
+        return;
+      }
+      if (_gate.consentGeneration != requestGeneration) {
+        // Consent mutated while this banner was in flight — it was requested
+        // (and its mediation signal forwarded) under the OLD consent. Drop it
+        // unshown and reload through the re-forwarded gate, so it never
+        // renders a stale-consent impression (release gate #2).
+        safeUnawaited(handle.dispose(), debugName: 'handle');
+        await _reloadAtCurrentWidth();
         return;
       }
       _handle = handle;
@@ -336,8 +349,12 @@ class BannerAdController implements AdController {
       // The visible banner was requested — and renders/measures — under the
       // old consent. Drop it and re-request at the current width through the
       // fresh (re-forwarded) gate, so it never renders a stale-consent
-      // impression. (A no-op mid-load / mid-refresh, which reconcile the width
-      // and re-run the gate themselves.)
+      // impression.
+      //
+      // A load OR a background refresh in flight is left alone HERE: it stamps
+      // its consent generation and, on completion, drops-and-reloads itself if
+      // the generation advanced (the mid-load / mid-refresh window — release
+      // gate #2), so it never installs a stale-consent ad either.
       if (_state.value is AdLoading || _refreshing) return;
       await _reloadAtCurrentWidth();
     } else if (state is AdIdle || state is AdFailed || state is AdBlocked) {
@@ -398,6 +415,7 @@ class BannerAdController implements AdController {
       }
       if (_disposed) return;
       final requestWidth = _width;
+      final requestGeneration = _gate.consentGeneration;
       final size = _sizeSpec();
       if (size == null) return; // adaptive with no width — cannot refresh
       // Watchdog: a hung replacement load lands in the catch below (keep the
@@ -423,6 +441,15 @@ class BannerAdController implements AdController {
         // whatever it overwrote — release it and let the current owner of the
         // slot carry on (2026-07 audit).
         safeUnawaited(handle.dispose(), debugName: 'handle');
+        return;
+      }
+      if (_gate.consentGeneration != requestGeneration) {
+        // Consent mutated while this replacement was loading — it carries the
+        // OLD consent/forwarding. Don't swap it in; drop the current ad and
+        // reload fresh through the re-forwarded gate (release gate #2).
+        safeUnawaited(handle.dispose(), debugName: 'handle');
+        _refreshing = false;
+        await _reloadAtCurrentWidth();
         return;
       }
       // The replacement is here: swap atomically, THEN release the old ad.

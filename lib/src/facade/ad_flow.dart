@@ -91,6 +91,7 @@ class AdFlow {
       settleRequestConfig: _settleRequestConfig,
       settleConsent: _settleConsent,
       settleConsentForwarding: _settleConsentForwarding,
+      consentGeneration: () => _consentGeneration,
     );
 
     final interstitialId = config.interstitialAdUnitId(_platform);

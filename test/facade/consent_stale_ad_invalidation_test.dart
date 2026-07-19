@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:ad_flow/ad_flow.dart';
 import 'package:ad_flow/ad_flow_testing.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -142,5 +144,151 @@ void main() {
     expect(sdk.natives.length, greaterThan(1));
     native.dispose();
     ads.dispose();
+  });
+
+  // The MID-LOAD window (release gate #2): a consent mutation lands AFTER a
+  // load passed its gate (state AdLoading) but BEFORE its SDK callback. The
+  // in-flight load stamps its consent generation and drops-and-reloads itself
+  // on completion if the generation advanced, so it never installs a
+  // stale-consent ad. Tested at the controller level for precision.
+  group('mid-load consent mutation (AdLoading window)', () {
+    late FullScreenAdCoordinator coordinator;
+    late StoredFrequencyCapPolicy caps;
+    late int generation;
+
+    setUp(() {
+      coordinator = FullScreenAdCoordinator();
+      caps = StoredFrequencyCapPolicy(
+        store: InMemoryKeyValueStore(),
+        slotCaps: const {},
+        globalCap: const FrequencyCap(),
+      );
+      generation = 0;
+    });
+    tearDown(() => coordinator.dispose());
+
+    AdGate gate() => AdGate(
+      canRequestAds: () async => true,
+      isEnabled: () => true,
+      consentGeneration: () => generation,
+    );
+
+    test(
+      'interstitial: an ad requested under gen N, mutated to N+1 while '
+      'loading, is DROPPED on completion and reloaded — never installed',
+      () async {
+        final c = InterstitialAdController(
+          sdk: sdk,
+          gate: gate(),
+          caps: caps,
+          coordinator: coordinator,
+          config: const InterstitialConfig(
+            adUnitId: PlatformAdUnitId(android: 'i-a'),
+          ),
+          adUnitId: 'i-a',
+        );
+        sdk.loadHold = Completer<void>();
+        unawaited(c.load());
+        await pumpEventQueue(); // parked AdLoading, past the gate
+        expect(c.state.value, isA<AdLoading>());
+
+        generation++; // a consent mutation lands mid-load
+        sdk.loadHold!.complete();
+        sdk.loadHold = null;
+        await pumpEventQueue();
+
+        expect(
+          sdk.interstitials.first.disposed,
+          isTrue,
+          reason:
+              'the ad requested under the old consent must be dropped unshown, '
+              'not installed as AdLoaded and later shown under stale forwarding',
+        );
+        expect(
+          sdk.interstitials.length,
+          2,
+          reason: 'a fresh ad is reloaded under the new generation',
+        );
+        c.dispose();
+      },
+    );
+
+    test(
+      'banner: mid-load mutation drops the stale ad on completion',
+      () async {
+        final c = BannerAdController(
+          sdk: sdk,
+          gate: gate(),
+          config: const BannerConfig(
+            adUnitId: PlatformAdUnitId(android: 'b-a'),
+          ),
+          adUnitId: 'b-a',
+        );
+        sdk.loadHold = Completer<void>();
+        unawaited(c.load(width: 320));
+        await pumpEventQueue();
+        expect(c.state.value, isA<AdLoading>());
+
+        generation++;
+        sdk.loadHold!.complete();
+        sdk.loadHold = null;
+        await pumpEventQueue();
+
+        expect(sdk.banners.first.disposed, isTrue);
+        expect(sdk.banners.length, 2);
+        c.dispose();
+      },
+    );
+
+    test(
+      'native: mid-load mutation drops the stale ad on completion',
+      () async {
+        final c = NativeAdController(
+          sdk: sdk,
+          gate: gate(),
+          config: const NativeConfig(
+            adUnitId: PlatformAdUnitId(android: 'n-a'),
+            templateKind: NativeTemplateKind.small,
+          ),
+          adUnitId: 'n-a',
+        );
+        sdk.loadHold = Completer<void>();
+        unawaited(c.load());
+        await pumpEventQueue();
+        expect(c.state.value, isA<AdLoading>());
+
+        generation++;
+        sdk.loadHold!.complete();
+        sdk.loadHold = null;
+        await pumpEventQueue();
+
+        expect(sdk.natives.first.disposed, isTrue);
+        expect(sdk.natives.length, 2);
+        c.dispose();
+      },
+    );
+
+    test('NO mutation → the ad installs normally (non-vacuity)', () async {
+      final c = InterstitialAdController(
+        sdk: sdk,
+        gate: gate(),
+        caps: caps,
+        coordinator: coordinator,
+        config: const InterstitialConfig(
+          adUnitId: PlatformAdUnitId(android: 'i-a'),
+        ),
+        adUnitId: 'i-a',
+      );
+      sdk.loadHold = Completer<void>();
+      unawaited(c.load());
+      await pumpEventQueue();
+      sdk.loadHold!.complete();
+      sdk.loadHold = null;
+      await pumpEventQueue();
+
+      expect(sdk.interstitials.single.disposed, isFalse);
+      expect(c.state.value, isA<AdLoaded>());
+      c.dispose();
+    });
   });
 }

@@ -225,6 +225,12 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         return;
       }
 
+      // Capture the consent generation this request is dispatched under, to
+      // detect a consent mutation that lands WHILE the request is in flight
+      // (release gate #2 — the mid-load window: the gate already passed, so
+      // invalidateForConsentChange no-ops on AdLoading).
+      final requestGeneration = _gate.consentGeneration;
+
       // Watchdog: the plugin has no load timeout of its own — a callback that
       // never arrives must fail this attempt (and dispose its late handle if
       // one ever shows up) instead of pinning the slot at AdLoading (I-C).
@@ -236,6 +242,16 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       );
       if (_disposed) {
         safeUnawaited(handle.dispose(), debugName: 'handle');
+        return;
+      }
+      if (_gate.consentGeneration != requestGeneration) {
+        // Consent mutated while this ad was in flight — it was requested (and
+        // its mediation privacy signal forwarded) under the OLD consent. Drop
+        // it unshown and reload through the re-forwarded gate, so it never
+        // records a stale-consent impression.
+        safeUnawaited(handle.dispose(), debugName: 'handle');
+        _state.value = const AdIdle();
+        unawaited(load());
         return;
       }
       _handle = handle;
@@ -308,7 +324,10 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     }
     // AdShowing: on screen — do NOT interrupt; its impression already fired,
     // and the dismiss path reloads the next one through the fresh gate.
-    // AdLoading: resolves on its own through the fresh gate.
+    // AdLoading: the in-flight load stamps its consent generation and, on
+    // completion, drops-and-reloads itself if the generation advanced (the
+    // mid-load window — release gate #2), so no explicit action is needed
+    // here.
   }
 
   @override

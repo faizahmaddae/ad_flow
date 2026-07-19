@@ -143,6 +143,7 @@ class NativeAdController implements AdController {
         return;
       }
 
+      final requestGeneration = _gate.consentGeneration;
       // Watchdog: a load callback that never arrives (the plugin has no
       // timeout of its own) fails this attempt instead of pinning the slot at
       // AdLoading; a late handle is disposed, never installed (I-C).
@@ -162,6 +163,15 @@ class NativeAdController implements AdController {
       );
       if (_disposed) {
         safeUnawaited(handle.dispose(), debugName: 'handle');
+        return;
+      }
+      if (_gate.consentGeneration != requestGeneration) {
+        // Consent mutated while this native ad was in flight — it carries the
+        // OLD consent/forwarding. Drop it unshown and reload through the
+        // re-forwarded gate (release gate #2).
+        safeUnawaited(handle.dispose(), debugName: 'handle');
+        _state.value = const AdIdle();
+        unawaited(load());
         return;
       }
       _handle = handle;

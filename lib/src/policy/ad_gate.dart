@@ -33,16 +33,29 @@ class AdGate {
     Future<bool> Function()? settleRequestConfig,
     Future<void> Function()? settleConsent,
     Future<bool> Function()? settleConsentForwarding,
+    int Function()? consentGeneration,
   }) : _canRequestAds = canRequestAds,
        _isEnabled = isEnabled,
        _settleRequestConfig = settleRequestConfig,
        _settleConsent = settleConsent,
-       _settleConsentForwarding = settleConsentForwarding;
+       _settleConsentForwarding = settleConsentForwarding,
+       _consentGeneration = consentGeneration;
 
   final Future<bool> Function() _canRequestAds;
   final bool Function() _isEnabled;
   final Future<bool> Function()? _settleRequestConfig;
   final Future<void> Function()? _settleConsent;
+  final int Function()? _consentGeneration;
+
+  /// A monotonically-increasing counter bumped on every consent MUTATION.
+  ///
+  /// A controller captures this right after its load passes the gate and
+  /// compares it once the ad actually installs: if it advanced in between, a
+  /// consent change landed WHILE the request was in flight, so the ad carries
+  /// a stale consent/forwarding state and must be dropped and re-requested
+  /// (release gate #2 — the mid-load window). 0 when consent tracking is not
+  /// wired (isolated controller tests).
+  int get consentGeneration => _consentGeneration?.call() ?? 0;
 
   /// Joins (and if needed re-attempts) the bounded consent-forwarding barrier
   /// — the app's `forwardConsent`. Answers whether a MEDIATION-CAPABLE load may
