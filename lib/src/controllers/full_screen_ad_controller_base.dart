@@ -106,6 +106,14 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   int _gateAttempts = 0;
   bool _enteredCoordinator = false;
 
+  /// The consent generation the warm ad was REQUESTED under (release gate #2).
+  /// A consent mutation bumps `AdGate.consentGeneration`; when it no longer
+  /// matches, the warm ad carries a stale consent/forwarding state and is
+  /// dropped-and-reloaded — on load completion (the mid-load window) and on
+  /// `recheckGate` (the already-warm case). One internal mechanism, no public
+  /// surface.
+  int _loadedGeneration = 0;
+
   /// The ad reached the screen (AdShowedEvent) but has not been dismissed yet,
   /// so its impression is not recorded yet (ADR-040).
   bool _impressionPending = false;
@@ -227,8 +235,9 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
 
       // Capture the consent generation this request is dispatched under, to
       // detect a consent mutation that lands WHILE the request is in flight
-      // (release gate #2 — the mid-load window: the gate already passed, so
-      // invalidateForConsentChange no-ops on AdLoading).
+      // (release gate #2 — the mid-load window): the gate already passed, so
+      // it is dropped-and-reloaded on completion below rather than by
+      // recheckGate (which handles only the already-warm case).
       final requestGeneration = _gate.consentGeneration;
 
       // Watchdog: the plugin has no load timeout of its own — a callback that
@@ -261,6 +270,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       _gateAttempts = 0;
       _lastBlockReason = null;
       _loadedAt = _now();
+      _loadedGeneration = requestGeneration;
       _state.value = const AdLoaded();
       _scheduleExpiry();
       onLoaded();
@@ -283,6 +293,16 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     if (_disposed) return;
     final state = _state.value;
     if (state is AdLoaded) {
+      // A warm ad requested under a now-stale consent generation
+      // (consent/privacy changed but ads are still permitted, so the
+      // permission check below would pass) must be dropped and reloaded under
+      // the fresh gate, or it would show a stale-consent impression (release
+      // gate #2). This is the already-warm counterpart of the mid-load check
+      // in load(); one internal mechanism.
+      if (_loadedGeneration != _gate.consentGeneration) {
+        discardCurrentAd();
+        return;
+      }
       // Cheap current checks only (enabled + live canRequestAds) — the warm
       // ad already passed the full load gate; this asks "is it STILL
       // permitted?" (Remove-Ads bought, consent withdrawn, graph disposed).
@@ -306,28 +326,6 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     }
     // AdLoading resolves on its own; AdShowing is on screen — the dismiss
     // path reloads through the gate anyway.
-  }
-
-  @override
-  Future<void> invalidateForConsentChange() async {
-    if (_disposed) return;
-    final state = _state.value;
-    if (state is AdLoaded) {
-      // A WARM ad (not yet shown) was requested under the old consent — drop
-      // it and reload under the fresh (re-forwarded) gate, so it never shows
-      // a stale-consent impression. The reload's gate sets the right state
-      // (a fresh ad, or AdBlocked if forwarding must re-run first).
-      discardCurrentAd();
-    } else if (state is AdIdle || state is AdFailed || state is AdBlocked) {
-      if (state is AdFailed) _state.value = const AdIdle();
-      await load();
-    }
-    // AdShowing: on screen — do NOT interrupt; its impression already fired,
-    // and the dismiss path reloads the next one through the fresh gate.
-    // AdLoading: the in-flight load stamps its consent generation and, on
-    // completion, drops-and-reloads itself if the generation advanced (the
-    // mid-load window — release gate #2), so no explicit action is needed
-    // here.
   }
 
   @override

@@ -11,7 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// signal set BEFORE it fills an ad request. `forwardConsent` is that signal,
 /// and the barrier is **fail-closed by default**: a mediation-capable load is
 /// BLOCKED (not quietly served) until forwarding succeeds, and the block
-/// recovers when a retry succeeds. `MediationConsentFailurePolicy.failOpen` is
+/// recovers when a retry succeeds. `MediationConsentFailurePolicy.unsafeFailOpen` is
 /// the explicit, unsafe opt-out. UI is never blocked — only the ad request.
 void main() {
   late FakeAdSdk sdk;
@@ -163,31 +163,34 @@ void main() {
   });
 
   group('explicit, unmistakably-unsafe fail-open opt-out', () {
-    test('failOpen serves even when forwarding fails (reported)', () async {
-      final reported = <FlutterErrorDetails>[];
-      final previousOnError = FlutterError.onError;
-      FlutterError.onError = reported.add;
-      addTearDown(() => FlutterError.onError = previousOnError);
+    test(
+      'unsafeFailOpen serves even when forwarding fails (reported)',
+      () async {
+        final reported = <FlutterErrorDetails>[];
+        final previousOnError = FlutterError.onError;
+        FlutterError.onError = reported.add;
+        addTearDown(() => FlutterError.onError = previousOnError);
 
-      final ads = await AdFlow.initialize(
-        cfg(policy: MediationConsentFailurePolicy.failOpen),
-        sdk: sdk,
-        store: InMemoryKeyValueStore(),
-        platform: AdPlatform.android,
-        forwardConsent: () async => throw StateError('forward bug'),
-      );
-      await ads.whenReady;
-      final banner = ads.banner();
-      await banner.load(width: 320);
-      expect(
-        sdk.loadLog,
-        isNotEmpty,
-        reason: 'failOpen is the explicit revenue-first opt-out',
-      );
-      expect(reported, isNotEmpty, reason: 'still visible even when serving');
-      banner.dispose();
-      ads.dispose();
-    });
+        final ads = await AdFlow.initialize(
+          cfg(policy: MediationConsentFailurePolicy.unsafeFailOpen),
+          sdk: sdk,
+          store: InMemoryKeyValueStore(),
+          platform: AdPlatform.android,
+          forwardConsent: () async => throw StateError('forward bug'),
+        );
+        await ads.whenReady;
+        final banner = ads.banner();
+        await banner.load(width: 320);
+        expect(
+          sdk.loadLog,
+          isNotEmpty,
+          reason: 'unsafeFailOpen is the explicit revenue-first opt-out',
+        );
+        expect(reported, isNotEmpty, reason: 'still visible even when serving');
+        banner.dispose();
+        ads.dispose();
+      },
+    );
   });
 
   group('non-blocking UI + initial-flow coverage', () {
@@ -536,7 +539,7 @@ void main() {
           AdFlow? ads;
           unawaited(
             AdFlow.initialize(
-              cfg(policy: MediationConsentFailurePolicy.failOpen),
+              cfg(policy: MediationConsentFailurePolicy.unsafeFailOpen),
               sdk: sdk,
               store: InMemoryKeyValueStore(),
               platform: AdPlatform.android,

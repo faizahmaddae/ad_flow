@@ -208,9 +208,9 @@ enum MediationConsentFailurePolicy {
   /// initialize (and be requested) without its required GDPR / US-state / age
   /// signal. Only choose this if every mediation network you use reads the IAB
   /// TCF/GPP strings itself (so `forwardConsent` is a belt-and-suspenders
-  /// convenience, not a requirement). Named to be impossible to select by
-  /// accident.
-  failOpen,
+  /// convenience, not a requirement). The `unsafe` prefix is deliberate — it
+  /// makes this impossible to select by accident or reach for without noticing.
+  unsafeFailOpen,
 }
 
 /// How a banner slot is sized.

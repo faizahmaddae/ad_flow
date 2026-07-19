@@ -111,6 +111,13 @@ class BannerAdController implements AdController {
   int _gateAttempts = 0;
   int? _width;
   int? _loadedWidth;
+
+  /// The consent generation the mounted banner was REQUESTED under. When
+  /// [AdGate.consentGeneration] advances past it, the ad renders/measures under
+  /// stale consent/forwarding and `recheckGate` drops-and-reloads it — the
+  /// already-loaded counterpart of the mid-load check in [load] / [_refresh].
+  /// Internal.
+  int _loadedGeneration = 0;
   bool _refreshing = false;
   bool _disposed = false;
 
@@ -235,7 +242,7 @@ class BannerAdController implements AdController {
       final requestWidth = _width;
       // The consent generation this request is dispatched under (release gate
       // #2): a mutation landing while the request is in flight makes the ad
-      // stale-consent, and invalidateForConsentChange no-ops on AdLoading.
+      // stale-consent, so it is dropped-and-reloaded on completion below.
       final requestGeneration = _gate.consentGeneration;
 
       final BannerSizeSpec size;
@@ -297,6 +304,7 @@ class BannerAdController implements AdController {
       _gateAttempts = 0;
       _lastBlockReason = null;
       _loadedWidth = requestWidth;
+      _loadedGeneration = requestGeneration;
       _state.value = const AdLoaded();
       _scheduleRefresh();
       // The layout width changed while this request was in flight (the user
@@ -319,6 +327,19 @@ class BannerAdController implements AdController {
     if (_disposed) return;
     final state = _state.value;
     if (state is AdLoaded) {
+      // A mounted banner requested under a now-stale consent generation
+      // renders and measures under the OLD consent/forwarding — drop it and
+      // re-request at the current width through the fresh gate before checking
+      // mere permission (release gate #2). The already-loaded counterpart of
+      // the mid-load check in load() / _refresh(). A load OR background refresh
+      // in flight is left alone: it stamps its own generation and
+      // drops-and-reloads itself on completion, so it never installs a
+      // stale-consent ad either.
+      if (_loadedGeneration != _gate.consentGeneration) {
+        if (_state.value is AdLoading || _refreshing) return;
+        await _reloadAtCurrentWidth();
+        return;
+      }
       final blocked = await _gate.loadBlockReason(slotName);
       if (_disposed || blocked == null) return;
       // Indeterminate is not "revoked": a transient collaborator hiccup must
@@ -335,28 +356,6 @@ class BannerAdController implements AdController {
       _noteBlocked(blocked);
       _state.value = AdBlocked(blocked);
       _scheduleGateRecheck();
-    } else if (state is AdIdle || state is AdFailed || state is AdBlocked) {
-      if (state is AdFailed) _state.value = const AdIdle();
-      await load();
-    }
-  }
-
-  @override
-  Future<void> invalidateForConsentChange() async {
-    if (_disposed) return;
-    final state = _state.value;
-    if (state is AdLoaded) {
-      // The visible banner was requested — and renders/measures — under the
-      // old consent. Drop it and re-request at the current width through the
-      // fresh (re-forwarded) gate, so it never renders a stale-consent
-      // impression.
-      //
-      // A load OR a background refresh in flight is left alone HERE: it stamps
-      // its consent generation and, on completion, drops-and-reloads itself if
-      // the generation advanced (the mid-load / mid-refresh window — release
-      // gate #2), so it never installs a stale-consent ad either.
-      if (_state.value is AdLoading || _refreshing) return;
-      await _reloadAtCurrentWidth();
     } else if (state is AdIdle || state is AdFailed || state is AdBlocked) {
       if (state is AdFailed) _state.value = const AdIdle();
       await load();
@@ -465,6 +464,7 @@ class BannerAdController implements AdController {
       _paidSub = handle.paidEvents.listen(_dispatchPaid);
       _eventSub = handle.events.listen(_onViewEvent);
       _loadedWidth = requestWidth;
+      _loadedGeneration = requestGeneration;
       safeUnawaited(oldPaidSub?.cancel(), debugName: 'subscription');
       safeUnawaited(oldEventSub?.cancel(), debugName: 'subscription');
       if (old != null) safeUnawaited(old.dispose(), debugName: 'handle');

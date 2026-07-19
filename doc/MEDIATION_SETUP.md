@@ -138,7 +138,7 @@ ad_flow's surfaces for this:
   `AdFlow.initialize(...)` returns immediately and the app renders its first
   frame; only `whenReady`/ad requests wait. If — and only if — every network
   you use reads the IAB TCF/GPP string itself, set
-  `mediationConsentPolicy: MediationConsentFailurePolicy.failOpen` to
+  `mediationConsentPolicy: MediationConsentFailurePolicy.unsafeFailOpen` to
   initialize/serve even when forwarding fails (revenue-first, unsafe for any
   network that needs its own signal).
 

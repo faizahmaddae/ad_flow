@@ -228,8 +228,9 @@ class AdFlow {
   /// failed/timed-out forward means the SDK is NOT initialized and loads are
   /// BLOCKED ([AdBlockReason.consentNotForwarded]); the forwarder is retried in
   /// the background and everything recovers when it succeeds — rather than
-  /// quietly bringing adapters up unsignalled. `.failOpen` initializes/serves
-  /// anyway (unsafe). It never blocks UI ([whenReady] resolves on consent, and
+  /// quietly bringing adapters up unsignalled. `.unsafeFailOpen`
+  /// initializes/serves anyway. It never blocks UI ([whenReady] resolves on
+  /// consent, and
   /// `initialize()` returns immediately). It re-establishes on every consent
   /// change (best-effort for request-time reads; an already-initialized
   /// adapter cannot be re-initialized). See doc/MEDIATION_SETUP.md.
@@ -505,19 +506,6 @@ class AdFlow {
     }
   }
 
-  /// Drops-and-reloads every warm/visible ad after a consent mutation, so a
-  /// stale-consent ad never renders/measures — see
-  /// [AdController.invalidateForConsentChange].
-  void _invalidateLoadedAdsForConsentChange() {
-    unawaited(_interstitial?.invalidateForConsentChange());
-    unawaited(_rewarded?.invalidateForConsentChange());
-    unawaited(_rewardedInterstitial?.invalidateForConsentChange());
-    unawaited(_appOpenController?.invalidateForConsentChange());
-    for (final controller in List.of(_mintedViewControllers)) {
-      unawaited(controller.invalidateForConsentChange());
-    }
-  }
-
   /// Called by the [consent] wrapper after any consent-mutating call
   /// completes (a privacy-options form the user may have used to withdraw,
   /// an app-driven `ensureCanRequestAds`, a test `reset`) so ads that are no
@@ -530,16 +518,18 @@ class AdFlow {
     _refreshCanRequestAds();
     _dispatchConsentChanged();
     // A privacy-options change / re-run / reset makes any prior forward stale.
-    // Invalidate it so the forwarding barrier re-establishes BEFORE the next
-    // newly-permitted load (the same fail-closed ordering as the first load,
-    // not only at startup — release gate).
+    // Invalidate it (bumping the consent generation) so the forwarding barrier
+    // re-establishes BEFORE the next newly-permitted load — the same
+    // fail-closed ordering as the first load, not only at startup (release
+    // gate).
     _invalidateConsentForwarding();
-    // Any ad ALREADY loaded was requested under the previous consent and is
-    // privacy-stale (its impression/measurement reflect the old choice), so
-    // drop-and-reload warm/visible ads through the fresh gate — a full-screen
-    // ad on screen is not interrupted (release gate). This subsumes the
-    // permission-only `_recheckAll` for the mutation case.
-    _invalidateLoadedAdsForConsentChange();
+    // Re-evaluate every controller against the fresh gate. recheckGate drops a
+    // no-longer-permitted ad AND drops-and-reloads any warm/visible ad whose
+    // consent generation is now stale (its impression/measurement reflect the
+    // old choice), reloading through the re-forwarded gate — a full-screen ad
+    // on screen is not interrupted (release gate). One path, permission and
+    // consent-staleness together.
+    _recheckAll();
   }
 
   // ── Consent, and its retry ────────────────────────────────────────────────
@@ -577,7 +567,7 @@ class AdFlow {
   // initialized and mediation-capable loads are BLOCKED
   // ([AdBlockReason.consentNotForwarded]); the forwarder is retried in the
   // background and everything recovers the moment it succeeds.
-  // `MediationConsentFailurePolicy.failOpen` is the explicit, unsafe opt-out.
+  // `MediationConsentFailurePolicy.unsafeFailOpen` is the explicit opt-out.
   // UI never blocks — `initialize()` returns immediately (graph construction
   // is synchronous; the whole forward→init pipeline runs in the background).
   // For a forwarding adopter, `whenReady` and loads DO wait on forwarding.
@@ -601,6 +591,16 @@ class AdFlow {
   /// operation can never apply its external partner-SDK side effect AFTER a
   /// newer one. `Future.timeout` on the gate side bounds only the WAIT, never
   /// this source.
+  ///
+  /// **A permanently-hung source therefore blocks mediation loads forever —
+  /// by design.** Dart cannot cancel a Future, so a stuck forwarder is never
+  /// abandoned or re-invoked concurrently (either would risk a partner-SDK
+  /// side effect landing out of order, the exact hazard the serialization
+  /// exists to prevent). Fail-closed-forever is the safe direction: no ad
+  /// request goes out unsignalled; the slot stays visibly `AdBlocked(
+  /// consentNotForwarded)` and recovers only if the source itself completes.
+  /// This is a deliberate non-goal for a cancellation framework — the app is
+  /// responsible for a forwarder that terminates.
   Future<void>? _forwardSource;
 
   /// FACT: forwarding has completed successfully for the current generation.
@@ -623,7 +623,7 @@ class AdFlow {
 
   /// Awaited by `AdGate.loadBlockReason` AFTER the consent gate opens, before
   /// a mediation-capable request. Answers whether the load may proceed with
-  /// respect to consent forwarding / mediation-init deferral.
+  /// respect to consent forwarding.
   Future<bool> _settleConsentForwarding() async {
     if (!_mediationConsentRequired) return true; // non-adopter: no barrier
     if (_disposed) return false;

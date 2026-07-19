@@ -1,6 +1,37 @@
 # PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
+**Phase 23 — 5.0.0 simplification / maintainability pass (2026-07-19)** — ✅
+implemented on branch **`post-release-audit-4.1`** (off tag `v4.0.0`; NOT
+merged/tagged/published — Faiz reviews). The ADR-065 redesign is accepted and
+correct; this pass removes accidental complexity from its final diff without
+touching the verified privacy/ordering invariants. ADR-066:
+
+1. **Folded stale-consent invalidation into the existing `recheckGate()`.**
+   Removed `AdController.invalidateForConsentChange()` + all 3 impls + the
+   facade's `_invalidateLoadedAdsForConsentChange` fan-out. Each controller now
+   stamps `_loadedGeneration` on install and `recheckGate` drops-and-reloads a
+   generation-stale `AdLoaded` (before the permission check). `recheckGate`
+   already ran after every consent mutation, so `_afterConsentMutation` calls
+   only `_recheckAll()`. **Net: the `AdController` interface is unchanged vs
+   v4.0.0** (no new public method); one owner for "re-evaluate a loaded ad."
+2. **Renamed `MediationConsentFailurePolicy.failOpen → unsafeFailOpen`** (free
+   rename, unreleased 5.0 enum). The `unsafe` prefix makes the opt-out hard to
+   select by accident — no machinery added. `RequestConfigFailurePolicy.failOpen`
+   (shipped 4.0) is untouched.
+3. **Retained (deliberate):** `_loadedGeneration` per controller;
+   `AdGate.consentGeneration` optional callback (public because the gate class
+   already is, and per-file-library privacy forces it — defaults to `0`/no-op,
+   never an integration step); un-timeout'd `_forwardSource` serialization (a
+   permanently-hung source fails CLOSED forever by design — documented, no
+   cancellation framework). Invariants in ADR-066.
+
+Verify: `dart format` + `flutter analyze` clean, **494 tests** green, pana
+160/160, dry-run 0 warnings, Android + iOS example builds. Version stays
+**5.0.0**. Public API delta from v4.0.0 in ADR-066's Consequences.
+
+---
+
 **Phase 22 — 5.0.0 mediation-lifecycle release gate #2 (2026-07-19)** — ✅
 implemented on branch **`post-release-audit-4.1`** (off tag `v4.0.0`; NOT
 merged/tagged/published — Faiz reviews). A second release-gate review
@@ -15,17 +46,18 @@ lifecycle errors. Fixed as ADR-065 (supersedes ADR-064's request-time model):
 2. **`forwardConsent` runs BEFORE `MobileAds.initialize()`.** Adapters read
    their flag DURING GMA init (AppLovin/Meta), so init is gated on forwarding.
    Fail-closed: forward failure → SDK not initialized + loads blocked +
-   retried; init/serving recover on success. failOpen initializes anyway.
-   UI non-blocking (`initialize()` returns immediately).
+   retried; init/serving recover on success. `unsafeFailOpen` initializes
+   anyway. UI non-blocking (`initialize()` returns immediately).
 3. **Forwarder source serialized across the timeout boundary.** `Future.timeout`
    does not cancel its source; the un-timeout'd invocation is tracked so at
    most one runs and older→newer external side effects are strictly ordered.
-4. **Stale-consent ad invalidation.** `AdController.invalidateForConsentChange`:
-   a warm full-screen / visible banner/native loaded under old consent is
-   dropped+reloaded on a mutation; a showing full-screen ad is not interrupted.
+4. **Stale-consent ad invalidation** (later folded into `recheckGate` by
+   ADR-066): a warm full-screen / visible banner/native loaded under old
+   consent is dropped+reloaded on a mutation; a showing full-screen ad is not
+   interrupted.
 
-Verify: `flutter analyze && flutter test` → clean, **490 tests**. Version
-stays **5.0.0**. ADR-065; docs (README/CHANGELOG/MIGRATION/MEDIATION_SETUP)
+Verify (at Phase 22): `flutter analyze && flutter test` → clean. Version stays
+**5.0.0**. ADR-065; docs (README/CHANGELOG/MIGRATION/MEDIATION_SETUP)
 reconciled to forward-before-init + removal.
 
 ---
@@ -37,7 +69,7 @@ request without its required privacy signal. Redesigned **fail-CLOSED by
 default** (mirrors ADR-061's request-config policy): forwarding failures now
 BLOCK mediation-capable loads (`AdBlockReason.consentNotForwarded`, new enum
 case → major), retried in the background, recovering when forwarding
-succeeds; explicit `MediationConsentFailurePolicy.failOpen` is the only
+succeeds; explicit `MediationConsentFailurePolicy.unsafeFailOpen` is the only
 (unsafe) way to serve anyway. Generation-guarded. Plus adversarial proofs
 (fail-first + non-vacuity) for SSV latest-value-wins/dispose-races, cap-merge
 dedup, and async-rejection containment through the REAL public void-typed
@@ -54,7 +86,7 @@ signal. Redesigned **fail-CLOSED by default** (mirrors ADR-061's request-
 config policy): `forwardConsent`/`deferMediationInit` failures now BLOCK
 mediation-capable loads (`AdBlockReason.consentNotForwarded`, new enum case →
 major), retried in the background, recovering when forwarding succeeds; UI
-never blocked; explicit `MediationConsentFailurePolicy.failOpen` is the only
+never blocked; explicit `MediationConsentFailurePolicy.unsafeFailOpen` is the only
 (unsafe) way to serve anyway. Barrier moved out of the consent chain into a
 dedicated `AdGate` gate barrier; generation-guarded so mutations re-establish
 it before newly-permitted loads and a stale forward can't satisfy a new

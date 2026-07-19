@@ -6,15 +6,14 @@ Most apps compile and behave unchanged. Check these:
    deferMediationInit: true)`, delete it — it will not compile. It disabled
    Google mediation for the session (not what its name implied) and could not
    set partner flags before adapter init. Replace it with `forwardConsent`
-   (below), which now runs before `MobileAds.initialize()`.
+   (below), which now runs before `MobileAds.initialize()`. The seam method it
+   called, **`AdSdk.disableMediationInitialization()`, is also REMOVED** — only
+   relevant if you implement `AdSdk` directly (a custom seam or a hand-rolled
+   test double, not the shipped `FakeAdSdk`); delete the override.
 2. **Enum switch (source-breaking).** `AdBlockReason` gained
    `consentNotForwarded`. If you `switch` exhaustively over `AdBlockReason`
    (no wildcard), add the case. Wildcard/`default` — nothing to do.
-3. **Custom `AdController` implementers only:** add
-   `invalidateForConsentChange()` (drops+reloads an ad requested under stale
-   consent). The package's own controllers implement it; most apps never
-   implement `AdController`.
-4. **Only if you use `forwardConsent`:** it now runs **before**
+3. **Only if you use `forwardConsent`:** it now runs **before**
    `MobileAds.initialize()` and fails **closed** by default. A failed/timed-out
    forward means the GMA SDK is not initialized and mediation-capable loads
    block (`AdBlockReason.consentNotForwarded`), retried in the background — so
@@ -22,7 +21,7 @@ Most apps compile and behave unchanged. Check these:
    Your UI is unaffected (`AdFlow.initialize(...)` returns immediately; only
    `whenReady`/loads wait). If, and only if, every network you use reads the
    IAB TCF/GPP string itself, opt into
-   `mediationConsentPolicy: MediationConsentFailurePolicy.failOpen` (revenue-
+   `mediationConsentPolicy: MediationConsentFailurePolicy.unsafeFailOpen` (revenue-
    first, unsafe). **Non-adopters of `forwardConsent` are unaffected.**
 
 Optional adoption (non-breaking):

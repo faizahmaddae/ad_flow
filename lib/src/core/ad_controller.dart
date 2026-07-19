@@ -10,30 +10,26 @@ abstract interface class AdController {
   /// Loads an ad if the gate allows and none is loaded/loading.
   Future<void> load();
 
-  /// Re-evaluates whether this slot's ad is still PERMITTED, right now.
+  /// Re-evaluates this slot against the current gate, right now, and repairs a
+  /// live/warm ad that no longer matches it.
   ///
-  /// Drops a live/warm ad whose permission has gone away (Remove-Ads bought,
-  /// consent withdrawn, the owning `AdFlow` disposed) and kicks a load when
-  /// the slot is idle and newly permitted. `AdFlow` calls this on every
-  /// controller after `disableAds`/`enableAds` and on `dispose()` — apps
-  /// normally never need to call it, but it is safe to call at any time
-  /// (2026-07 audit).
+  /// Two things can make a mounted or warm ad wrong:
+  /// - **Permission went away** (Remove-Ads bought, consent withdrawn, the
+  ///   owning `AdFlow` disposed) — the ad is dropped. An idle slot that is
+  ///   newly permitted starts a load.
+  /// - **Consent changed** (a consent / privacy-options mutation bumps the
+  ///   internal consent generation) — an ad requested under the old consent is
+  ///   privacy-stale even though showing it makes no new request: its
+  ///   impression and measurement still reflect the old choice. So a warm
+  ///   full-screen ad, or a visible banner/native ad, is DROPPED and reloaded
+  ///   through the (re-forwarded) gate. A full-screen ad already ON SCREEN is
+  ///   NOT interrupted — its impression already happened — but the next one it
+  ///   preloads on dismissal goes through the fresh gate.
+  ///
+  /// `AdFlow` calls this on every controller after `disableAds`/`enableAds`,
+  /// after any consent mutation, and on `dispose()`. Apps normally never need
+  /// to call it, but it is safe to call at any time (2026-07 audit).
   Future<void> recheckGate();
-
-  /// Invalidates an ad that was REQUESTED under a now-stale consent state and
-  /// re-requests it under the fresh one — called after a consent /
-  /// privacy-options mutation (release gate).
-  ///
-  /// A warm (not-yet-shown) full-screen ad, or a visible banner/native ad, was
-  /// requested — and renders/measures — under the consent that applied at load
-  /// time. After the user changes consent, that ad is privacy-stale even
-  /// though showing it makes no new request: its impression and measurement
-  /// still reflect the old choice. So a warm/visible ad is DROPPED and
-  /// reloaded through the (re-forwarded) gate. A full-screen ad that is
-  /// currently on screen is NOT interrupted — its impression already
-  /// happened — but the next one it preloads on dismissal goes through the
-  /// fresh gate.
-  Future<void> invalidateForConsentChange();
 
   /// Cancels timers, disposes the current handle and stops the controller.
   void dispose();

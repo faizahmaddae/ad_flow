@@ -78,6 +78,6 @@ enum AdBlockReason {
   /// gate re-check re-joins it, so the slot recovers the moment it succeeds —
   /// observable via `onAdBlocked` and the `AdBlocked` state, never a silent
   /// unsignalled request (release gate). Choose
-  /// [MediationConsentFailurePolicy.failOpen] to serve anyway (unsafe).
+  /// [MediationConsentFailurePolicy.unsafeFailOpen] to serve anyway (unsafe).
   consentNotForwarded,
 }

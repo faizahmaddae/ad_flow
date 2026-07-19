@@ -17,6 +17,11 @@ invalid `deferMediationInit`.
   achieve "set the partner flag, then let adapters come up," and disabling
   Google mediation is revenue-harming. Use `forwardConsent` instead — it now
   runs before init (below).
+- **`AdSdk.disableMediationInitialization()` REMOVED** from the seam interface
+  (was in 4.0.0). It backed `deferMediationInit` and has no correct use (see
+  above). Affects only code that implements or subclasses `AdSdk` directly (a
+  custom seam, or a test double not built on the shipped `FakeAdSdk`) — remove
+  the override. Apps using the package normally never touch `AdSdk`.
 - **`forwardConsent` runs BEFORE `MobileAds.initialize()`.** Mediation
   adapters initialize *during* `MobileAds.initialize()`, and AppLovin/Meta
   read their privacy flag at that point (Google: set it "before you
@@ -24,19 +29,13 @@ invalid `deferMediationInit`.
   `forwardConsent`, and only then initializes the GMA SDK. Fail-CLOSED by
   default: a failed/timed-out forward means the SDK is **not initialized**
   and loads are BLOCKED (`AdBlockReason.consentNotForwarded`), retried in the
-  background; init + serving recover when forwarding succeeds. `failOpen`
-  initializes/serves anyway (unsafe). UI is never blocked — `initialize()`
-  returns immediately; only `whenReady`/loads wait. Non-adopters keep
-  parallel init.
+  background; init + serving recover when forwarding succeeds.
+  `unsafeFailOpen` initializes/serves anyway. UI is never blocked —
+  `initialize()` returns immediately; only `whenReady`/loads wait.
+  Non-adopters keep parallel init.
 - **`AdBlockReason` gained `consentNotForwarded`** — exhaustive switches over
   `AdBlockReason` need the new case (or a wildcard). Non-adopters of
   `forwardConsent` never see it.
-- **`AdController` gained `invalidateForConsentChange()`** — an interface
-  addition (breaking for the rare external implementer). After a consent /
-  privacy-options mutation, an already-loaded ad is privacy-stale (its
-  impression/measurement reflect the old consent), so a warm full-screen ad
-  or visible banner/native is dropped and reloaded under the fresh gate; a
-  full-screen ad on screen is not interrupted.
 
 ### Added
 
@@ -48,7 +47,7 @@ invalid `deferMediationInit`.
   source), and a newer consent generation's forward never applies its
   partner-SDK side effect before an older one's completes. Generation-guarded.
 - **`AdFlowConfig.mediationConsentPolicy`** + `MediationConsentFailurePolicy`
-  (`failClosed` default, `failOpen` = explicit unsafe opt-out).
+  (`failClosed` default, `unsafeFailOpen` = explicit unsafe opt-out).
 
 ### Fixed (correctness / reward integrity / reliability)
 
@@ -88,7 +87,9 @@ invalid `deferMediationInit`.
 - **Stale-consent ad invalidation.** After a consent/privacy mutation a warm
   full-screen ad or visible banner/native (requested under the old consent)
   is dropped and reloaded under the fresh gate; a full-screen ad on screen is
-  not interrupted.
+  not interrupted. Handled by the existing `AdController.recheckGate()` (which
+  already runs after every consent mutation) via an internal consent-generation
+  stamp — no new public method, no new integration step.
 - **`MediationNetworkExtras`** asserts against an empty class name (a silent
   reflection no-op at request time).
 
