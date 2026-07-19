@@ -384,6 +384,48 @@ void main() {
         );
       });
     });
+
+    test('a late persisted timestamp that EQUALS an in-memory one is merged '
+        'ONCE — never double-counted against maxPerHour (release gate)', () {
+      fakeAsync((async) {
+        // The in-memory impression and the late persisted read share the exact
+        // same millisecond (the same impression, persisted then re-read after
+        // the hydration timeout). A merge that concatenated instead of unioning
+        // would count it TWICE and trip maxPerHour a beat early.
+        final sharedTs = now.millisecondsSinceEpoch;
+        final store = _HangThenResumeStore(staleLast: sharedTs);
+        final caps = StoredFrequencyCapPolicy(
+          store: store,
+          slotCaps: {'interstitial': const FrequencyCap(maxPerHour: 2)},
+          globalCap: const FrequencyCap(),
+          now: () => now,
+        );
+
+        unawaited(caps.canShow('interstitial'));
+        async.elapse(const Duration(seconds: 5)); // hydration times out
+        async.flushMicrotasks();
+
+        // Record exactly ONE impression, at sharedTs (now unchanged).
+        unawaited(caps.recordImpression('interstitial'));
+        async.flushMicrotasks();
+
+        // The hung store resumes; its persisted history [sharedTs] equals the
+        // in-memory stamp.
+        store.resume();
+        async.flushMicrotasks();
+
+        bool? allowed;
+        unawaited(caps.canShow('interstitial').then((v) => allowed = v));
+        async.flushMicrotasks();
+        expect(
+          allowed,
+          isTrue,
+          reason:
+              'one impression present in BOTH memory and the late read is one '
+              'impression (1 < maxPerHour 2); a double-count would block it',
+        );
+      });
+    });
   });
 }
 
