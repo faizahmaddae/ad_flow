@@ -27,12 +27,8 @@ void main() {
     banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
   );
 
-  AdFlowConfig cfg({
-    MediationConsentFailurePolicy? policy,
-    bool deferMediationInit = false,
-  }) => AdFlowConfig(
+  AdFlowConfig cfg({MediationConsentFailurePolicy? policy}) => AdFlowConfig(
     banner: const BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
-    deferMediationInit: deferMediationInit,
     mediationConsentPolicy: policy ?? MediationConsentFailurePolicy.failClosed,
   );
 
@@ -122,6 +118,13 @@ void main() {
     test('a forwarder that FAILS then SUCCEEDS: the slot blocks, then recovers '
         'on the retry — visibly and without app intervention', () {
       fakeAsync((async) {
+        // The FIRST forward now runs during startup (forward-before-init), so
+        // install the error handler BEFORE initialize to observe its failure.
+        final reported = <FlutterErrorDetails>[];
+        final previousOnError = FlutterError.onError;
+        FlutterError.onError = reported.add;
+        addTearDown(() => FlutterError.onError = previousOnError);
+
         var calls = 0;
         AdFlow? ads;
         unawaited(
@@ -137,11 +140,6 @@ void main() {
           ).then((f) => ads = f),
         );
         async.flushMicrotasks();
-
-        final reported = <FlutterErrorDetails>[];
-        final previousOnError = FlutterError.onError;
-        FlutterError.onError = reported.add;
-        addTearDown(() => FlutterError.onError = previousOnError);
 
         final banner = ads!.banner();
         unawaited(banner.load(width: 320));
@@ -193,10 +191,10 @@ void main() {
   });
 
   group('non-blocking UI + initial-flow coverage', () {
-    test('a hung forwarder does NOT delay whenReady/initialize — only the '
-        'ad request is gated', () {
+    test('initialize() returns IMMEDIATELY even with a hung forwarder — the '
+        'non-blocking-UI guarantee (whenReady/loads may wait, the first frame '
+        'does not)', () {
       fakeAsync((async) {
-        var ready = false;
         AdFlow? ads;
         unawaited(
           AdFlow.initialize(
@@ -205,19 +203,19 @@ void main() {
             store: InMemoryKeyValueStore(),
             platform: AdPlatform.android,
             forwardConsent: () => Completer<void>().future, // never completes
-          ).then((f) {
-            ads = f;
-            unawaited(f.whenReady.then((_) => ready = true));
-          }),
+          ).then((f) => ads = f),
         );
-        async.elapse(const Duration(seconds: 1));
+        // A single microtask — no timers elapsed — must be enough for
+        // initialize() to resolve: graph construction is synchronous and the
+        // whole forward→init pipeline runs in the background. The app can
+        // runApp() here regardless of the forwarder.
         async.flushMicrotasks();
         expect(
-          ready,
-          isTrue,
+          ads,
+          isNotNull,
           reason:
-              'whenReady resolves on consent alone; forwarding gates loads, '
-              'never UI',
+              'AdFlow.initialize() must return before consent/forward/init — '
+              'the app renders its first frame immediately',
         );
         ads!.dispose();
       });
@@ -440,76 +438,54 @@ void main() {
     });
   });
 
-  group('deferMediationInit failure is fail-closed by default (4.1)', () {
-    test('a persistently failing deferral BLOCKS mediation-capable loads and '
-        'is retried before init', () async {
-      final reported = <FlutterErrorDetails>[];
-      final previousOnError = FlutterError.onError;
-      FlutterError.onError = reported.add;
-      addTearDown(() => FlutterError.onError = previousOnError);
-
-      sdk.disableMediationInitializationError = StateError('defer failed');
-      final ads = await AdFlow.initialize(
-        cfg(deferMediationInit: true),
-        sdk: sdk,
-        store: InMemoryKeyValueStore(),
-        platform: AdPlatform.android,
-      );
-      await ads.whenReady;
-
-      expect(
-        sdk.disableMediationInitializationCalls,
-        3,
-        reason: 'the deferral is retried before giving up (non-vacuity)',
-      );
-      expect(reported, isNotEmpty, reason: 'the lost ordering is visible');
-      expect(sdk.initializeCalls, greaterThan(0), reason: 'init still ran');
-
-      final banner = ads.banner();
-      await banner.load(width: 320);
-      expect(
-        sdk.loadLog,
-        isEmpty,
-        reason:
-            'the requested pre-init ordering was lost and could not be '
-            'restored — fail-closed refuses the mediation-capable request',
-      );
-      expect(banner.lastBlockReason, AdBlockReason.consentNotForwarded);
-      banner.dispose();
-      ads.dispose();
-    });
-
-    test('failOpen serves despite a failed deferral (explicit)', () async {
-      final previousOnError = FlutterError.onError;
-      FlutterError.onError = (_) {};
-      addTearDown(() => FlutterError.onError = previousOnError);
-
-      sdk.disableMediationInitializationError = StateError('defer failed');
-      final ads = await AdFlow.initialize(
-        cfg(
-          policy: MediationConsentFailurePolicy.failOpen,
-          deferMediationInit: true,
-        ),
-        sdk: sdk,
-        store: InMemoryKeyValueStore(),
-        platform: AdPlatform.android,
-      );
-      await ads.whenReady;
-      final banner = ads.banner();
-      await banner.load(width: 320);
-      expect(sdk.loadLog, isNotEmpty);
-      banner.dispose();
-      ads.dispose();
-    });
-
-    test('a load reaching the barrier WHILE the deferral is still in flight '
-        'waits for it — the guarantee is structural, not timing (release '
-        'gate)', () {
+  group('forward-before-initialize (release gate: adapters read their flag '
+      'DURING MobileAds.initialize)', () {
+    test('forwardConsent runs BEFORE the GMA SDK is initialized', () {
       fakeAsync((async) {
-        // Hold the deferral in flight so a load can reach the barrier before
-        // it settles; the deferral then FAILS. No load may slip through.
-        sdk.disableMediationInitializationHold = Completer<void>();
-        sdk.disableMediationInitializationError = StateError('defer failed');
+        final order = <String>[];
+        final forwardGate = Completer<void>();
+        AdFlow? ads;
+        unawaited(
+          AdFlow.initialize(
+            bannerConfig,
+            sdk: sdk,
+            store: InMemoryKeyValueStore(),
+            platform: AdPlatform.android,
+            forwardConsent: () {
+              order.add('forward');
+              return forwardGate.future;
+            },
+          ).then((f) => ads = f),
+        );
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+
+        // The forwarder started; the GMA SDK must NOT be initialized yet.
+        expect(order, ['forward']);
+        expect(
+          sdk.initializeCalls,
+          0,
+          reason:
+              'MobileAds.initialize() must not run before forwardConsent — an '
+              'init-time partner adapter would come up without its flag',
+        );
+
+        forwardGate.complete();
+        async.flushMicrotasks();
+        expect(
+          sdk.initializeCalls,
+          1,
+          reason: 'init proceeds once forwarding succeeds',
+        );
+        ads!.dispose();
+      });
+    });
+
+    test('fail-CLOSED: a failing forwarder does NOT initialize the SDK, and '
+        'recovers (init runs) once it succeeds', () {
+      fakeAsync((async) {
+        var calls = 0;
         final previousOnError = FlutterError.onError;
         FlutterError.onError = (_) {};
         addTearDown(() => FlutterError.onError = previousOnError);
@@ -517,59 +493,201 @@ void main() {
         AdFlow? ads;
         unawaited(
           AdFlow.initialize(
-            cfg(deferMediationInit: true),
+            bannerConfig,
             sdk: sdk,
             store: InMemoryKeyValueStore(),
             platform: AdPlatform.android,
+            forwardConsent: () async {
+              calls++;
+              if (calls == 1) throw StateError('forward failed');
+            },
           ).then((f) => ads = f),
         );
         async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
 
+        expect(
+          sdk.initializeCalls,
+          0,
+          reason: 'fail-closed: no init until the flag is forwarded',
+        );
+
+        // Retry re-arms and a blocked load drives a fresh forward that succeeds.
         final banner = ads!.banner();
         unawaited(banner.load(width: 320));
-        async.elapse(const Duration(seconds: 3)); // load parks on the deferral
-        async.flushMicrotasks();
-        expect(
-          sdk.loadLog,
-          isEmpty,
-          reason: 'the load must WAIT while the deferral is still in flight',
-        );
-
-        // The deferral now resolves — and fails (all 3 attempts).
-        sdk.disableMediationInitializationHold!.complete();
-        sdk.disableMediationInitializationHold = null;
         async.elapse(const Duration(minutes: 1));
         async.flushMicrotasks();
-        expect(
-          sdk.loadLog,
-          isEmpty,
-          reason:
-              'a definitively-failed deferral is fail-closed — no mediation '
-              'request goes out',
-        );
-        expect(banner.lastBlockReason, AdBlockReason.consentNotForwarded);
+        expect(calls, greaterThanOrEqualTo(2));
+        expect(sdk.initializeCalls, 1, reason: 'init runs after recovery');
+        expect(sdk.loadLog, isNotEmpty);
         banner.dispose();
         ads!.dispose();
       });
     });
 
     test(
-      'a SUCCESSFUL deferral imposes no barrier when no forwarder is set',
-      () async {
-        final ads = await AdFlow.initialize(
-          cfg(deferMediationInit: true),
-          sdk: sdk,
-          store: InMemoryKeyValueStore(),
-          platform: AdPlatform.android,
-        );
-        await ads.whenReady;
-        expect(sdk.disableMediationInitializationCalls, 1);
-        final banner = ads.banner();
-        await banner.load(width: 320);
-        expect(sdk.loadLog, isNotEmpty);
-        banner.dispose();
-        ads.dispose();
+      'fail-OPEN: a failing forwarder still INITIALIZES (explicit unsafe)',
+      () {
+        fakeAsync((async) {
+          final previousOnError = FlutterError.onError;
+          FlutterError.onError = (_) {};
+          addTearDown(() => FlutterError.onError = previousOnError);
+
+          AdFlow? ads;
+          unawaited(
+            AdFlow.initialize(
+              cfg(policy: MediationConsentFailurePolicy.failOpen),
+              sdk: sdk,
+              store: InMemoryKeyValueStore(),
+              platform: AdPlatform.android,
+              forwardConsent: () async => throw StateError('forward failed'),
+            ).then((f) => ads = f),
+          );
+          async.flushMicrotasks();
+          async.elapse(const Duration(seconds: 1));
+          async.flushMicrotasks();
+          expect(
+            sdk.initializeCalls,
+            1,
+            reason: 'fail-open initializes even though forwarding failed',
+          );
+          ads!.dispose();
+        });
       },
     );
+
+    test('a non-adopter (no forwardConsent) initializes in parallel with '
+        'consent — no ordering delay', () async {
+      final ads = await AdFlow.initialize(
+        bannerConfig,
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+      );
+      await ads.whenReady;
+      expect(sdk.initializeCalls, 1);
+      ads.dispose();
+    });
+  });
+
+  group('source serialization ACROSS the timeout boundary (release gate: '
+      'Future.timeout does not cancel its source)', () {
+    test('after a forward attempt TIMES OUT, no second forwarder invocation '
+        'overlaps the still-running source', () {
+      fakeAsync((async) {
+        var concurrent = 0;
+        var maxConcurrent = 0;
+        var calls = 0;
+        final firstDone = Completer<void>();
+        AdFlow? ads;
+        unawaited(
+          AdFlow.initialize(
+            bannerConfig,
+            sdk: sdk,
+            store: InMemoryKeyValueStore(),
+            platform: AdPlatform.android,
+            forwardConsent: () async {
+              calls++;
+              concurrent++;
+              if (concurrent > maxConcurrent) maxConcurrent = concurrent;
+              // First invocation runs LONGER than the 15s gate bound, so the
+              // load's wait times out while this source is still running.
+              if (calls == 1) {
+                await firstDone.future;
+              }
+              concurrent--;
+            },
+          ).then((f) => ads = f),
+        );
+        async.flushMicrotasks();
+
+        final banner = ads!.banner();
+        unawaited(banner.load(width: 320));
+        // Past the 15s forward bound AND the retry re-arm (10s) + backoffs:
+        // the load's wait times out, retries fire — but the source is still
+        // running, so none may start a second forwarder.
+        async.elapse(const Duration(minutes: 2));
+        async.flushMicrotasks();
+
+        expect(
+          maxConcurrent,
+          1,
+          reason:
+              'Future.timeout does not cancel the source; a retry after the '
+              'timeout must NOT invoke forwardConsent again while the first '
+              'invocation is still running — else stale partner-SDK side '
+              'effects can land out of order',
+        );
+
+        firstDone.complete();
+        async.elapse(const Duration(minutes: 1));
+        async.flushMicrotasks();
+        expect(maxConcurrent, 1, reason: 'still serial after the source ends');
+        banner.dispose();
+        ads!.dispose();
+      });
+    });
+
+    test('a mutation during a TIMED-OUT-but-still-running forward: the newer '
+        'generation forward runs only AFTER the older source completes '
+        '(no out-of-order external side effect)', () {
+      fakeAsync((async) {
+        final applied = <int>[]; // the consent "state" each forward applied
+        var current = 1; // the current consent generation value
+        final firstDone = Completer<void>();
+        var calls = 0;
+        AdFlow? ads;
+        unawaited(
+          AdFlow.initialize(
+            bannerConfig,
+            sdk: sdk,
+            store: InMemoryKeyValueStore(),
+            platform: AdPlatform.android,
+            forwardConsent: () async {
+              calls++;
+              final snapshot = current; // capture state at call time
+              if (calls == 1) {
+                await firstDone.future; // runs long, past the gate bound
+              }
+              applied.add(snapshot); // the external side effect
+            },
+          ).then((f) => ads = f),
+        );
+        async.flushMicrotasks();
+
+        final banner = ads!.banner();
+        unawaited(banner.load(width: 320)); // forward #1 (state 1), hangs
+        async.elapse(const Duration(seconds: 20)); // past the 15s bound
+        async.flushMicrotasks();
+
+        // Consent mutates to state 2 while forward #1 is still running.
+        current = 2;
+        unawaited(ads!.consent.showPrivacyOptions());
+        async.elapse(const Duration(seconds: 20));
+        async.flushMicrotasks();
+        expect(
+          applied,
+          isEmpty,
+          reason: 'forward #1 has not completed, so nothing applied yet',
+        );
+
+        // Forward #1 finally completes (applying stale state 1). A fresh
+        // forward for state 2 must run AFTER it — never before.
+        firstDone.complete();
+        async.elapse(const Duration(minutes: 1));
+        async.flushMicrotasks();
+
+        expect(
+          applied.last,
+          2,
+          reason:
+              'the LAST external side effect must reflect the newest consent '
+              'state — the older source cannot apply after the newer one',
+        );
+        banner.dispose();
+        ads!.dispose();
+      });
+    });
   });
 }

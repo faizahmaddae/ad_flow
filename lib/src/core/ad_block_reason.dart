@@ -66,19 +66,18 @@ enum AdBlockReason {
   /// hiccup must not destroy revenue already on screen (4.0 audit).
   internalError,
 
-  /// The publisher opted into strict mediation consent ordering (supplied
-  /// `forwardConsent` and/or [AdFlowConfig.deferMediationInit]), and that step
-  /// has not completed successfully — the forwarder failed/timed out, or the
-  /// mediation-init deferral failed — while the effective
-  /// [MediationConsentFailurePolicy] is `failClosed` (the default).
+  /// The publisher supplied `forwardConsent` and it has not completed
+  /// successfully yet — the forwarder failed or timed out — while the
+  /// effective [MediationConsentFailurePolicy] is `failClosed` (the default).
   ///
-  /// This is fail-CLOSED protection for mediation privacy: a partner SDK must
-  /// never receive a mediation-capable ad request before its required
-  /// GDPR/US-state/age signal is forwarded. A forwarder failure is retried in
-  /// the background (rate-limited) and every gate re-check re-joins it, so the
-  /// slot recovers the moment forwarding succeeds — observable via
-  /// `onAdBlocked` and the `AdBlocked` state, never a silent unsignalled
-  /// request (4.1 audit / release gate). Choose
+  /// This is fail-CLOSED protection for mediation privacy: mediation adapters
+  /// must never initialize (they read their privacy flag during
+  /// `MobileAds.initialize()`) or receive an ad request before that flag is
+  /// forwarded. So the GMA SDK is not initialized and loads are blocked until
+  /// forwarding succeeds; the forwarder is retried in the background and every
+  /// gate re-check re-joins it, so the slot recovers the moment it succeeds —
+  /// observable via `onAdBlocked` and the `AdBlocked` state, never a silent
+  /// unsignalled request (release gate). Choose
   /// [MediationConsentFailurePolicy.failOpen] to serve anyway (unsafe).
   consentNotForwarded,
 }

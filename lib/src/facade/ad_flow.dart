@@ -211,18 +211,27 @@ class AdFlow {
   /// async callback that pushes the user's consent to mediation networks
   /// which do NOT read the IAB TCF string themselves (Unity's MetaData calls,
   /// AppLovin's US-state flag, Meta's Limited Data Use — read the `IABTCF_*` /
-  /// `IABGPP_*` keys and call the partner SDK). It runs after consent settles,
-  /// and every MEDIATION-CAPABLE ad load *waits* for it to SUCCEED before the
-  /// request goes out — unlike the fire-and-forget [onConsentChanged] field
-  /// (assignable only *after* `initialize` returns, so it can miss the initial
-  /// flow). Fail-CLOSED by default ([AdFlowConfig.mediationConsentPolicy]): a
-  /// failed/timed-out forward BLOCKS the load
-  /// ([AdBlockReason.consentNotForwarded]) and is retried in the background —
-  /// the slot recovers when forwarding succeeds — rather than quietly sending
-  /// an unsignalled request. It never blocks UI ([whenReady] resolves on
-  /// consent alone), and it re-establishes on every consent change before the
-  /// next request, not only at startup. See doc/MEDIATION_SETUP.md and
-  /// [AdFlowConfig.deferMediationInit].
+  /// `IABGPP_*` keys and call the partner SDK).
+  ///
+  /// It runs after consent settles and **before `MobileAds.initialize()`** —
+  /// mediation adapters initialize during GMA init, and AppLovin/Meta require
+  /// their flag set before that (verified against Google's Android/iOS docs),
+  /// so forwarding-before-init is the only correct ordering. (This supersedes
+  /// the removed `deferMediationInit`, which used a session-wide *disable* of
+  /// Google mediation and could not achieve this.) Unlike the fire-and-forget
+  /// [onConsentChanged] field (assignable only after `initialize` returns, so
+  /// it can miss the initial flow), the GMA SDK is not initialized and no
+  /// mediation-capable request goes out until this succeeds.
+  ///
+  /// Fail-CLOSED by default ([AdFlowConfig.mediationConsentPolicy]): a
+  /// failed/timed-out forward means the SDK is NOT initialized and loads are
+  /// BLOCKED ([AdBlockReason.consentNotForwarded]); the forwarder is retried in
+  /// the background and everything recovers when it succeeds — rather than
+  /// quietly bringing adapters up unsignalled. `.failOpen` initializes/serves
+  /// anyway (unsafe). It never blocks UI ([whenReady] resolves on consent, and
+  /// `initialize()` returns immediately). It re-establishes on every consent
+  /// change (best-effort for request-time reads; an already-initialized
+  /// adapter cannot be re-initialized). See doc/MEDIATION_SETUP.md.
   ///
   /// These apply only to a gateway this facade creates. If you inject your
   /// own [consent], construct it with these options yourself.
@@ -535,64 +544,59 @@ class AdFlow {
   bool _consentRetryArmed = true;
   Timer? _consentRetryTimer;
 
-  // ── Consent forwarding barrier (fail-closed by default; 4.1 release gate) ──
+  // ── Consent forwarding (fail-closed by default; release gate) ─────────────
   //
   // A mediation network that does not read the IAB TCF/GPP string itself needs
   // its per-network privacy signal (Unity MetaData, AppLovin US flag, Meta
-  // LDU) set BEFORE it fills an ad request. `forwardConsent` is that signal.
+  // LDU) set BEFORE it is used. Verified against Google's Android/iOS docs:
+  // mediation adapters initialize DURING `MobileAds.initialize()`, and
+  // AppLovin/Meta require their flag set BEFORE that init (Unity before the
+  // request). So `forwardConsent` runs BEFORE `_sdk.initialize()` (see
+  // [_start]) — `disableMediationInitialization` is NOT a defer/resume and is
+  // deliberately not used (it is a session-wide DISABLE of Google mediation).
   //
-  // The gate treats this like request configuration: a MEDIATION-CAPABLE load
-  // waits for forwarding to SUCCEED, and — fail-CLOSED by default — is
-  // BLOCKED ([AdBlockReason.consentNotForwarded]) if it has not, rather than
-  // quietly sending an unsignalled request. The forwarder is retried in the
-  // background and every gate re-check re-joins it, so a blocked slot recovers
-  // the moment forwarding succeeds. `MediationConsentFailurePolicy.failOpen`
-  // is the explicit, unsafe opt-out. UI never blocks — only the ad request.
+  // Fail-CLOSED by default: if the forwarder fails, the GMA SDK is NOT
+  // initialized and mediation-capable loads are BLOCKED
+  // ([AdBlockReason.consentNotForwarded]); the forwarder is retried in the
+  // background and everything recovers the moment it succeeds.
+  // `MediationConsentFailurePolicy.failOpen` is the explicit, unsafe opt-out.
+  // UI never blocks — `initialize()`/`whenReady` do not wait on forwarding.
 
-  /// The app-supplied consent-forwarding barrier (null = not opted in).
+  /// The app-supplied consent forwarder (null = not opted in).
   final Future<void> Function()? _consentForwarder;
 
-  /// Bounds one forwarding attempt so a slow/broken forwarder fails the
-  /// attempt (→ blocked + retried under fail-closed) rather than parking the
-  /// gate. Consistent with [_settleRequestConfig] and non-blocking init.
+  /// Bounds how long a load's gate check WAITS for the forwarder before
+  /// answering (fail-closed → blocked, then retried). It does NOT bound or
+  /// cancel the forwarder itself — `Future.timeout` cannot cancel its source
+  /// (release gate) — so the still-running source is tracked in
+  /// [_forwardSource] and a new invocation never overlaps it.
   static const _forwardConsentTimeout = Duration(seconds: 15);
 
-  /// FACT: forwarding has completed successfully for the current consent
-  /// generation.
+  /// The single, un-timeout'd forwarder invocation currently running, or null.
+  ///
+  /// Load-bearing for two guarantees (release gate): (1) at most ONE
+  /// `forwardConsent` call is ever in flight — a would-be second invocation
+  /// joins this one instead; (2) a new-generation forward never starts until
+  /// the previous SOURCE has actually completed, so an older consent
+  /// operation can never apply its external partner-SDK side effect AFTER a
+  /// newer one. `Future.timeout` on the gate side bounds only the WAIT, never
+  /// this source.
+  Future<void>? _forwardSource;
+
+  /// FACT: forwarding has completed successfully for the current generation.
   bool _consentForwarded = false;
-  Future<void>? _forwardAttemptInFlight;
   bool _forwardRetryArmed = true;
   Timer? _forwardRetryTimer;
 
-  /// Bumped on every consent MUTATION so an in-flight forward that started
-  /// under the OLD consent state cannot mark the NEW state as forwarded
-  /// (latest-value-wins across a mutation during forwarding).
+  /// Bumped on every consent MUTATION so a forward that started under the OLD
+  /// consent state cannot mark the NEW state forwarded (latest-value-wins).
   int _consentGeneration = 0;
 
-  /// True once [AdSdk.disableMediationInitialization] has succeeded (or was
-  /// not requested), so the retry loop stops.
-  bool _deferMediationDone = false;
+  /// Whether the publisher opted into consent forwarding.
+  bool get _mediationConsentRequired => _consentForwarder != null;
 
-  /// True once a requested [AdFlowConfig.deferMediationInit] has DEFINITIVELY
-  /// failed (all attempts exhausted). Unrecoverable — the plugin no-ops the
-  /// deferral once `initialize()` has run — so under fail-closed this keeps
-  /// mediation-capable loads blocked (the requested ordering is lost).
-  bool _mediationDeferralFailed = false;
-
-  /// Completes when the deferral has SETTLED (succeeded or definitively
-  /// failed) in [_start]. The forwarding barrier awaits it so a load can
-  /// never slip through WHILE the deferral is still in flight and then have
-  /// it fail — the guarantee is structural, not timing-dependent. An
-  /// already-complete future when deferral was not requested. Bounded by the
-  /// init timeout on the barrier side, so it never parks a load forever.
-  final Completer<void> _deferMediationSettled = Completer<void>();
-
-  /// Whether the publisher opted into strict mediation consent ordering.
-  bool get _mediationConsentRequired =>
-      _consentForwarder != null || _config.deferMediationInit;
-
-  /// Whether a failed/incomplete forwarding-or-deferral must BLOCK
-  /// mediation-capable loads (the default) vs. serve anyway (explicit unsafe).
+  /// Whether a failed/incomplete forward must BLOCK mediation serving (the
+  /// default) vs. serve anyway (explicit unsafe opt-out).
   bool get _mediationConsentFailClosed =>
       _config.mediationConsentPolicy ==
       MediationConsentFailurePolicy.failClosed;
@@ -603,97 +607,114 @@ class AdFlow {
   Future<bool> _settleConsentForwarding() async {
     if (!_mediationConsentRequired) return true; // non-adopter: no barrier
     if (_disposed) return false;
-    // If deferral was requested, WAIT for it to settle before deciding — a
-    // load must never slip through while the deferral is still in flight and
-    // then have it fail (a structural guarantee, not a timing assumption).
-    // Bounded so a hung startup never parks the load forever.
-    if (_config.deferMediationInit && !_deferMediationSettled.isCompleted) {
+    if (!_consentForwarded) {
+      // Ensure the single forwarder source is running (start one only if none
+      // is and a retry is armed), then WAIT for it — BOUNDED. The bound limits
+      // how long this load blocks, NOT the source: on timeout the source keeps
+      // running (tracked in [_forwardSource]) and a subsequent check joins it,
+      // so a second `forwardConsent` invocation never overlaps the first, even
+      // across the timeout boundary (release gate).
+      final source =
+          _forwardSource ??
+          (_forwardRetryArmed ? _ensureForwardSource() : null);
+      if (source != null) {
+        try {
+          await source.timeout(_forwardConsentTimeout);
+        } catch (_) {
+          // Timed out (source still running) or the forwarder failed — either
+          // way do NOT start another; the retry machinery owns the next one.
+        }
+        if (_disposed) return false;
+      }
+    }
+    if (!(_consentForwarded || !_mediationConsentFailClosed)) return false;
+    // Proceeding. For an adopter the GMA SDK's init is GATED on forwarding
+    // (forward-before-init), so — unlike a non-adopter — the config gate
+    // earlier in loadBlockReason cannot be relied upon to have waited for
+    // init. Ensure init is kicked and completed before this load fires an ad
+    // request, or a request could reach an uninitialized SDK / adapters.
+    if (!_initStarted) {
+      unawaited(_startInit()); // fail-open reaching here before _start did
+    }
+    final pipeline = _initPipeline;
+    if (pipeline != null) {
       try {
-        await _deferMediationSettled.future.timeout(_initTimeout);
+        await pipeline.timeout(_initTimeout);
       } catch (_) {
-        // Still not settled — treat as not-yet-safe: fail-closed blocks,
-        // fail-open proceeds; either way the next gate re-check re-evaluates.
-        return !_mediationConsentFailClosed;
+        // Init merely slow — the completion hook finishes config; proceed.
       }
       if (_disposed) return false;
     }
-    // Deferral is an init-time, one-shot call — a definitive failure cannot be
-    // retried. The strict ordering the publisher asked for is permanently
-    // lost, so under fail-closed we refuse mediation-capable loads.
-    if (_mediationDeferralFailed) return !_mediationConsentFailClosed;
-    if (_consentForwarder == null) return true; // deferral ok, no forwarder
-    if (_consentForwarded) return true; // already forwarded this generation
-    final inFlight = _forwardAttemptInFlight;
-    if (inFlight != null) {
-      await inFlight;
-    } else if (_forwardRetryArmed) {
-      await _runForwardAttempt();
-    }
-    return _consentForwarded || !_mediationConsentFailClosed;
+    return true;
   }
 
-  /// Runs one bounded forwarding attempt, published on [_forwardAttemptInFlight]
-  /// so concurrent gate checks join it instead of stacking forwarder calls.
-  Future<void> _runForwardAttempt() {
-    _forwardRetryArmed = false;
-    final attempt = _forwardConsentOnce(_consentGeneration);
-    _forwardAttemptInFlight = attempt;
-    return attempt.whenComplete(() {
-      if (identical(_forwardAttemptInFlight, attempt)) {
-        _forwardAttemptInFlight = null;
-      }
-      if (_disposed || _consentForwarded) return;
-      // Re-arm after a cooldown so a still-failing forwarder keeps being
-      // retried (at a sane rate) and a blocked slot recovers on its own.
-      _forwardRetryTimer?.cancel();
-      _forwardRetryTimer = Timer(
-        _consentRetryInterval,
-        () => _forwardRetryArmed = true,
-      );
-    });
-  }
-
-  /// Runs the forwarder once, bounded and error-contained. On success marks
-  /// [_consentForwarded] — but only if [generation] still matches, so a
-  /// forward that raced a consent mutation cannot mark the new state forwarded.
-  Future<void> _forwardConsentOnce(int generation) async {
+  /// Starts the single forwarder source if none is running, and returns it
+  /// (the raw, un-timeout'd future). Records success under the generation
+  /// guard, then — only after the SOURCE actually completes — clears
+  /// [_forwardSource] and arms the retry, so the next generation's forward can
+  /// start (serialized; strictly ordered external side effects).
+  Future<void> _ensureForwardSource() {
+    final existing = _forwardSource;
+    if (existing != null) return existing;
     final forwarder = _consentForwarder;
-    if (forwarder == null || _disposed) return;
-    try {
-      await Future<void>.sync(forwarder).timeout(_forwardConsentTimeout);
-      if (!_disposed && generation == _consentGeneration) {
-        _consentForwarded = true;
-      }
-    } catch (error, stack) {
-      FlutterError.reportError(
-        FlutterErrorDetails(
-          exception: error,
-          stack: stack,
-          library: 'ad_flow',
-          context: ErrorDescription(
-            'while forwarding consent to mediation networks (will retry; '
-            'mediation-capable loads are '
-            '${_mediationConsentFailClosed ? "BLOCKED until it succeeds" : "proceeding without it"} '
-            'per MediationConsentFailurePolicy)',
-          ),
-        ),
-      );
-    }
+    if (forwarder == null || _disposed) return Future<void>.value();
+    final generation = _consentGeneration;
+    _forwardRetryArmed = false;
+    final source = Future<void>.sync(forwarder);
+    _forwardSource = source;
+    unawaited(
+      source
+          .then((_) {
+            // Only mark forwarded if consent has not mutated since this source
+            // started — an older-generation success must not open the barrier
+            // for the newer state.
+            if (!_disposed && generation == _consentGeneration) {
+              _consentForwarded = true;
+              // Fail-closed startup defers init until forwarding succeeds —
+              // kick it now (idempotent; a no-op once init has started).
+              unawaited(_startInit());
+            }
+          })
+          .catchError((Object error, StackTrace stack) {
+            FlutterError.reportError(
+              FlutterErrorDetails(
+                exception: error,
+                stack: stack,
+                library: 'ad_flow',
+                context: ErrorDescription(
+                  'while forwarding consent to mediation networks (will retry; '
+                  'mediation serving is '
+                  '${_mediationConsentFailClosed ? "BLOCKED until it succeeds" : "proceeding without it"} '
+                  'per MediationConsentFailurePolicy)',
+                ),
+              ),
+            );
+          })
+          .whenComplete(() {
+            if (identical(_forwardSource, source)) _forwardSource = null;
+            if (_disposed || _consentForwarded) return;
+            // Re-arm after a cooldown so a still-failing forwarder keeps being
+            // retried (at a sane rate) and a blocked slot recovers on its own.
+            _forwardRetryTimer?.cancel();
+            _forwardRetryTimer = Timer(
+              _consentRetryInterval,
+              () => _forwardRetryArmed = true,
+            );
+          }),
+    );
+    return source;
   }
 
-  /// Invalidates a completed forward so the barrier re-runs it before the next
-  /// mediation-capable load — after a consent MUTATION (withdrawal/change) the
-  /// forwarded signal is stale. Bumps the generation so an in-flight forward
-  /// from the old state cannot mark the new one forwarded.
+  /// Invalidates a completed forward so it re-runs before the next
+  /// mediation-capable load — after a consent MUTATION the forwarded signal is
+  /// stale. Bumps the generation so a forward from the old state cannot mark
+  /// the new one forwarded, and re-arms the retry.
   ///
-  /// Deliberately does NOT null [_forwardAttemptInFlight]: an in-flight
-  /// attempt is left in place so a post-mutation load JOINS it rather than
-  /// launching a second, concurrent invocation of the app's `forwardConsent`
-  /// callback (release-gate review: repeated mutations during a slow forwarder
-  /// otherwise stacked overlapping calls). The stale attempt completes without
-  /// marking the new generation forwarded (the generation guard), so the load
-  /// still blocks fail-closed and a fresh, correctly-generationed forward runs
-  /// next — at most one `forwardConsent` call is ever in flight.
+  /// Deliberately does NOT touch [_forwardSource]: a running forwarder is left
+  /// to finish (its success is ignored by the generation guard), and the next
+  /// forward starts only after it completes — so at most one `forwardConsent`
+  /// call is ever in flight and an older invocation can never apply its
+  /// external partner-SDK side effect after a newer one (release gate).
   void _invalidateConsentForwarding() {
     _consentGeneration++;
     _consentForwarded = false;
@@ -738,13 +759,15 @@ class AdFlow {
   /// succeeds, a privacy-options form the user may have used to change or
   /// withdraw consent, and a test reset (4.0).
   ///
-  /// This is the hook for forwarding consent to mediation networks that do
-  /// not read the IAB TCF string themselves: read the UMP-written state
-  /// (`IABTCF_*` / `IABGPP_*` keys in the platform's default preferences)
-  /// and call the partner SDK's own privacy APIs here — Google explicitly
-  /// does NOT propagate consent to such networks automatically. See
-  /// doc/MEDIATION_SETUP.md, and [AdFlowConfig.deferMediationInit] for
-  /// partners that need their flags before their SDK spins up.
+  /// This is a fire-and-forget hook for forwarding consent to mediation
+  /// networks that do not read the IAB TCF string themselves: read the
+  /// UMP-written state (`IABTCF_*` / `IABGPP_*` keys) and call the partner
+  /// SDK's own privacy APIs — Google explicitly does NOT propagate consent to
+  /// such networks automatically. Nothing waits for it, and it is assignable
+  /// only after `initialize` returns, so it can MISS the initial flow — for
+  /// anything a partner needs before its adapter initializes or before the
+  /// first request, use the `forwardConsent` barrier on [initialize] instead.
+  /// See doc/MEDIATION_SETUP.md.
   void Function()? onConsentChanged;
 
   void _dispatchConsentChanged() {
@@ -853,92 +876,104 @@ class AdFlow {
     });
   }
 
+  /// Whether [_initializeAndConfigure] has been kicked (once).
+  bool _initStarted = false;
+
+  /// The init+config pipeline future (for `_start` to await).
+  Future<void>? _initPipeline;
+
   Future<bool> _start(ConsentDebugOptions? debug) async {
-    // Consent (UMP) is independent of the Ads SDK and safe to run in
-    // parallel with everything below.
+    // Consent (UMP) is independent of the Ads SDK and can run in parallel with
+    // init for a non-adopter. For a `forwardConsent` adopter it must run
+    // FIRST — see below.
     _consentDebug = debug;
     final consent = _runConsent(debug);
 
-    // Initialize the Ads SDK FIRST, and let it finish, BEFORE touching the
-    // request configuration. This ordering is load-bearing, not cosmetic:
-    //
-    // In the google_mobile_ads plugin, `MobileAds#initialize` is dispatched
-    // to a background thread on the native side (FlutterMobileAdsWrapper
-    // runs `MobileAds.initialize()` inside `new Thread(...)`), so it never
-    // blocks the platform thread. `MobileAds#updateRequestConfiguration`,
-    // by contrast, is handled *synchronously on the platform thread* inside
-    // the plugin's `onMethodCall` — and it calls both
-    // `MobileAds.getRequestConfiguration()` and `setRequestConfiguration()`.
-    // If those run before the native Ads (Play Services Dynamite) module has
-    // finished bootstrapping, they force that bootstrap to happen
-    // synchronously on the platform thread — and, worse, race the background
-    // init that is bootstrapping the very same singleton. On a cold device
-    // that race deadlocks the platform thread, which freezes the entire
-    // Flutter engine (and the Dart isolate with it) hard enough that no
-    // Dart-side timeout can recover — the exact "wedged at
-    // ChimeraMobileAdsSettingManagerCreatorImpl" hang triaged in ADR-027.
-    //
-    // 4.0 hardening: the config attempt keys off the ACTUAL init completion
-    // (`_initDone`), not our bounded wait below — the old code dispatched
-    // config right after the 30s wait timed out, which is exactly when the
-    // native init may still be mid-bootstrap, quietly re-opening the ADR-028
-    // race on the slowest devices. If init lands later, the completion hook
-    // below applies the configuration then.
-    // Opt-in mediation-init deferral (4.0): must precede initialize() (the
-    // plugin no-ops it afterwards). Best-effort — a failure only means
-    // adapters auto-init as usual — but REPORTED, not swallowed (4.1): this
-    // is a policy-ORDERING primitive, so a lost guarantee (a partner adapter
-    // now spins up before its consent flags are forwarded) must be visible,
-    // matching the request-config "no silent config loss" contract.
-    if (_config.deferMediationInit) {
-      // Retry the deferral a few times BEFORE init — it must land before
-      // initialize(), which the plugin no-ops it after, so there is no second
-      // chance later. A definitive failure sets _mediationDeferralFailed, and
-      // under the fail-closed policy the gate then blocks mediation-capable
-      // loads: the strict ordering the publisher explicitly requested could
-      // not be honoured, and quietly requesting anyway is the exact risk this
-      // opt-in exists to prevent (4.1 release gate).
-      Object? deferError;
-      StackTrace? deferStack;
-      for (var attempt = 0; attempt < 3 && !_deferMediationDone; attempt++) {
-        try {
-          await _sdk.disableMediationInitialization();
-          _deferMediationDone = true;
-        } catch (error, stack) {
-          deferError = error;
-          deferStack = stack;
-        }
+    if (_consentForwarder != null) {
+      // FORWARD-BEFORE-INIT (release gate). Verified against Google's docs:
+      // mediation adapters initialize DURING `MobileAds.initialize()`, and
+      // AppLovin/Meta require their privacy flag set BEFORE that init. So we
+      // gather consent (the forwarder reads the UMP-written TCF/GPP state),
+      // then run `forwardConsent`, and only then initialize the GMA SDK — so a
+      // partner's flag is in place before its adapter comes up. UI is
+      // unaffected: `initialize()`/`whenReady` never block on this (it all runs
+      // in the background `_start`).
+      await consent; // settle the consent flow (any result) before forwarding
+      if (_disposed) return _consentOpen;
+      final forwarded = await _forwardBeforeInit();
+      if (_disposed) return _consentOpen;
+      if (forwarded || !_mediationConsentFailClosed) {
+        // Success, or fail-OPEN: initialize now. (On success the source's own
+        // handler already kicked init; this is idempotent.)
+        await _startInit();
       }
-      if (!_deferMediationDone) {
-        _mediationDeferralFailed = true;
-        FlutterError.reportError(
-          FlutterErrorDetails(
-            exception: deferError ?? StateError('deferMediationInit failed'),
-            stack: deferStack,
-            library: 'ad_flow',
-            context: ErrorDescription(
-              'while deferring mediation adapter initialization '
-              '(deferMediationInit); the requested ordering could not be '
-              'established. Mediation-capable loads are '
-              '${_mediationConsentFailClosed ? "BLOCKED (MediationConsentFailurePolicy.failClosed)" : "proceeding (MediationConsentFailurePolicy.failOpen)"} '
-              '— a partner needing pre-init privacy flags may not have '
-              'received them before its SDK started',
-            ),
-          ),
-        );
-      }
+      // else fail-CLOSED and not yet forwarded: do NOT initialize — the GMA
+      // SDK (and its adapters) must not come up before the signal is set. The
+      // forwarder keeps retrying in the background (driven by blocked slots'
+      // gate re-checks); its success handler kicks init then. Loads stay
+      // blocked (consentNotForwarded) meanwhile. UI is unaffected.
+    } else {
+      // Non-adopter: initialize in parallel with consent (ADR-028/032).
+      await _startInit();
     }
-    // Deferral has now settled (succeeded, definitively failed, or was never
-    // requested): release the barrier's wait so loads can decide.
-    if (!_deferMediationSettled.isCompleted) _deferMediationSettled.complete();
 
+    // Gate ad loads on consent.
+    final canRequestAds = await consent;
+
+    // Since startup runs in the background (ADR-032), the app may have called
+    // dispose() while we were awaiting — don't start a manager or kick
+    // preloads on a torn-down graph.
+    if (_disposed) return canRequestAds;
+
+    // The manager and controllers gate every load themselves, so starting
+    // them with a closed gate (or before init/forwarding completes) is safe —
+    // they simply stay idle / blocked until the gate opens.
+    _appOpen?.start();
+    unawaited(_interstitial?.load());
+    unawaited(_rewarded?.load());
+    unawaited(_rewardedInterstitial?.load());
+    return canRequestAds;
+  }
+
+  /// Runs the forwarder once within the bound and reports whether it SUCCEEDED
+  /// (so `_start` can decide whether to initialize). Uses the single serial
+  /// source; the source's own handler marks [_consentForwarded] and kicks init
+  /// on success.
+  Future<bool> _forwardBeforeInit() async {
+    if (_consentForwarded) return true;
+    final source = _forwardSource ?? _ensureForwardSource();
+    try {
+      await source.timeout(_forwardConsentTimeout);
+    } catch (_) {
+      // Timed out or failed — the retry machinery owns the next attempt.
+    }
+    return _consentForwarded;
+  }
+
+  /// Kicks the init+config pipeline exactly once and returns it.
+  Future<void> _startInit() {
+    if (_initStarted || _disposed) return _initPipeline ?? Future<void>.value();
+    _initStarted = true;
+    return _initPipeline = _initializeAndConfigure();
+  }
+
+  /// Initializes the Ads SDK, then applies request configuration.
+  ///
+  /// The init→config ORDERING is load-bearing (ADR-027/028): the plugin
+  /// dispatches `MobileAds#initialize` to a background thread, but services
+  /// `updateRequestConfiguration` synchronously on the platform thread; if the
+  /// latter runs before the native Ads (Play Services Dynamite) module has
+  /// bootstrapped, it races init's background bootstrap of the same singleton
+  /// into a platform-thread deadlock. So config keys off the ACTUAL init
+  /// completion (`_initDone`), not a bounded wait — if init lands late, the
+  /// completion hook applies config then.
+  Future<void> _initializeAndConfigure() async {
     Future<void>? init;
     try {
       init = _sdk.initialize();
     } catch (_) {
-      // A synchronously-throwing seam: no init future at all. The config
-      // attempt will refuse to dispatch (never safe), and loads degrade per
-      // the RequestConfigFailurePolicy.
+      // A synchronously-throwing seam: no init future. The config attempt
+      // refuses to dispatch (never safe); loads degrade per the config policy.
     }
     if (init != null) {
       final tracked = init.catchError((Object _) {});
@@ -946,9 +981,6 @@ class AdFlow {
       unawaited(
         tracked.whenComplete(() {
           _initDone = true;
-          // Late init (past the bounded wait): apply the configuration now —
-          // fail-open sessions get it from this point on; fail-closed slots
-          // unblock on their next gate re-check.
           if (!_disposed && !_requestConfigApplied) {
             unawaited(_settleRequestConfig());
           }
@@ -960,31 +992,7 @@ class AdFlow {
         // Init is merely slow — carry on; the hook above finishes the job.
       }
     }
-
-    // Apply request configuration (first attempt; retried on failure, and
-    // every gate check joins/re-kicks it). Still UNCONDITIONAL with respect
-    // to the consent *result* (review finding #5): it sends no ad request,
-    // and test-device/COPPA/rating settings must reach the SDK regardless of
-    // how consent resolves. Skipped while init is still pending — the
-    // completion hook above owns the late apply, and waiting a second
-    // 30s bound here would double the worst-case `whenReady` for nothing.
     if (_initDone) await _settleRequestConfig();
-
-    // Gate ad loads on consent (init already awaited above).
-    final canRequestAds = await consent;
-
-    // Since startup runs in the background (ADR-032), the app may have called
-    // dispose() while we were awaiting consent — don't start a manager or kick
-    // preloads on a torn-down graph.
-    if (_disposed) return canRequestAds;
-
-    // The manager and controllers gate every load themselves, so starting
-    // them with a closed gate is safe — they simply stay idle.
-    _appOpen?.start();
-    unawaited(_interstitial?.load());
-    unawaited(_rewarded?.load());
-    unawaited(_rewardedInterstitial?.load());
-    return canRequestAds;
   }
 
   /// The consent gateway (privacy options, lastError, re-runs).
@@ -1205,10 +1213,6 @@ class AdFlow {
     _configRetryTimer = null;
     _forwardRetryTimer?.cancel();
     _forwardRetryTimer = null;
-    // Release any load parked on the deferral-settled barrier (a mid-startup
-    // dispose); _settleConsentForwarding then answers false on the disposed
-    // graph and the controllers bail on their own _disposed guard.
-    if (!_deferMediationSettled.isCompleted) _deferMediationSettled.complete();
     // Loads parked in a joined config attempt resolve when that bounded
     // attempt does; _settleRequestConfig answers false on a disposed graph
     // and the controllers bail on their own _disposed guard.

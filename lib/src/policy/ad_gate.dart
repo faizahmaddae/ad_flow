@@ -45,13 +45,12 @@ class AdGate {
   final Future<void> Function()? _settleConsent;
 
   /// Joins (and if needed re-attempts) the bounded consent-forwarding barrier
-  /// — the app's `forwardConsent` and any mediation-init deferral. Answers
-  /// whether a MEDIATION-CAPABLE load may proceed: `false` blocks the load
-  /// with [AdBlockReason.consentNotForwarded] (the fail-closed default), so no
-  /// partner request goes out before its privacy signal is set. Checked only
-  /// AFTER consent is granted (a declined user makes no request, so nothing to
-  /// forward before). Must be BOUNDED so the gate never parks a load
-  /// indefinitely. Null when the publisher did not opt into forwarding (4.1).
+  /// — the app's `forwardConsent`. Answers whether a MEDIATION-CAPABLE load may
+  /// proceed: `false` blocks the load with [AdBlockReason.consentNotForwarded]
+  /// (the fail-closed default), so no partner request goes out before its
+  /// privacy signal is forwarded. Checked only AFTER consent is granted (a
+  /// declined user makes no request). Must be BOUNDED so the gate never parks a
+  /// load indefinitely. Null when the publisher did not supply `forwardConsent`.
   final Future<bool> Function()? _settleConsentForwarding;
 
   /// Whether [slot] may load an ad now.

@@ -181,35 +181,35 @@ enum RequestConfigFailurePolicy {
   failClosed,
 }
 
-/// What happens to **mediation-capable** ad loading when the consent
-/// forwarding barrier ([AdFlow.initialize]'s `forwardConsent`) or the
-/// mediation-init deferral ([AdFlowConfig.deferMediationInit]) could not be
-/// completed — the forwarder failed/timed out, or the deferral call failed
-/// (4.1 audit / release gate).
+/// What happens to **mediation-capable** ad serving when the consent
+/// forwarding barrier ([AdFlow.initialize]'s `forwardConsent`) could not be
+/// completed — the forwarder failed or timed out (release gate).
 ///
-/// This only takes effect when the publisher has OPTED IN to strict ordering
-/// by supplying `forwardConsent` and/or `deferMediationInit: true`. It never
-/// blocks app UI — only whether an ad REQUEST (which any configured mediation
-/// adapter may fill) goes out before the required per-network privacy signal
-/// is in place.
+/// This only takes effect when the publisher has OPTED IN by supplying
+/// `forwardConsent`. It never blocks app UI — only whether an ad REQUEST
+/// (which any configured mediation adapter may fill) goes out, and whether
+/// the Google Mobile Ads SDK is INITIALIZED, before the required per-network
+/// privacy signal is in place. (Mediation adapters read their privacy flags
+/// while the GMA SDK initializes — verified against Google's Android/iOS
+/// docs — so ad_flow runs `forwardConsent` BEFORE `MobileAds.initialize()`.)
 enum MediationConsentFailurePolicy {
-  /// The default. Do NOT let a mediation-capable ad request go out after
-  /// forwarding/deferral failed: block loads
-  /// ([AdBlockReason.consentNotForwarded]) and keep retrying the forwarder in
-  /// the background — the slot recovers the moment forwarding succeeds. A
-  /// deferral failure is not retryable (it is an init-time, one-shot call), so
-  /// under this policy it blocks until the process restarts or the publisher
-  /// switches policy: the strict ordering the publisher explicitly requested
-  /// could not be honoured, and quietly requesting anyway is the exact policy
+  /// The default. Do NOT let mediation adapters initialize or a
+  /// mediation-capable ad request go out before consent has been forwarded:
+  /// `forwardConsent` runs before the GMA SDK is initialized, and if it fails
+  /// the SDK is not initialized and loads are blocked
+  /// ([AdBlockReason.consentNotForwarded]) while the forwarder is retried in
+  /// the background — everything recovers the moment forwarding succeeds.
+  /// Quietly initializing adapters or requesting anyway is the exact policy
   /// risk this exists to prevent.
   failClosed,
 
-  /// **Revenue-first and unmistakably unsafe.** Serve ads even if consent was
-  /// never forwarded / mediation init was not deferred. A partner SDK may then
-  /// receive an ad request without its required GDPR / US-state / age signal.
-  /// Only choose this if every mediation network you use reads the IAB TCF/GPP
-  /// strings itself (so `forwardConsent` is a belt-and-suspenders convenience,
-  /// not a requirement). Named to be impossible to select by accident.
+  /// **Revenue-first and unmistakably unsafe.** Initialize the GMA SDK and
+  /// serve ads even if consent was never forwarded. A partner SDK may then
+  /// initialize (and be requested) without its required GDPR / US-state / age
+  /// signal. Only choose this if every mediation network you use reads the IAB
+  /// TCF/GPP strings itself (so `forwardConsent` is a belt-and-suspenders
+  /// convenience, not a requirement). Named to be impossible to select by
+  /// accident.
   failOpen,
 }
 
@@ -573,7 +573,6 @@ class AdFlowConfig {
     this.tagForUnderAgeOfConsent,
     this.tagForChildDirectedTreatment,
     this.requestConfigPolicy = RequestConfigFailurePolicy.auto,
-    this.deferMediationInit = false,
     this.mediationConsentPolicy = MediationConsentFailurePolicy.failClosed,
   });
 
@@ -766,26 +765,13 @@ class AdFlowConfig {
   /// applied — see [RequestConfigFailurePolicy]. Default: [RequestConfigFailurePolicy.auto].
   final RequestConfigFailurePolicy requestConfigPolicy;
 
-  /// Defer mediation adapter initialization out of SDK init (default false).
-  ///
-  /// When true, ad_flow calls the plugin's `disableMediationInitialization`
-  /// BEFORE `MobileAds.initialize()`: mediation adapters then initialize
-  /// lazily at the first ad request for their network instead of during SDK
-  /// init. Use it when a partner SDK needs privacy flags set before it spins
-  /// up (e.g. Meta's Limited Data Use, AppLovin's US-state flag) and those
-  /// flags depend on the UMP consent outcome — forward them in
-  /// `AdFlow.onConsentChanged`, and the first ad request (which already
-  /// waits for consent, invariant 1) initializes the adapters afterwards.
-  /// Google notes deferral "may negatively impact mediation performance" —
-  /// leave it off unless you need this ordering. See doc/MEDIATION_SETUP.md.
-  final bool deferMediationInit;
-
-  /// What happens to mediation-capable loads when consent forwarding
-  /// (`forwardConsent`) or [deferMediationInit] could not be completed — see
+  /// What happens to mediation-capable serving when consent forwarding
+  /// (`forwardConsent`) could not be completed — see
   /// [MediationConsentFailurePolicy]. Default:
-  /// [MediationConsentFailurePolicy.failClosed] (block + retry; do not serve a
-  /// mediation request without its privacy signal). Only takes effect when the
-  /// publisher opted into forwarding/deferral; non-adopters are unaffected.
+  /// [MediationConsentFailurePolicy.failClosed] (do not initialize the GMA SDK
+  /// or serve a mediation request without the forwarded privacy signal;
+  /// retry). Only takes effect when the publisher supplies `forwardConsent`;
+  /// non-adopters are unaffected.
   final MediationConsentFailurePolicy mediationConsentPolicy;
 
   /// Whether this configuration carries fields whose silent loss is a policy

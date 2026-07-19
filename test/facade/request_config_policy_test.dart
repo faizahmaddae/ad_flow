@@ -172,23 +172,6 @@ void main() {
       ads.dispose();
     });
 
-    test('deferMediationInit calls disableMediationInitialization BEFORE '
-        'initialize (the plugin no-ops it afterwards)', () async {
-      final ads = await AdFlow.initialize(
-        const AdFlowConfig(
-          banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
-          deferMediationInit: true,
-        ),
-        sdk: sdk,
-        store: InMemoryKeyValueStore(),
-        platform: AdPlatform.android,
-      );
-      await ads.whenReady;
-      expect(sdk.disableMediationInitializationCalls, 1);
-      expect(sdk.mediationInitDisabledBeforeInitialize, isTrue);
-      ads.dispose();
-    });
-
     test('onConsentChanged fires after the initial flow AND after a '
         'privacy-options mutation — and its throw is isolated', () async {
       var calls = 0;
