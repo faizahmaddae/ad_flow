@@ -48,7 +48,7 @@ Set up the ad_flow Flutter package (AdMob) in my project. Do it idiomatically �
    • If you find any: show me what it is, then REPLACE it with ad_flow equivalents and remove the
      old implementation (and the direct google_mobile_ads dependency if nothing else uses it).
    • If none: do a clean fresh integration.
-3. Add ad_flow: ^3.0.0 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
+3. Add ad_flow: ^4.0.0 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
    Android minSdk 24 / compileSdk 36). Platform setup: Android APPLICATION_ID meta-data, iOS
    GADApplicationIdentifier + NSUserTrackingUsageDescription. Remind me to publish & verify app-ads.txt.
 4. Ask me which formats I want and for my ad unit IDs (or use AdFlowConfig.test() for now).
@@ -66,7 +66,7 @@ Ask me anything you need (formats, IDs, EEA/iOS) before writing code. Keep chang
 Migrate my project from ad_flow 1.x/2.x to 3.0.0 (v2 was a ground-up rewrite; 3.0 refines its API). Be careful — the API changed a lot.
 
 1. FIRST read ad_flow's MIGRATION.md plus the 3.0.0 README and public API. Use only real v2 symbols.
-2. Bump ad_flow to ^3.0.0 and meet v2's min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
+2. Bump ad_flow to ^4.0.0 and meet v2's min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
    Android minSdk 24 / compileSdk 36; adopt the iOS UISceneDelegate lifecycle if I have a custom AppDelegate).
 3. Find EVERY v1 ad_flow usage (AdFlow.instance, initialize / initializeWithExplainer, EasyBannerAd,
    the old managers/widgets, the broad google_mobile_ads re-export). List them, then migrate each to
@@ -89,7 +89,7 @@ the GDPR consent form even if they denied ATT).
 
 ```yaml
 dependencies:
-  ad_flow: ^3.0.0
+  ad_flow: ^4.0.0
 ```
 
 Requirements (from `google_mobile_ads` 9.x): Flutter ≥ 3.38.1, Dart ≥ 3.10,
@@ -523,11 +523,38 @@ ads.interstitial.lastBlockReason; // AdBlockReason? — per-slot snapshot
 (the user declined, or consent hasn't succeeded yet — e.g. offline),
 `frequencyCapped`, `otherAdShowing`, `notReady` (nothing warm yet),
 `userActionPacing`, `expired` (a stale app-open ad), `introSkipped` (the user
-skipped the rewarded intro).
+skipped the rewarded intro), `requestConfigNotApplied` (request configuration
+not yet applied under a fail-closed policy — recovers when the retried apply
+succeeds, 4.0), and `internalError` (a collaborator/gate fault — blocks new
+loads on a backoff but never drops a live ad, 4.0).
 
 Most reasons are **normal** — a cap doing its job, a user declining an ad. This
 is a diagnostic channel, not an error channel. Wire it to your logger during a
 rollout and you can see, per app, exactly why a slot is quiet.
+
+### What 4.x adds
+
+Hardening surfaces from the 4.0 and 4.1 production audits (all additive):
+
+- **`RequestConfigFailurePolicy`** (`AdFlowConfig.requestConfigPolicy`,
+  default `auto`) — when `updateRequestConfiguration` fails and your config
+  carries policy-critical fields (COPPA/under-age tags, content rating, test
+  devices), loads block visibly (`AdBlocked(requestConfigNotApplied)`) and
+  recover when the retried apply succeeds, instead of silently sending
+  untagged requests.
+- **`RetryConfig.loadTimeout`** (default 60s) — a lost SDK load callback fails
+  the attempt into the normal retry path instead of pinning the slot forever.
+- **SSV is fail-closed** — a rewarded/rewarded-interstitial load whose
+  configured server-side verification cannot attach is a failed load, never a
+  silently-unverified ready ad. `setServerSideVerification` re-applies to an
+  ad that was loading when you called it, and drops a stale ad on failure.
+- **Consent forwarding for mediation** — `AdFlow.onConsentChanged` (a hook
+  that fires after every consent flow/mutation) and, for networks that need
+  their signal **before** the first request, the awaited
+  **`forwardConsent`** barrier on `initialize` (the first load waits for it).
+  See [doc/MEDIATION_SETUP.md](doc/MEDIATION_SETUP.md).
+- **`AdFlowConfig.deferMediationInit`** — defers adapter init out of SDK init
+  so pre-init privacy flags can be set after consent settles.
 
 ## 7. Testing your integration
 

@@ -140,10 +140,10 @@ class StoredFrequencyCapPolicy implements FrequencyCapPolicy {
   void _mergeHydrated(String slot, List<int> history, int? last) {
     final now = _now().millisecondsSinceEpoch;
     final cutoff = now - _historyWindow.inMilliseconds;
-    final merged = <int>{...?_history[slot], ...history}
-        .where((ts) => ts > cutoff && !_isFuture(ts, now))
-        .toList()
-      ..sort();
+    final merged = <int>{
+      ...?_history[slot],
+      ...history,
+    }.where((ts) => ts > cutoff && !_isFuture(ts, now)).toList()..sort();
     _history[slot] = merged;
     final candidates = <int>[
       ?_last[slot],

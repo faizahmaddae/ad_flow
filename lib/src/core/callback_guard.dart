@@ -45,7 +45,9 @@ void guardedCallback(void Function() callback, {required String debugName}) {
     // async callback — so its rejection can be contained too.
     final Object? result = (callback as Function)();
     if (result is Future) {
-      result.catchError((Object error, StackTrace stack) => report(error, stack));
+      result.catchError(
+        (Object error, StackTrace stack) => report(error, stack),
+      );
     }
   } catch (error, stack) {
     report(error, stack);

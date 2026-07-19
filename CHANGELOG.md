@@ -1,3 +1,63 @@
+## 4.1.0
+
+A focused, non-breaking post-release audit of 4.0.0 (independent
+adversarial verification, 24 confirmed findings). No removed symbols, no
+changed signatures, no default-behavior change on the happy path. The only
+new public surface is the optional `forwardConsent` param on `initialize`.
+
+### Added
+
+- **`forwardConsent` — an awaited consent-forwarding barrier** on
+  `AdFlow.initialize`. Mediation networks that do not read the IAB TCF string
+  themselves (Unity MetaData, AppLovin US-state, Meta LDU) need their signal
+  set BEFORE the first ad request; the fire-and-forget `onConsentChanged`
+  hook could not guarantee that (it only schedules the async work and can be
+  assigned after the initial flow). `forwardConsent` runs after every consent
+  flow and the first ad LOAD waits for it — bounded (a slow/broken forwarder
+  degrades open, never hangs) and error-contained.
+
+### Fixed (correctness / reward integrity / reliability)
+
+- **Frequency-cap late-hydration overwrite.** `_hydrate` bounds itself with a
+  5s timeout but does not cancel the underlying store reads; a store that hung
+  past the timeout then resumed would overwrite the (by then authoritative)
+  in-memory caps with stale persisted state — rolling back a fresh impression
+  and allowing two full-screen ads back to back. A late read now MERGES
+  (union history, keep the more-recent last-stamp) and never rolls memory
+  back.
+- **Runtime SSV in-flight race + fail-drop.** `setServerSideVerification`
+  called while a load was in flight reported success but the installed ad
+  carried the previous payload; it now re-applies the override to the ad the
+  moment it installs. An attach failure on a warm ad now DROPS that ad (and
+  warms a fresh one with the new override) instead of leaving it showable with
+  stale verification.
+- **Rewarded-interstitial: re-validate after the intro.** The mandatory intro
+  is unbounded; a Remove-Ads purchase or the ad aging past `maxAdAge` during
+  it was ignored and the ad showed anyway. `show()` now re-checks live
+  permission and expiry after the intro, rolling back rather than showing.
+- **Async callback + refreshed-banner isolation.** `guardedCallback` now
+  contains an ASYNC callback's later rejection (an `onConsentChanged`/
+  `onPaidEvent` async closure's Future no longer escapes as an unhandled zone
+  error). The refreshed-banner paid-event subscription, which bypassed the
+  guard, now routes through it. New `safeUnawaited` contains a rejecting
+  handle `dispose()`/subscription `cancel()` during teardown.
+- **`validate()` mirrors every constructor assert** (release builds strip
+  asserts): `FrequencyCap.maxPerSession`/`maxPerHour >= 0`,
+  `RetryConfig.maxAttempts >= 0` / `jitterFactor in [0,1]`,
+  `InterstitialConfig.minActionsBetween >= 0`, `NativeConfig` exactly-one.
+- **`deferMediationInit` failure is reported** (`FlutterError.reportError`)
+  instead of silently swallowed.
+- **`MediationNetworkExtras`** asserts against an empty class name (a silent
+  reflection no-op at request time).
+
+### Docs
+
+- README install constraint corrected `^3.0.0 → ^4.0.0`; the two 4.0
+  `AdBlockReason` cases (`requestConfigNotApplied`, `internalError`) added to
+  the enumeration; a "What 4.x adds" section covers the newer surfaces.
+- `doc/MEDIATION_SETUP.md` documents `forwardConsent` as the recommended
+  awaited path and a concrete `MediationNetworkExtras` example.
+
 ## 4.0.0
 
 A production-hardening major from an independent adversarial audit of

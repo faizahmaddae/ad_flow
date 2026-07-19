@@ -706,18 +706,17 @@ class AdFlow {
       return open;
     });
     _consentInFlight = published;
-    return published
-        .whenComplete(() {
-          if (identical(_consentInFlight, published)) _consentInFlight = null;
-          if (_disposed || _consentOpen) return;
-          // Re-arm the retry after a cooldown, so a still-offline device keeps
-          // trying (at a sane rate) rather than giving up for the session.
-          _consentRetryTimer?.cancel();
-          _consentRetryTimer = Timer(
-            _consentRetryInterval,
-            () => _consentRetryArmed = true,
-          );
-        });
+    return published.whenComplete(() {
+      if (identical(_consentInFlight, published)) _consentInFlight = null;
+      if (_disposed || _consentOpen) return;
+      // Re-arm the retry after a cooldown, so a still-offline device keeps
+      // trying (at a sane rate) rather than giving up for the session.
+      _consentRetryTimer?.cancel();
+      _consentRetryTimer = Timer(
+        _consentRetryInterval,
+        () => _consentRetryArmed = true,
+      );
+    });
   }
 
   Future<bool> _start(ConsentDebugOptions? debug) async {

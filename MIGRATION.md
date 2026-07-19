@@ -1,3 +1,19 @@
+# Upgrading 4.0.x → 4.1.0
+
+Non-breaking. Update the dependency and you are done — nothing to change.
+
+Optional adoption:
+
+- **Mediation consent forwarding:** if you use mediation partners that need
+  their privacy signal before the first request (Unity, AppLovin US-state,
+  Meta LDU), pass `forwardConsent: () async { ... }` to `AdFlow.initialize`
+  — the first ad load waits for it. See `doc/MEDIATION_SETUP.md` §4.
+- Behavior fixes (cap late-hydration, SSV in-flight/fail-drop, rewarded-
+  interstitial post-intro re-check, async-callback isolation) require no code
+  changes; they only make existing paths correct.
+
+---
+
 # Upgrading 3.x → 4.0.0
 
 4.0 is a hardening major; most apps compile unchanged. Check these:

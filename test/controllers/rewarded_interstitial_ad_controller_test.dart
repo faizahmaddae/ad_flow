@@ -269,44 +269,46 @@ void main() {
       c.dispose();
     });
 
-    test('permission REVOKED during the intro (Remove-Ads bought while the '
-        'user reads it) is respected — the ad is not shown (4.1 audit)',
-        () async {
-      var enabled = true;
-      final c = RewardedInterstitialAdController(
-        sdk: sdk,
-        gate: AdGate(
-          canRequestAds: sdk.canRequestAds,
-          isEnabled: () => enabled,
-        ),
-        caps: caps,
-        coordinator: coordinator,
-        config: const RewardedInterstitialConfig(
-          adUnitId: PlatformAdUnitId(android: 'unit-ri'),
-        ),
-        adUnitId: 'unit-ri',
-        showIntro: (content) async {
-          // The user buys Remove-Ads on another surface while the intro is up.
-          enabled = false;
-          return true; // ...then taps "watch"
-        },
-      );
-      await c.load();
-      final handle = sdk.rewardedInterstitials.single;
+    test(
+      'permission REVOKED during the intro (Remove-Ads bought while the '
+      'user reads it) is respected — the ad is not shown (4.1 audit)',
+      () async {
+        var enabled = true;
+        final c = RewardedInterstitialAdController(
+          sdk: sdk,
+          gate: AdGate(
+            canRequestAds: sdk.canRequestAds,
+            isEnabled: () => enabled,
+          ),
+          caps: caps,
+          coordinator: coordinator,
+          config: const RewardedInterstitialConfig(
+            adUnitId: PlatformAdUnitId(android: 'unit-ri'),
+          ),
+          adUnitId: 'unit-ri',
+          showIntro: (content) async {
+            // The user buys Remove-Ads on another surface while the intro is up.
+            enabled = false;
+            return true; // ...then taps "watch"
+          },
+        );
+        await c.load();
+        final handle = sdk.rewardedInterstitials.single;
 
-      final shown = await c.show(onReward: (_) {});
+        final shown = await c.show(onReward: (_) {});
 
-      expect(shown, isFalse);
-      expect(
-        handle.showCalls,
-        0,
-        reason:
-            'a Remove-Ads purchase that lands during the unbounded intro '
-            'must be honoured before the ad plays',
-      );
-      expect(coordinator.isFullScreenAdVisible, isFalse);
-      c.dispose();
-    });
+        expect(shown, isFalse);
+        expect(
+          handle.showCalls,
+          0,
+          reason:
+              'a Remove-Ads purchase that lands during the unbounded intro '
+              'must be honoured before the ad plays',
+        );
+        expect(coordinator.isFullScreenAdVisible, isFalse);
+        c.dispose();
+      },
+    );
 
     test('an ad that EXPIRES while the user reads the intro is not shown '
         '(4.1 audit)', () async {

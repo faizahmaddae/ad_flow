@@ -158,33 +158,35 @@ void main() {
   });
 
   group('deferMediationInit failure is reported, not swallowed (4.1)', () {
-    test('a throwing disableMediationInitialization surfaces + init proceeds',
-        () async {
-      final reported = <FlutterErrorDetails>[];
-      final previousOnError = FlutterError.onError;
-      FlutterError.onError = reported.add;
-      addTearDown(() => FlutterError.onError = previousOnError);
+    test(
+      'a throwing disableMediationInitialization surfaces + init proceeds',
+      () async {
+        final reported = <FlutterErrorDetails>[];
+        final previousOnError = FlutterError.onError;
+        FlutterError.onError = reported.add;
+        addTearDown(() => FlutterError.onError = previousOnError);
 
-      sdk.disableMediationInitializationError = StateError('defer failed');
-      final ads = await AdFlow.initialize(
-        const AdFlowConfig(
-          banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
-          deferMediationInit: true,
-        ),
-        sdk: sdk,
-        store: InMemoryKeyValueStore(),
-        platform: AdPlatform.android,
-      );
-      await ads.whenReady;
-      expect(
-        reported,
-        isNotEmpty,
-        reason:
-            'a lost mediation-deferral ordering guarantee must be visible, '
-            'matching the request-config no-silent-loss contract',
-      );
-      expect(sdk.initializeCalls, greaterThan(0)); // init still proceeded
-      ads.dispose();
-    });
+        sdk.disableMediationInitializationError = StateError('defer failed');
+        final ads = await AdFlow.initialize(
+          const AdFlowConfig(
+            banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
+            deferMediationInit: true,
+          ),
+          sdk: sdk,
+          store: InMemoryKeyValueStore(),
+          platform: AdPlatform.android,
+        );
+        await ads.whenReady;
+        expect(
+          reported,
+          isNotEmpty,
+          reason:
+              'a lost mediation-deferral ordering guarantee must be visible, '
+              'matching the request-config no-silent-loss contract',
+        );
+        expect(sdk.initializeCalls, greaterThan(0)); // init still proceeded
+        ads.dispose();
+      },
+    );
   });
 }
