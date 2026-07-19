@@ -1,6 +1,42 @@
 # PROGRESS — ad_flow v2/v3/v4
 
 ## Current phase
+**Phase 20 — 4.1.0 post-release audit (2026-07-19)** — ✅ implemented on
+branch **`post-release-audit-4.1`** (off tag `v4.0.0`; NOT merged/tagged/
+published — Faiz reviews). Version **4.1.0**, fully **non-breaking**
+(additive only; the sole new public surface is the optional `forwardConsent`
+param on `initialize`). An independent adversarial re-audit (multi-agent
+workflow: 31 findings, 24 confirmed, 11 survived refutation) verified the
+supplied hypotheses and hunted same-class issues. Six coherent slices, each
+fail-first (+ neuter-verified where a debug repro exists):
+
+1. Isolation: `guardedCallback` contains ASYNC callback rejections;
+   refreshed-banner paid events routed through the guard; `safeUnawaited`
+   for teardown dispose/cancel rejections.
+2. `validate()` mirrors every constructor assert (release strips asserts).
+3. Cap late-hydration MERGE guard (a store resuming past the 5s timeout no
+   longer overwrites memory-authoritative caps).
+4. Runtime SSV `RuntimeSsvController` mixin: re-apply on in-flight load
+   completion; drop the stale warm ad on update failure.
+5. Rewarded-interstitial re-validates live permission + expiry after the
+   unbounded intro.
+6. Awaited `forwardConsent` barrier (the headline): the first ad load waits
+   for consent forwarding; bounded + contained; `deferMediationInit`
+   failure now reported; docs reconciled (README `^3.0.0→^4.0.0`, the two
+   4.0 AdBlockReason cases, MEDIATION_SETUP forwardConsent path);
+   `MediationNetworkExtras` empty-name guard. ADR-063.
+
+Verify: `flutter analyze && flutter test --concurrency=2` → clean, **466
+tests**. Also green: `dart format`, `pana` **160/160**, `dart pub publish
+--dry-run` (0 warnings), example Android APK + iOS simulator builds,
+coverage **84.5%** (was 83.9%), and an iOS-simulator smoke run (iPhone 16
+Pro): all six formats `ready` through the restructured consent/SSV paths,
+native validator clean, live test banner. NOT externally verified: real
+mediation consent-forwarding end-to-end (needs partner SDKs/accounts) and an
+interactive rewarded-interstitial tap on device (the post-intro re-check is
+unit-tested + neuter-verified).
+
+## Previous phase
 **Phase 19 — 4.0.0 independent production audit + hardening (2026-07-17)** —
 ✅ implemented on branch **`production-audit-3.x`** (7 slices, committed;
 NOT merged, NOT tagged, NOT published — Faiz reviews/merges/tags when
