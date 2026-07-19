@@ -577,7 +577,9 @@ class AdFlow {
   // ([AdBlockReason.consentNotForwarded]); the forwarder is retried in the
   // background and everything recovers the moment it succeeds.
   // `MediationConsentFailurePolicy.failOpen` is the explicit, unsafe opt-out.
-  // UI never blocks — `initialize()`/`whenReady` do not wait on forwarding.
+  // UI never blocks — `initialize()` returns immediately (graph construction
+  // is synchronous; the whole forward→init pipeline runs in the background).
+  // For a forwarding adopter, `whenReady` and loads DO wait on forwarding.
 
   /// The app-supplied consent forwarder (null = not opted in).
   final Future<void> Function()? _consentForwarder;
@@ -858,12 +860,12 @@ class AdFlow {
 
   /// Runs one consent attempt.
   ///
-  /// Consent forwarding is deliberately NOT folded into this chain (4.1
-  /// release gate): it is a separate gate barrier ([_settleConsentForwarding])
-  /// that only the MEDIATION-CAPABLE load path awaits, so (a) `whenReady` and
-  /// the consent notifier resolve on consent alone — forwarding never delays
-  /// UI — and (b) forwarding runs lazily, once, before the first PERMITTED
-  /// load, and is fail-CLOSED there rather than degrade-open here.
+  /// This resolves the consent RESULT only — it does not run forwarding or
+  /// init. The `canRequestAds` notifier updates here. For a forwarding
+  /// adopter, [_start] awaits this, then runs `forwardConsent`, then
+  /// initializes the GMA SDK (forward-before-init, ADR-065) — so `whenReady`
+  /// (which awaits [_start]) waits for forwarding+init, while the first frame
+  /// still renders immediately because `initialize()` returns before [_start].
   Future<bool> _runConsent(ConsentDebugOptions? debug) {
     _consentRetryArmed = false;
     final run = _consent.ensureCanRequestAds(debug: debug);

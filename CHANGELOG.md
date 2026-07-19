@@ -1,45 +1,54 @@
 ## 5.0.0
 
-A focused post-release audit of 4.0.0 (independent adversarial verification,
-25 confirmed findings) plus a release-gate correction to the consent
-forwarding barrier. Nearly all of it is additive; the version is a major
-only because the honest diagnostic for a blocked mediation request is a new
-`AdBlockReason` case (which breaks exhaustive switches, like the 4.0 enum
-additions did) and because consent forwarding now fails CLOSED by default
-for publishers who opt into it.
+A post-release audit of 4.0.0 (independent adversarial verification, 25
+confirmed findings) plus two release-gate corrections to the mediation
+consent lifecycle. The major is driven by mediation-privacy correctness:
+consent forwarding now runs **before `MobileAds.initialize()`** and fails
+CLOSED, a new `AdBlockReason` case, and the removal of the conceptually
+invalid `deferMediationInit`.
 
 ### BREAKING
 
+- **`AdFlowConfig.deferMediationInit` REMOVED** (was in 4.0.0). It called the
+  plugin's `disableMediationInitialization`, which — verified against
+  Google's Android/iOS docs and the plugin source — is a *session-wide
+  disable* of Google mediation (an A/B-testing tool: "noop once initialize()
+  or the first ad request is made"), **not** a defer/resume. It could not
+  achieve "set the partner flag, then let adapters come up," and disabling
+  Google mediation is revenue-harming. Use `forwardConsent` instead — it now
+  runs before init (below).
+- **`forwardConsent` runs BEFORE `MobileAds.initialize()`.** Mediation
+  adapters initialize *during* `MobileAds.initialize()`, and AppLovin/Meta
+  read their privacy flag at that point (Google: set it "before you
+  initialize the Google Mobile Ads SDK"). So ad_flow gathers consent, runs
+  `forwardConsent`, and only then initializes the GMA SDK. Fail-CLOSED by
+  default: a failed/timed-out forward means the SDK is **not initialized**
+  and loads are BLOCKED (`AdBlockReason.consentNotForwarded`), retried in the
+  background; init + serving recover when forwarding succeeds. `failOpen`
+  initializes/serves anyway (unsafe). UI is never blocked — `initialize()`
+  returns immediately; only `whenReady`/loads wait. Non-adopters keep
+  parallel init.
 - **`AdBlockReason` gained `consentNotForwarded`** — exhaustive switches over
   `AdBlockReason` need the new case (or a wildcard). Non-adopters of
-  `forwardConsent`/`deferMediationInit` never see this reason.
-- **Consent forwarding is fail-CLOSED by default.** When you supply
-  `forwardConsent` (or `deferMediationInit: true`), a mediation-capable ad
-  request is now BLOCKED (`AdBlockReason.consentNotForwarded`) until
-  forwarding/deferral has succeeded, instead of quietly degrading open — a
-  mediation partner must never receive a request without its required
-  GDPR/US-state/age signal. The block is retried in the background and the
-  slot recovers the moment forwarding succeeds; UI is never blocked
-  (`whenReady`/`initialize` do not wait on forwarding — only the ad request
-  does). New `AdFlowConfig.mediationConsentPolicy`
-  (`MediationConsentFailurePolicy.failClosed` default,
-  `.failOpen` = explicit, unsafe revenue-first opt-out). Publishers who do
-  NOT use `forwardConsent`/`deferMediationInit` are entirely unaffected.
+  `forwardConsent` never see it.
+- **`AdController` gained `invalidateForConsentChange()`** — an interface
+  addition (breaking for the rare external implementer). After a consent /
+  privacy-options mutation, an already-loaded ad is privacy-stale (its
+  impression/measurement reflect the old consent), so a warm full-screen ad
+  or visible banner/native is dropped and reloaded under the fresh gate; a
+  full-screen ad on screen is not interrupted.
 
 ### Added
 
-- **`forwardConsent` — a fail-closed consent-forwarding barrier** on
-  `AdFlow.initialize`. Mediation networks that do not read the IAB TCF string
-  themselves (Unity MetaData, AppLovin US-state, Meta LDU) need their signal
-  set BEFORE the ad request; the fire-and-forget `onConsentChanged` hook
-  cannot guarantee that (it only schedules the async work and can be assigned
-  after the initial flow). `forwardConsent` runs after consent settles, every
-  mediation-capable load waits for it to SUCCEED, and it re-establishes on
-  every consent change before the next request (not only at startup). A
-  consent mutation during an in-flight forward cannot let the stale forward
-  satisfy the new state (generation-guarded). Fail-closed by default (see
-  BREAKING); error-contained and bounded (15s).
-- **`AdFlowConfig.mediationConsentPolicy`** + `MediationConsentFailurePolicy`.
+- **`forwardConsent`** on `AdFlow.initialize` — the fail-closed,
+  before-initialize consent-forwarding barrier for mediation networks that do
+  not read the IAB TCF string themselves (Unity MetaData, AppLovin US-state,
+  Meta LDU). Its callback is **serialized** — never invoked concurrently, even
+  across the internal 15s wait bound (`Future.timeout` does not cancel its
+  source), and a newer consent generation's forward never applies its
+  partner-SDK side effect before an older one's completes. Generation-guarded.
+- **`AdFlowConfig.mediationConsentPolicy`** + `MediationConsentFailurePolicy`
+  (`failClosed` default, `failOpen` = explicit unsafe opt-out).
 
 ### Fixed (correctness / reward integrity / reliability)
 
@@ -70,10 +79,16 @@ for publishers who opt into it.
   asserts): `FrequencyCap.maxPerSession`/`maxPerHour >= 0`,
   `RetryConfig.maxAttempts >= 0` / `jitterFactor in [0,1]`,
   `InterstitialConfig.minActionsBetween >= 0`, `NativeConfig` exactly-one.
-- **`deferMediationInit` failure** is retried (3×) before init, reported, and
-  — fail-closed — blocks mediation-capable loads (the requested pre-init
-  ordering cannot be restored once init has run), instead of silently
-  swallowed or served with the ordering broken.
+- **Forwarder serialization across the timeout boundary.** `Future.timeout`
+  does not cancel its source, so a forwarder that outran the 15s wait could
+  be invoked again by a retry while the first invocation was still running —
+  and an older consent operation could apply its partner-SDK side effect
+  after a newer one. The un-timeout'd source is now tracked: at most one
+  `forwardConsent` runs at a time, strictly ordered.
+- **Stale-consent ad invalidation.** After a consent/privacy mutation a warm
+  full-screen ad or visible banner/native (requested under the old consent)
+  is dropped and reloaded under the fresh gate; a full-screen ad on screen is
+  not interrupted.
 - **`MediationNetworkExtras`** asserts against an empty class name (a silent
   reflection no-op at request time).
 

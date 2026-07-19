@@ -1,7 +1,51 @@
 # PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
-**Phase 21 — 5.0.0 release-gate correction (2026-07-19)** — ✅ implemented on
+**Phase 22 — 5.0.0 mediation-lifecycle release gate #2 (2026-07-19)** — ✅
+implemented on branch **`post-release-audit-4.1`** (off tag `v4.0.0`; NOT
+merged/tagged/published — Faiz reviews). A second release-gate review
+(verified against current Google Android/iOS docs + the plugin's native
+source) found the 5.0-draft forwarding design had upstream-semantics and
+lifecycle errors. Fixed as ADR-065 (supersedes ADR-064's request-time model):
+
+1. **`deferMediationInit` REMOVED.** `disableMediationInitialization` is a
+   session-wide DISABLE of Google mediation (docs: "noop once initialize() or
+   the first ad request is made"; "for... an A/B test"), NOT a defer/resume —
+   conceptually invalid and revenue-harming.
+2. **`forwardConsent` runs BEFORE `MobileAds.initialize()`.** Adapters read
+   their flag DURING GMA init (AppLovin/Meta), so init is gated on forwarding.
+   Fail-closed: forward failure → SDK not initialized + loads blocked +
+   retried; init/serving recover on success. failOpen initializes anyway.
+   UI non-blocking (`initialize()` returns immediately).
+3. **Forwarder source serialized across the timeout boundary.** `Future.timeout`
+   does not cancel its source; the un-timeout'd invocation is tracked so at
+   most one runs and older→newer external side effects are strictly ordered.
+4. **Stale-consent ad invalidation.** `AdController.invalidateForConsentChange`:
+   a warm full-screen / visible banner/native loaded under old consent is
+   dropped+reloaded on a mutation; a showing full-screen ad is not interrupted.
+
+Verify: `flutter analyze && flutter test` → clean, **490 tests**. Version
+stays **5.0.0**. ADR-065; docs (README/CHANGELOG/MIGRATION/MEDIATION_SETUP)
+reconciled to forward-before-init + removal.
+
+---
+
+**Phase 21 — 5.0.0 release-gate correction (2026-07-19)** — folded into
+Phase 22 above. The release-gate review found the 4.1 consent-forwarding
+barrier degraded OPEN on failure — a mediation partner could receive an ad
+request without its required privacy signal. Redesigned **fail-CLOSED by
+default** (mirrors ADR-061's request-config policy): forwarding failures now
+BLOCK mediation-capable loads (`AdBlockReason.consentNotForwarded`, new enum
+case → major), retried in the background, recovering when forwarding
+succeeds; explicit `MediationConsentFailurePolicy.failOpen` is the only
+(unsafe) way to serve anyway. Generation-guarded. Plus adversarial proofs
+(fail-first + non-vacuity) for SSV latest-value-wins/dispose-races, cap-merge
+dedup, and async-rejection containment through the REAL public void-typed
+callbacks. ADR-064.
+
+---
+
+**Phase 21-orig — 5.0.0 release-gate correction (2026-07-19)** — ✅ implemented on
 branch **`post-release-audit-4.1`** (off tag `v4.0.0`; NOT merged/tagged/
 published — Faiz reviews). **Version bumped 4.1.0 → 5.0.0**: the release-gate
 review found the 4.1 consent-forwarding barrier degraded OPEN on failure —

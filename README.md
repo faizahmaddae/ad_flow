@@ -527,8 +527,9 @@ skipped the rewarded intro), `requestConfigNotApplied` (request configuration
 not yet applied under a fail-closed policy — recovers when the retried apply
 succeeds, 4.0), `internalError` (a collaborator/gate fault — blocks new
 loads on a backoff but never drops a live ad, 4.0), and `consentNotForwarded`
-(you supplied `forwardConsent`/`deferMediationInit` and it has not succeeded
-yet — blocks mediation-capable loads fail-closed, recovers on the retry, 5.0).
+(you supplied `forwardConsent` and it has not succeeded yet — the GMA SDK is
+not initialized and mediation-capable loads are blocked fail-closed, all
+recovering on the retry, 5.0).
 
 Most reasons are **normal** — a cap doing its job, a user declining an ad. This
 is a diagnostic channel, not an error channel. Wire it to your logger during a
@@ -552,16 +553,19 @@ default):
   configured server-side verification cannot attach is a failed load, never a
   silently-unverified ready ad. `setServerSideVerification` re-applies to an
   ad that was loading when you called it, and drops a stale ad on failure.
-- **Consent forwarding for mediation** — `AdFlow.onConsentChanged` (a hook
-  that fires after every consent flow/mutation) and, for networks that need
-  their signal **before** the request, the **`forwardConsent`** barrier on
-  `initialize`. Fail-closed by default (`mediationConsentPolicy`): a
-  mediation-capable request is blocked (`AdBlocked(consentNotForwarded)`)
-  until forwarding succeeds, never quietly sent unsignalled; UI is never
-  blocked. See [doc/MEDIATION_SETUP.md](doc/MEDIATION_SETUP.md).
-- **`AdFlowConfig.deferMediationInit`** — defers adapter init out of SDK init
-  so pre-init privacy flags can be set after consent settles; a failed
-  deferral is fail-closed too.
+- **Consent forwarding for mediation** — `AdFlow.onConsentChanged` (a
+  fire-and-forget hook) and, for partners that need their privacy flag before
+  their adapter initializes or before the request, the **`forwardConsent`**
+  barrier on `initialize`. It runs **before `MobileAds.initialize()`**
+  (mediation adapters read their flag during GMA init), fail-closed by
+  default (`mediationConsentPolicy`): a failed forward leaves the SDK
+  uninitialized and loads blocked (`AdBlocked(consentNotForwarded)`) until it
+  succeeds, never quietly unsignalled; `initialize()` still returns
+  immediately (UI non-blocking). See
+  [doc/MEDIATION_SETUP.md](doc/MEDIATION_SETUP.md).
+- **Stale-consent invalidation** — after a consent/privacy change, an ad
+  already loaded under the old consent is dropped and reloaded under the fresh
+  one (a full-screen ad on screen is not interrupted).
 
 ## 7. Testing your integration
 
@@ -616,10 +620,10 @@ partner pages say so explicitly). UMP collects consent and writes the IAB
 TCF/AC/GPP strings; TCF-reading SDKs (e.g. AppLovin 12+) pick them up, but
 networks like Unity (MetaData calls) or Meta (Limited Data Use) need their
 own APIs called — some *before* their SDK initializes. ad_flow gives you
-the hooks: `AdFlow.onConsentChanged` (fires after every consent flow or
-mutation), `AdFlowConfig.deferMediationInit` (adapters init lazily at the
-first ad request, after consent settled), and per-slot
-`AdRequestOptions.mediationExtras`. The full per-network guide is
+the hooks: the **`forwardConsent`** barrier on `initialize` (runs before
+`MobileAds.initialize()`, fail-closed), `AdFlow.onConsentChanged` (a
+fire-and-forget hook), and per-slot `AdRequestOptions.mediationExtras`. The
+full per-network guide is
 [doc/MEDIATION_SETUP.md](doc/MEDIATION_SETUP.md) — read it before shipping
 mediation.
 
