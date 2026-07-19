@@ -1,20 +1,45 @@
-## 4.1.0
+## 5.0.0
 
-A focused, non-breaking post-release audit of 4.0.0 (independent
-adversarial verification, 24 confirmed findings). No removed symbols, no
-changed signatures, no default-behavior change on the happy path. The only
-new public surface is the optional `forwardConsent` param on `initialize`.
+A focused post-release audit of 4.0.0 (independent adversarial verification,
+25 confirmed findings) plus a release-gate correction to the consent
+forwarding barrier. Nearly all of it is additive; the version is a major
+only because the honest diagnostic for a blocked mediation request is a new
+`AdBlockReason` case (which breaks exhaustive switches, like the 4.0 enum
+additions did) and because consent forwarding now fails CLOSED by default
+for publishers who opt into it.
+
+### BREAKING
+
+- **`AdBlockReason` gained `consentNotForwarded`** — exhaustive switches over
+  `AdBlockReason` need the new case (or a wildcard). Non-adopters of
+  `forwardConsent`/`deferMediationInit` never see this reason.
+- **Consent forwarding is fail-CLOSED by default.** When you supply
+  `forwardConsent` (or `deferMediationInit: true`), a mediation-capable ad
+  request is now BLOCKED (`AdBlockReason.consentNotForwarded`) until
+  forwarding/deferral has succeeded, instead of quietly degrading open — a
+  mediation partner must never receive a request without its required
+  GDPR/US-state/age signal. The block is retried in the background and the
+  slot recovers the moment forwarding succeeds; UI is never blocked
+  (`whenReady`/`initialize` do not wait on forwarding — only the ad request
+  does). New `AdFlowConfig.mediationConsentPolicy`
+  (`MediationConsentFailurePolicy.failClosed` default,
+  `.failOpen` = explicit, unsafe revenue-first opt-out). Publishers who do
+  NOT use `forwardConsent`/`deferMediationInit` are entirely unaffected.
 
 ### Added
 
-- **`forwardConsent` — an awaited consent-forwarding barrier** on
+- **`forwardConsent` — a fail-closed consent-forwarding barrier** on
   `AdFlow.initialize`. Mediation networks that do not read the IAB TCF string
   themselves (Unity MetaData, AppLovin US-state, Meta LDU) need their signal
-  set BEFORE the first ad request; the fire-and-forget `onConsentChanged`
-  hook could not guarantee that (it only schedules the async work and can be
-  assigned after the initial flow). `forwardConsent` runs after every consent
-  flow and the first ad LOAD waits for it — bounded (a slow/broken forwarder
-  degrades open, never hangs) and error-contained.
+  set BEFORE the ad request; the fire-and-forget `onConsentChanged` hook
+  cannot guarantee that (it only schedules the async work and can be assigned
+  after the initial flow). `forwardConsent` runs after consent settles, every
+  mediation-capable load waits for it to SUCCEED, and it re-establishes on
+  every consent change before the next request (not only at startup). A
+  consent mutation during an in-flight forward cannot let the stale forward
+  satisfy the new state (generation-guarded). Fail-closed by default (see
+  BREAKING); error-contained and bounded (15s).
+- **`AdFlowConfig.mediationConsentPolicy`** + `MediationConsentFailurePolicy`.
 
 ### Fixed (correctness / reward integrity / reliability)
 
@@ -45,18 +70,21 @@ new public surface is the optional `forwardConsent` param on `initialize`.
   asserts): `FrequencyCap.maxPerSession`/`maxPerHour >= 0`,
   `RetryConfig.maxAttempts >= 0` / `jitterFactor in [0,1]`,
   `InterstitialConfig.minActionsBetween >= 0`, `NativeConfig` exactly-one.
-- **`deferMediationInit` failure is reported** (`FlutterError.reportError`)
-  instead of silently swallowed.
+- **`deferMediationInit` failure** is retried (3×) before init, reported, and
+  — fail-closed — blocks mediation-capable loads (the requested pre-init
+  ordering cannot be restored once init has run), instead of silently
+  swallowed or served with the ordering broken.
 - **`MediationNetworkExtras`** asserts against an empty class name (a silent
   reflection no-op at request time).
 
 ### Docs
 
-- README install constraint corrected `^3.0.0 → ^4.0.0`; the two 4.0
-  `AdBlockReason` cases (`requestConfigNotApplied`, `internalError`) added to
-  the enumeration; a "What 4.x adds" section covers the newer surfaces.
+- README install constraint corrected `^3.0.0 → ^5.0.0`; the `AdBlockReason`
+  cases (`requestConfigNotApplied`, `internalError`, `consentNotForwarded`)
+  added to the enumeration; a "What's new" section covers the newer surfaces.
 - `doc/MEDIATION_SETUP.md` documents `forwardConsent` as the recommended
-  awaited path and a concrete `MediationNetworkExtras` example.
+  fail-closed path, `mediationConsentPolicy`, and a concrete
+  `MediationNetworkExtras` example.
 
 ## 4.0.0
 

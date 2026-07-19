@@ -284,36 +284,39 @@ void main() {
       c.dispose();
     });
 
-    test('LATEST-VALUE-WINS when TWO updates happen during ONE in-flight load '
-        '— the install re-attaches the last, not the first (release gate)',
-        () async {
-      final c = controller();
-      sdk.loadHold = Completer<void>();
-      final loading = c.load();
-      await Future<void>.delayed(Duration.zero);
-      expect(c.isReady, isFalse);
+    test(
+      'LATEST-VALUE-WINS when TWO updates happen during ONE in-flight load '
+      '— the install re-attaches the last, not the first (release gate)',
+      () async {
+        final c = controller();
+        sdk.loadHold = Completer<void>();
+        final loading = c.load();
+        await Future<void>.delayed(Duration.zero);
+        expect(c.isReady, isFalse);
 
-      // Two rapid updates while the load is parked in flight.
-      await c.setServerSideVerification(
-        const ServerSideVerification(userId: 'v1'),
-      );
-      await c.setServerSideVerification(
-        const ServerSideVerification(userId: 'v2'),
-      );
+        // Two rapid updates while the load is parked in flight.
+        await c.setServerSideVerification(
+          const ServerSideVerification(userId: 'v1'),
+        );
+        await c.setServerSideVerification(
+          const ServerSideVerification(userId: 'v2'),
+        );
 
-      sdk.loadHold!.complete();
-      sdk.loadHold = null;
-      await loading;
-      await Future<void>.delayed(Duration.zero);
+        sdk.loadHold!.complete();
+        sdk.loadHold = null;
+        await loading;
+        await Future<void>.delayed(Duration.zero);
 
-      expect(c.isReady, isTrue);
-      expect(
-        sdk.rewardeds.single.ssvUpdates.last.userId,
-        'v2',
-        reason: 'onLoaded must re-attach the LATEST override, never a stale one',
-      );
-      c.dispose();
-    });
+        expect(c.isReady, isTrue);
+        expect(
+          sdk.rewardeds.single.ssvUpdates.last.userId,
+          'v2',
+          reason:
+              'onLoaded must re-attach the LATEST override, never a stale one',
+        );
+        c.dispose();
+      },
+    );
 
     test('DISPOSE during an in-flight update does not crash and installs '
         'nothing on the dead controller (release gate)', () async {
@@ -331,10 +334,9 @@ void main() {
 
       // The update future resolves (or reports) without throwing into the
       // zone; nothing is installed on the disposed controller.
-      await update.timeout(
-        const Duration(seconds: 1),
-        onTimeout: () {},
-      ).catchError((Object _) {});
+      await update
+          .timeout(const Duration(seconds: 1), onTimeout: () {})
+          .catchError((Object _) {});
       expect(c.state.value, isA<AdLoaded>()); // last state before dispose froze
     });
 
@@ -357,10 +359,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       // The handle from a load that completed after dispose is released, and
       // no SSV is attached to it (the controller bailed on its _disposed guard).
-      expect(
-        sdk.rewardeds.isEmpty || sdk.rewardeds.single.disposed,
-        isTrue,
-      );
+      expect(sdk.rewardeds.isEmpty || sdk.rewardeds.single.disposed, isTrue);
     });
   });
 }

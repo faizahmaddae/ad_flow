@@ -105,12 +105,13 @@ not propagated for you):
 
 ad_flow's surfaces for this:
 
-- **`forwardConsent` — the awaited barrier (recommended when a network reads
-  its signal at request time).** Supply it to `AdFlow.initialize`; ad_flow
-  runs it after every consent flow **and the first ad load waits for it**, so
-  the signal is set before the first request. Unlike `onConsentChanged`
-  (below) it cannot miss the initial flow and cannot be raced by the first
-  load:
+- **`forwardConsent` — the fail-closed barrier (recommended when a network
+  reads its signal at request time).** Supply it to `AdFlow.initialize`;
+  ad_flow runs it after consent settles and **holds every mediation-capable ad
+  request until it has succeeded**, so a partner never receives a request
+  without its signal. Unlike `onConsentChanged` (below) it cannot miss the
+  initial flow and cannot be raced by the first load, and it re-establishes on
+  every consent change before the next request:
 
   ```dart
   await AdFlow.initialize(
@@ -126,8 +127,16 @@ ad_flow's surfaces for this:
   );
   ```
 
-  It is bounded (a slow/broken forwarder degrades open, never freezes loads)
-  and best-effort — verify with the Ad Inspector.
+  **Fail-closed by default** (`MediationConsentFailurePolicy.failClosed`): if
+  the forwarder fails or times out (15s), the load is **blocked**
+  (`AdBlockReason.consentNotForwarded`, visible via `onAdBlocked`) and the
+  forwarder is retried in the background — the slot recovers the moment it
+  succeeds. It never blocks your UI (`initialize`/`whenReady` do not wait on
+  it); only the ad request waits. If — and only if — every network you use
+  reads the IAB TCF/GPP string itself, you may set
+  `mediationConsentPolicy: MediationConsentFailurePolicy.failOpen` to serve
+  even when forwarding fails; that is revenue-first and unsafe for any network
+  that needs its own signal. Verify with the Ad Inspector.
 
 - **`AdFlow.onConsentChanged`** — a fire-and-forget hook that fires after
   every consent flow or mutation (initial gather, a retry that finally
@@ -145,12 +154,16 @@ ad_flow's surfaces for this:
   ```
 
 - **`AdFlowConfig.deferMediationInit: true`** — calls the plugin's
-  `disableMediationInitialization()` before SDK init, so partner SDKs
-  initialize lazily at the first ad request *after* consent settled and your
-  `forwardConsent` ran — the reliable ordering for flags that must precede a
-  partner SDK's startup. Google notes deferral "may negatively impact your
-  mediation performance"; use it only when a partner requires pre-init flags.
-  A failure to defer is reported (never silently swallowed).
+  `disableMediationInitialization()` before SDK init (retried a few times), so
+  partner SDKs initialize lazily at the first ad request *after* consent
+  settled and your `forwardConsent` ran — the reliable ordering for flags that
+  must precede a partner SDK's startup. Google notes deferral "may negatively
+  impact your mediation performance"; use it only when a partner requires
+  pre-init flags. If deferral **definitively fails**, the requested ordering is
+  lost and cannot be restored (the plugin no-ops the call after init), so —
+  fail-closed — mediation-capable loads are **blocked**
+  (`AdBlockReason.consentNotForwarded`) rather than served with the ordering
+  broken. `MediationConsentFailurePolicy.failOpen` serves anyway (unsafe).
 - **Per-network request extras** — `AdRequestOptions.mediationExtras` on any
   slot's `request` maps to the plugin's `MediationExtras` mechanism. Each
   `MediationNetworkExtras` names the platform adapter class (from the

@@ -1,16 +1,34 @@
-# Upgrading 4.0.x → 4.1.0
+# Upgrading 4.0.x → 5.0.0
 
-Non-breaking. Update the dependency and you are done — nothing to change.
+Almost every app compiles and behaves unchanged. Two things to check:
 
-Optional adoption:
+1. **Enum switch (source-breaking).** `AdBlockReason` gained
+   `consentNotForwarded`. If you `switch` exhaustively over `AdBlockReason`
+   (no wildcard), add the case. If you use a wildcard/`default`, nothing to
+   do.
+2. **Only if you use `forwardConsent` / `deferMediationInit`:** these now
+   fail **closed** by default. A failed/timed-out forward, or a failed
+   mediation-init deferral, now BLOCKS mediation-capable ad requests
+   (`AdBlockReason.consentNotForwarded`) and retries in the background —
+   instead of quietly serving without the signal — so a partner never gets a
+   request without its GDPR/US-state/age flag. Your UI is unaffected
+   (`whenReady`/`initialize` never wait on forwarding). If, and only if,
+   every network you use reads the IAB TCF/GPP string itself, opt back into
+   the old behavior with
+   `mediationConsentPolicy: MediationConsentFailurePolicy.failOpen` (revenue-
+   first, unsafe for networks that need their own signal). **Publishers who
+   do NOT pass `forwardConsent`/`deferMediationInit` are unaffected.**
+
+Optional adoption (non-breaking):
 
 - **Mediation consent forwarding:** if you use mediation partners that need
-  their privacy signal before the first request (Unity, AppLovin US-state,
-  Meta LDU), pass `forwardConsent: () async { ... }` to `AdFlow.initialize`
-  — the first ad load waits for it. See `doc/MEDIATION_SETUP.md` §4.
-- Behavior fixes (cap late-hydration, SSV in-flight/fail-drop, rewarded-
-  interstitial post-intro re-check, async-callback isolation) require no code
-  changes; they only make existing paths correct.
+  their privacy signal before the request (Unity, AppLovin US-state, Meta
+  LDU), pass `forwardConsent: () async { ... }` to `AdFlow.initialize` — every
+  mediation-capable load waits for it, fail-closed. See
+  `doc/MEDIATION_SETUP.md` §4.
+- Behavior fixes (cap late-hydration/merge, SSV in-flight/fail-drop/
+  latest-wins, rewarded-interstitial post-intro re-check, async-callback
+  isolation) require no code changes; they only make existing paths correct.
 
 ---
 

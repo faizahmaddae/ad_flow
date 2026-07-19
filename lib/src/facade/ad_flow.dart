@@ -207,18 +207,22 @@ class AdFlow {
   ///   GDPR form always shows regardless — ATT and GDPR are independent
   ///   regimes (ADR-031).
   ///
-  /// [forwardConsent] is the **awaited consent-forwarding barrier** (4.1): an
+  /// [forwardConsent] is the **fail-closed consent-forwarding barrier**: an
   /// async callback that pushes the user's consent to mediation networks
   /// which do NOT read the IAB TCF string themselves (Unity's MetaData calls,
   /// AppLovin's US-state flag, Meta's Limited Data Use — read the `IABTCF_*` /
-  /// `IABGPP_*` keys and call the partner SDK). It runs after every consent
-  /// flow resolves, and — unlike the fire-and-forget [onConsentChanged] field
+  /// `IABGPP_*` keys and call the partner SDK). It runs after consent settles,
+  /// and every MEDIATION-CAPABLE ad load *waits* for it to SUCCEED before the
+  /// request goes out — unlike the fire-and-forget [onConsentChanged] field
   /// (assignable only *after* `initialize` returns, so it can miss the initial
-  /// flow) — the first ad LOAD *waits* for it, so a network gets its signal
-  /// before its first request. Bounded (a slow/broken forwarder degrades open,
-  /// never hangs the pipeline) and error-contained. See doc/MEDIATION_SETUP.md
-  /// and [AdFlowConfig.deferMediationInit] for partners that need their flags
-  /// before their SDK spins up.
+  /// flow). Fail-CLOSED by default ([AdFlowConfig.mediationConsentPolicy]): a
+  /// failed/timed-out forward BLOCKS the load
+  /// ([AdBlockReason.consentNotForwarded]) and is retried in the background —
+  /// the slot recovers when forwarding succeeds — rather than quietly sending
+  /// an unsignalled request. It never blocks UI ([whenReady] resolves on
+  /// consent alone), and it re-establishes on every consent change before the
+  /// next request, not only at startup. See doc/MEDIATION_SETUP.md and
+  /// [AdFlowConfig.deferMediationInit].
   ///
   /// These apply only to a gateway this facade creates. If you inject your
   /// own [consent], construct it with these options yourself.

@@ -111,7 +111,8 @@ void main() {
       throw StateError('forward async bug');
     };
 
-    await ads.consent.showPrivacyOptions(); // a mutation → _dispatchConsentChanged
+    await ads.consent
+        .showPrivacyOptions(); // a mutation → _dispatchConsentChanged
     await pumpEventQueue();
 
     expect(

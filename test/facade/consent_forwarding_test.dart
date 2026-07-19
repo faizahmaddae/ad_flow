@@ -33,8 +33,7 @@ void main() {
   }) => AdFlowConfig(
     banner: const BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
     deferMediationInit: deferMediationInit,
-    mediationConsentPolicy:
-        policy ?? MediationConsentFailurePolicy.failClosed,
+    mediationConsentPolicy: policy ?? MediationConsentFailurePolicy.failClosed,
   );
 
   group('the barrier holds the first mediation-capable request', () {
@@ -339,7 +338,9 @@ void main() {
         async.flushMicrotasks();
 
         final banner = ads!.banner();
-        unawaited(banner.load(width: 320)); // triggers forward #1 (hung on gate)
+        unawaited(
+          banner.load(width: 320),
+        ); // triggers forward #1 (hung on gate)
         async.elapse(const Duration(seconds: 1));
         async.flushMicrotasks();
         expect(sdk.loadLog, isEmpty);
@@ -432,21 +433,23 @@ void main() {
       ads.dispose();
     });
 
-    test('a SUCCESSFUL deferral imposes no barrier when no forwarder is set',
-        () async {
-      final ads = await AdFlow.initialize(
-        cfg(deferMediationInit: true),
-        sdk: sdk,
-        store: InMemoryKeyValueStore(),
-        platform: AdPlatform.android,
-      );
-      await ads.whenReady;
-      expect(sdk.disableMediationInitializationCalls, 1);
-      final banner = ads.banner();
-      await banner.load(width: 320);
-      expect(sdk.loadLog, isNotEmpty);
-      banner.dispose();
-      ads.dispose();
-    });
+    test(
+      'a SUCCESSFUL deferral imposes no barrier when no forwarder is set',
+      () async {
+        final ads = await AdFlow.initialize(
+          cfg(deferMediationInit: true),
+          sdk: sdk,
+          store: InMemoryKeyValueStore(),
+          platform: AdPlatform.android,
+        );
+        await ads.whenReady;
+        expect(sdk.disableMediationInitializationCalls, 1);
+        final banner = ads.banner();
+        await banner.load(width: 320);
+        expect(sdk.loadLog, isNotEmpty);
+        banner.dispose();
+        ads.dispose();
+      },
+    );
   });
 }
