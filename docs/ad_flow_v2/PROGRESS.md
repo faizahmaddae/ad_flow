@@ -1,13 +1,31 @@
-# PROGRESS — ad_flow v2/v3/v4
+# PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
-**Phase 20 — 4.1.0 post-release audit (2026-07-19)** — ✅ implemented on
+**Phase 21 — 5.0.0 release-gate correction (2026-07-19)** — ✅ implemented on
 branch **`post-release-audit-4.1`** (off tag `v4.0.0`; NOT merged/tagged/
-published — Faiz reviews). Version **4.1.0**, fully **non-breaking**
-(additive only; the sole new public surface is the optional `forwardConsent`
-param on `initialize`). An independent adversarial re-audit (multi-agent
-workflow: 31 findings, 24 confirmed, 11 survived refutation) verified the
-supplied hypotheses and hunted same-class issues. Six coherent slices, each
+published — Faiz reviews). **Version bumped 4.1.0 → 5.0.0**: the release-gate
+review found the 4.1 consent-forwarding barrier degraded OPEN on failure —
+a mediation partner could receive an ad request without its required privacy
+signal. Redesigned **fail-CLOSED by default** (mirrors ADR-061's request-
+config policy): `forwardConsent`/`deferMediationInit` failures now BLOCK
+mediation-capable loads (`AdBlockReason.consentNotForwarded`, new enum case →
+major), retried in the background, recovering when forwarding succeeds; UI
+never blocked; explicit `MediationConsentFailurePolicy.failOpen` is the only
+(unsafe) way to serve anyway. Barrier moved out of the consent chain into a
+dedicated `AdGate` gate barrier; generation-guarded so mutations re-establish
+it before newly-permitted loads and a stale forward can't satisfy a new
+generation. Plus adversarial proofs (fail-first + non-vacuity) for SSV
+latest-value-wins/dispose-races, cap-merge dedup, and async-rejection
+containment through the REAL public void-typed callbacks. ADR-064.
+Verify: `flutter analyze && flutter test` → clean, **483 tests**; pana
+160/160; dry-run 0 warnings; Android + iOS example builds ✓; coverage 84.8%.
+
+---
+
+**Phase 20 — 4.1.0 post-release audit (2026-07-19)** — folded into 5.0.0
+above. An independent adversarial re-audit (multi-agent workflow: 31
+findings, 24 confirmed, 11 survived refutation) verified the supplied
+hypotheses and hunted same-class issues. Six coherent slices, each
 fail-first (+ neuter-verified where a debug repro exists):
 
 1. Isolation: `guardedCallback` contains ASYNC callback rejections;
