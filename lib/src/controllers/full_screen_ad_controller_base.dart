@@ -398,6 +398,29 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       // app on the intro and the screen is popped): dispose() already
       // released the claim and dropped the handle — do not show.
       if (_disposed) return false;
+      // RE-VALIDATE after the unbounded confirm hook (4.1 audit). The checks
+      // above ran BEFORE the intro, which the user may sit on for minutes:
+      // Remove-Ads can be bought and the warm ad can age past maxAdAge in
+      // that window. Re-run the cheap live checks (no network/config join —
+      // showBlockReason is the same subset the show path already trusts) and
+      // re-check expiry; a stale or no-longer-permitted ad is rolled back
+      // rather than shown. internalError is a transient hiccup — proceed
+      // (mirrors recheckGate), never waste an accepted intro on a blip.
+      if (confirm != null) {
+        final after = await _gate.showBlockReason(slot);
+        if (_disposed) return false;
+        if (after != null && after != AdBlockReason.internalError) {
+          noteBlocked(after);
+          return rejectAndRollBack();
+        }
+        if (isExpired) {
+          noteBlocked(AdBlockReason.expired);
+          // Roll back the claim/state, THEN discard the stale ad + reload.
+          await rejectAndRollBack();
+          discardCurrentAd();
+          return false;
+        }
+      }
     } catch (_) {
       // Degrade to "don't show", never to "wedged forever".
       return rejectAndRollBack();

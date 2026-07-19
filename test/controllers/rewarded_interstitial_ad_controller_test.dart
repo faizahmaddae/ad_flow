@@ -268,6 +268,82 @@ void main() {
       expect(c.isReady, isTrue);
       c.dispose();
     });
+
+    test('permission REVOKED during the intro (Remove-Ads bought while the '
+        'user reads it) is respected — the ad is not shown (4.1 audit)',
+        () async {
+      var enabled = true;
+      final c = RewardedInterstitialAdController(
+        sdk: sdk,
+        gate: AdGate(
+          canRequestAds: sdk.canRequestAds,
+          isEnabled: () => enabled,
+        ),
+        caps: caps,
+        coordinator: coordinator,
+        config: const RewardedInterstitialConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-ri'),
+        ),
+        adUnitId: 'unit-ri',
+        showIntro: (content) async {
+          // The user buys Remove-Ads on another surface while the intro is up.
+          enabled = false;
+          return true; // ...then taps "watch"
+        },
+      );
+      await c.load();
+      final handle = sdk.rewardedInterstitials.single;
+
+      final shown = await c.show(onReward: (_) {});
+
+      expect(shown, isFalse);
+      expect(
+        handle.showCalls,
+        0,
+        reason:
+            'a Remove-Ads purchase that lands during the unbounded intro '
+            'must be honoured before the ad plays',
+      );
+      expect(coordinator.isFullScreenAdVisible, isFalse);
+      c.dispose();
+    });
+
+    test('an ad that EXPIRES while the user reads the intro is not shown '
+        '(4.1 audit)', () async {
+      var now = DateTime(2026, 7, 18, 12);
+      final c = RewardedInterstitialAdController(
+        sdk: sdk,
+        gate: AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true),
+        caps: caps,
+        coordinator: coordinator,
+        config: const RewardedInterstitialConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-ri'),
+          maxAdAge: Duration(minutes: 55),
+        ),
+        adUnitId: 'unit-ri',
+        now: () => now,
+        showIntro: (content) async {
+          // The user leaves the intro open for an hour.
+          now = now.add(const Duration(minutes: 56));
+          return true;
+        },
+      );
+      await c.load();
+      final handle = sdk.rewardedInterstitials.single;
+
+      final shown = await c.show(onReward: (_) {});
+
+      expect(shown, isFalse);
+      expect(
+        handle.showCalls,
+        0,
+        reason:
+            'a stale ad shown after a long intro may fail to display or not '
+            'count — discard it instead',
+      );
+      expect(coordinator.isFullScreenAdVisible, isFalse);
+      c.dispose();
+    });
   });
 
   test('forwards SSV options to the seam', () async {
