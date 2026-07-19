@@ -248,10 +248,16 @@ class FakeAdSdk implements AdSdk {
   /// [initialize] — the only ordering in which the real plugin honours it.
   bool? mediationInitDisabledBeforeInitialize;
 
+  /// If set, [disableMediationInitialization] throws this — models a mediation
+  /// deferral that could not be applied (4.1 audit).
+  Object? disableMediationInitializationError;
+
   @override
   Future<void> disableMediationInitialization() async {
     disableMediationInitializationCalls++;
     mediationInitDisabledBeforeInitialize ??= initializeCalls == 0;
+    final error = disableMediationInitializationError;
+    if (error != null) throw error;
   }
 
   @override

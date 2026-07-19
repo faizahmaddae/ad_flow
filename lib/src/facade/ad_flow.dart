@@ -44,11 +44,13 @@ class AdFlow {
     required AdPlatform platform,
     required KeyValueStore store,
     RewardedIntroPresenter? rewardedIntroPresenter,
+    Future<void> Function()? consentForwarder,
   }) : _config = config,
        _sdk = sdk,
        _consent = consentGateway,
        _ownsConsent = ownsConsent,
        _platform = platform,
+       _consentForwarder = consentForwarder,
        _coordinator = FullScreenAdCoordinator(),
        _retry = RetryPolicy(config.retry) {
     _caps = StoredFrequencyCapPolicy(
@@ -204,6 +206,19 @@ class AdFlow {
   ///   GDPR form always shows regardless — ATT and GDPR are independent
   ///   regimes (ADR-031).
   ///
+  /// [forwardConsent] is the **awaited consent-forwarding barrier** (4.1): an
+  /// async callback that pushes the user's consent to mediation networks
+  /// which do NOT read the IAB TCF string themselves (Unity's MetaData calls,
+  /// AppLovin's US-state flag, Meta's Limited Data Use — read the `IABTCF_*` /
+  /// `IABGPP_*` keys and call the partner SDK). It runs after every consent
+  /// flow resolves, and — unlike the fire-and-forget [onConsentChanged] field
+  /// (assignable only *after* `initialize` returns, so it can miss the initial
+  /// flow) — the first ad LOAD *waits* for it, so a network gets its signal
+  /// before its first request. Bounded (a slow/broken forwarder degrades open,
+  /// never hangs the pipeline) and error-contained. See doc/MEDIATION_SETUP.md
+  /// and [AdFlowConfig.deferMediationInit] for partners that need their flags
+  /// before their SDK spins up.
+  ///
   /// These apply only to a gateway this facade creates. If you inject your
   /// own [consent], construct it with these options yourself.
   static Future<AdFlow> initialize(
@@ -220,6 +235,7 @@ class AdFlow {
         const ConsentExplainerContent(),
     AttExplainerContent attExplainerContent = const AttExplainerContent(),
     bool skipConsentPrimerIfAttDenied = true,
+    Future<void> Function()? forwardConsent,
   }) async {
     // Fail fast on nonsense (empty ad unit strings, negative durations) —
     // discoverable at init, instead of silent no-fill in production
@@ -247,6 +263,7 @@ class AdFlow {
       platform: platform ?? currentAdPlatform(),
       store: store ?? SharedPrefsKeyValueStore(),
       rewardedIntroPresenter: rewardedIntroPresenter,
+      consentForwarder: forwardConsent,
     );
     // IDEMPOTENT (ADR-044): a second initialize() replaces the first graph
     // instead of leaving it running. Apps DO re-initialize — on login/logout,
@@ -484,6 +501,11 @@ class AdFlow {
     if (_disposed) return;
     _refreshCanRequestAds();
     _dispatchConsentChanged();
+    // Re-forward the (possibly changed/withdrawn) consent state to mediation
+    // networks — best-effort here, since a post-init mutation has no first-load
+    // ordering to preserve; the barrier that ORDERS the first request lives in
+    // _runConsent (4.1).
+    unawaited(_forwardConsent());
     _recheckAll();
   }
 
@@ -506,6 +528,41 @@ class AdFlow {
   bool _consentOpen = false;
   bool _consentRetryArmed = true;
   Timer? _consentRetryTimer;
+
+  /// The app-supplied, AWAITED consent-forwarding barrier (4.1). Runs after
+  /// every consent flow resolves; the first ad LOAD waits for it (via the
+  /// chained [_consentInFlight] the gate joins), so a mediation network that
+  /// does not read the IAB TCF string itself gets its per-network privacy
+  /// signal set BEFORE the first ad request. Bounded — see [_forwardConsent].
+  final Future<void> Function()? _consentForwarder;
+
+  /// Bounds the forwarding barrier so a slow or broken forwarder degrades
+  /// open (the ad request proceeds) rather than freezing the pipeline —
+  /// consistent with [_settleRequestConfig] and non-blocking init.
+  static const _forwardConsentTimeout = Duration(seconds: 15);
+
+  /// Runs the app's consent forwarder (if any), bounded and error-contained.
+  /// Never throws and never hangs: a timeout or throw is reported and the
+  /// barrier completes (degrade open).
+  Future<void> _forwardConsent() async {
+    final forwarder = _consentForwarder;
+    if (forwarder == null || _disposed) return;
+    try {
+      await Future<void>.sync(forwarder).timeout(_forwardConsentTimeout);
+    } catch (error, stack) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stack,
+          library: 'ad_flow',
+          context: ErrorDescription(
+            'while forwarding consent to mediation networks (degraded open; '
+            'the first ad request proceeds without waiting further)',
+          ),
+        ),
+      );
+    }
+  }
 
   /// Minimum spacing between two consent attempts, so the gate re-checks that
   /// several controllers make while offline coalesce into one UMP call.
@@ -623,25 +680,35 @@ class AdFlow {
     await _runConsent(_consentDebug);
   }
 
-  /// Runs one consent attempt, publishing it on [_consentInFlight] so
-  /// concurrent [_settleConsent] callers join it rather than starting a second.
+  /// Runs one consent attempt, publishing on [_consentInFlight] a future that
+  /// resolves only AFTER consent forwarding — so concurrent [_settleConsent]
+  /// callers (the first ad load) join it and cannot open the gate before the
+  /// per-network privacy signal has been forwarded (4.1). `_consentOpen` is
+  /// set at the END of the chain (after forwarding) for the same reason: it is
+  /// the flag [_settleConsent] short-circuits on, and it must not read "open"
+  /// until forwarding has run.
   Future<bool> _runConsent(ConsentDebugOptions? debug) {
     _consentRetryArmed = false;
     final run = _consent.ensureCanRequestAds(debug: debug);
-    _consentInFlight = run;
-    return run
-        .then((open) {
-          _consentOpen = open;
-          if (!_disposed) {
-            _canRequestAdsNotifier.value = open;
-            // Every completed consent flow (initial, or a retry that finally
-            // resolved) is a forwarding point for mediation privacy signals.
-            _dispatchConsentChanged();
-          }
-          return open;
-        })
+    final published = run.then((open) async {
+      if (!_disposed) {
+        _canRequestAdsNotifier.value = open;
+        // Every completed consent flow (initial, or a retry that finally
+        // resolved) is a forwarding point for mediation privacy signals.
+        _dispatchConsentChanged();
+        // AWAITED barrier: the first ad load joins this future, so networks
+        // get their signal before the request. Runs whether ads are permitted
+        // or not — a declined user's "no personalization" state is worth
+        // forwarding too — and is bounded, so it never hangs the gate.
+        await _forwardConsent();
+      }
+      _consentOpen = open;
+      return open;
+    });
+    _consentInFlight = published;
+    return published
         .whenComplete(() {
-          if (identical(_consentInFlight, run)) _consentInFlight = null;
+          if (identical(_consentInFlight, published)) _consentInFlight = null;
           if (_disposed || _consentOpen) return;
           // Re-arm the retry after a cooldown, so a still-offline device keeps
           // trying (at a sane rate) rather than giving up for the session.
@@ -685,12 +752,29 @@ class AdFlow {
     // race on the slowest devices. If init lands later, the completion hook
     // below applies the configuration then.
     // Opt-in mediation-init deferral (4.0): must precede initialize() (the
-    // plugin no-ops it afterwards). Best-effort — a failure here only means
-    // adapters auto-init as usual.
+    // plugin no-ops it afterwards). Best-effort — a failure only means
+    // adapters auto-init as usual — but REPORTED, not swallowed (4.1): this
+    // is a policy-ORDERING primitive, so a lost guarantee (a partner adapter
+    // now spins up before its consent flags are forwarded) must be visible,
+    // matching the request-config "no silent config loss" contract.
     if (_config.deferMediationInit) {
       try {
         await _sdk.disableMediationInitialization();
-      } catch (_) {}
+      } catch (error, stack) {
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stack,
+            library: 'ad_flow',
+            context: ErrorDescription(
+              'while deferring mediation adapter initialization '
+              '(deferMediationInit); adapters will auto-initialize as usual, '
+              'so a partner needing pre-init privacy flags may not receive '
+              'them before its SDK starts',
+            ),
+          ),
+        );
+      }
     }
 
     Future<void>? init;
