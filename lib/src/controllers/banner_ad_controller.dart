@@ -328,6 +328,24 @@ class BannerAdController implements AdController {
     }
   }
 
+  @override
+  Future<void> invalidateForConsentChange() async {
+    if (_disposed) return;
+    final state = _state.value;
+    if (state is AdLoaded) {
+      // The visible banner was requested — and renders/measures — under the
+      // old consent. Drop it and re-request at the current width through the
+      // fresh (re-forwarded) gate, so it never renders a stale-consent
+      // impression. (A no-op mid-load / mid-refresh, which reconcile the width
+      // and re-run the gate themselves.)
+      if (_state.value is AdLoading || _refreshing) return;
+      await _reloadAtCurrentWidth();
+    } else if (state is AdIdle || state is AdFailed || state is AdBlocked) {
+      if (state is AdFailed) _state.value = const AdIdle();
+      await load();
+    }
+  }
+
   /// Arms the opt-in client-side refresh, if one is configured.
   ///
   /// No config, no timer (ADR-041) — AdMob's own server-side auto-refresh is

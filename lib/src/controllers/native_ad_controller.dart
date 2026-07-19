@@ -223,6 +223,21 @@ class NativeAdController implements AdController {
     }
   }
 
+  @override
+  Future<void> invalidateForConsentChange() async {
+    if (_disposed) return;
+    final state = _state.value;
+    if (state is AdLoaded) {
+      // The visible native ad renders/measures under the old consent — drop it
+      // and reload through the fresh (re-forwarded) gate. `reload()` no-ops
+      // while a load is in flight.
+      await reload();
+    } else if (state is AdIdle || state is AdFailed || state is AdBlocked) {
+      if (state is AdFailed) _state.value = const AdIdle();
+      await load();
+    }
+  }
+
   void _scheduleRetry() {
     _attempts++;
     _timer?.cancel();

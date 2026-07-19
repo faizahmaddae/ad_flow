@@ -293,6 +293,25 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   }
 
   @override
+  Future<void> invalidateForConsentChange() async {
+    if (_disposed) return;
+    final state = _state.value;
+    if (state is AdLoaded) {
+      // A WARM ad (not yet shown) was requested under the old consent — drop
+      // it and reload under the fresh (re-forwarded) gate, so it never shows
+      // a stale-consent impression. The reload's gate sets the right state
+      // (a fresh ad, or AdBlocked if forwarding must re-run first).
+      discardCurrentAd();
+    } else if (state is AdIdle || state is AdFailed || state is AdBlocked) {
+      if (state is AdFailed) _state.value = const AdIdle();
+      await load();
+    }
+    // AdShowing: on screen — do NOT interrupt; its impression already fired,
+    // and the dismiss path reloads the next one through the fresh gate.
+    // AdLoading: resolves on its own through the fresh gate.
+  }
+
+  @override
   Future<bool> show() => showEngine();
 
   /// The full show engine, shared by every format. [onReward] is forwarded

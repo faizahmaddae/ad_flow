@@ -298,12 +298,11 @@ void main() {
       await banner.load(width: 320);
       expect(forwardCalls, 1, reason: 'forwarded once for the initial load');
 
-      // The user opens the privacy options and changes consent.
+      // The user opens the privacy options and changes consent. The mutation
+      // invalidates the forward AND drops-and-reloads the stale banner, so the
+      // reload re-forwards the NEW state before its request.
       await ads.consent.showPrivacyOptions();
-      // The mutation invalidated the forward; a fresh load must re-forward the
-      // NEW state before requesting again.
-      await banner.recheckGate();
-      await banner.load(width: 320);
+      await pumpEventQueue();
       expect(
         forwardCalls,
         greaterThanOrEqualTo(2),

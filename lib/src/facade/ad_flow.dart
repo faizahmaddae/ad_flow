@@ -504,6 +504,19 @@ class AdFlow {
     }
   }
 
+  /// Drops-and-reloads every warm/visible ad after a consent mutation, so a
+  /// stale-consent ad never renders/measures — see
+  /// [AdController.invalidateForConsentChange].
+  void _invalidateLoadedAdsForConsentChange() {
+    unawaited(_interstitial?.invalidateForConsentChange());
+    unawaited(_rewarded?.invalidateForConsentChange());
+    unawaited(_rewardedInterstitial?.invalidateForConsentChange());
+    unawaited(_appOpenController?.invalidateForConsentChange());
+    for (final controller in List.of(_mintedViewControllers)) {
+      unawaited(controller.invalidateForConsentChange());
+    }
+  }
+
   /// Called by the [consent] wrapper after any consent-mutating call
   /// completes (a privacy-options form the user may have used to withdraw,
   /// an app-driven `ensureCanRequestAds`, a test `reset`) so ads that are no
@@ -518,10 +531,14 @@ class AdFlow {
     // A privacy-options change / re-run / reset makes any prior forward stale.
     // Invalidate it so the forwarding barrier re-establishes BEFORE the next
     // newly-permitted load (the same fail-closed ordering as the first load,
-    // not only at startup — 4.1 release gate). `_recheckAll` then drives the
-    // reloads that hit the gate and re-forward.
+    // not only at startup — release gate).
     _invalidateConsentForwarding();
-    _recheckAll();
+    // Any ad ALREADY loaded was requested under the previous consent and is
+    // privacy-stale (its impression/measurement reflect the old choice), so
+    // drop-and-reload warm/visible ads through the fresh gate — a full-screen
+    // ad on screen is not interrupted (release gate). This subsumes the
+    // permission-only `_recheckAll` for the mutation case.
+    _invalidateLoadedAdsForConsentChange();
   }
 
   // ── Consent, and its retry ────────────────────────────────────────────────
