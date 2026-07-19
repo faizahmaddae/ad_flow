@@ -252,10 +252,17 @@ class FakeAdSdk implements AdSdk {
   /// deferral that could not be applied (4.1 audit).
   Object? disableMediationInitializationError;
 
+  /// If set, [disableMediationInitialization] awaits this before proceeding —
+  /// leave it incomplete to hold the deferral in flight (e.g. to prove a load
+  /// waits on the deferral-settled barrier before the deferral fails).
+  Completer<void>? disableMediationInitializationHold;
+
   @override
   Future<void> disableMediationInitialization() async {
     disableMediationInitializationCalls++;
     mediationInitDisabledBeforeInitialize ??= initializeCalls == 0;
+    final hold = disableMediationInitializationHold;
+    if (hold != null) await hold.future;
     final error = disableMediationInitializationError;
     if (error != null) throw error;
   }

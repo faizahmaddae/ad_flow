@@ -433,6 +433,57 @@ void main() {
       ads.dispose();
     });
 
+    test('a load reaching the barrier WHILE the deferral is still in flight '
+        'waits for it — the guarantee is structural, not timing (release '
+        'gate)', () {
+      fakeAsync((async) {
+        // Hold the deferral in flight so a load can reach the barrier before
+        // it settles; the deferral then FAILS. No load may slip through.
+        sdk.disableMediationInitializationHold = Completer<void>();
+        sdk.disableMediationInitializationError = StateError('defer failed');
+        final previousOnError = FlutterError.onError;
+        FlutterError.onError = (_) {};
+        addTearDown(() => FlutterError.onError = previousOnError);
+
+        AdFlow? ads;
+        unawaited(
+          AdFlow.initialize(
+            cfg(deferMediationInit: true),
+            sdk: sdk,
+            store: InMemoryKeyValueStore(),
+            platform: AdPlatform.android,
+          ).then((f) => ads = f),
+        );
+        async.flushMicrotasks();
+
+        final banner = ads!.banner();
+        unawaited(banner.load(width: 320));
+        async.elapse(const Duration(seconds: 3)); // load parks on the deferral
+        async.flushMicrotasks();
+        expect(
+          sdk.loadLog,
+          isEmpty,
+          reason: 'the load must WAIT while the deferral is still in flight',
+        );
+
+        // The deferral now resolves — and fails (all 3 attempts).
+        sdk.disableMediationInitializationHold!.complete();
+        sdk.disableMediationInitializationHold = null;
+        async.elapse(const Duration(minutes: 1));
+        async.flushMicrotasks();
+        expect(
+          sdk.loadLog,
+          isEmpty,
+          reason:
+              'a definitively-failed deferral is fail-closed — no mediation '
+              'request goes out',
+        );
+        expect(banner.lastBlockReason, AdBlockReason.consentNotForwarded);
+        banner.dispose();
+        ads!.dispose();
+      });
+    });
+
     test(
       'a SUCCESSFUL deferral imposes no barrier when no forwarder is set',
       () async {

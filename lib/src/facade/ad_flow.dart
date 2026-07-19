@@ -579,6 +579,14 @@ class AdFlow {
   /// mediation-capable loads blocked (the requested ordering is lost).
   bool _mediationDeferralFailed = false;
 
+  /// Completes when the deferral has SETTLED (succeeded or definitively
+  /// failed) in [_start]. The forwarding barrier awaits it so a load can
+  /// never slip through WHILE the deferral is still in flight and then have
+  /// it fail — the guarantee is structural, not timing-dependent. An
+  /// already-complete future when deferral was not requested. Bounded by the
+  /// init timeout on the barrier side, so it never parks a load forever.
+  final Completer<void> _deferMediationSettled = Completer<void>();
+
   /// Whether the publisher opted into strict mediation consent ordering.
   bool get _mediationConsentRequired =>
       _consentForwarder != null || _config.deferMediationInit;
@@ -595,6 +603,20 @@ class AdFlow {
   Future<bool> _settleConsentForwarding() async {
     if (!_mediationConsentRequired) return true; // non-adopter: no barrier
     if (_disposed) return false;
+    // If deferral was requested, WAIT for it to settle before deciding — a
+    // load must never slip through while the deferral is still in flight and
+    // then have it fail (a structural guarantee, not a timing assumption).
+    // Bounded so a hung startup never parks the load forever.
+    if (_config.deferMediationInit && !_deferMediationSettled.isCompleted) {
+      try {
+        await _deferMediationSettled.future.timeout(_initTimeout);
+      } catch (_) {
+        // Still not settled — treat as not-yet-safe: fail-closed blocks,
+        // fail-open proceeds; either way the next gate re-check re-evaluates.
+        return !_mediationConsentFailClosed;
+      }
+      if (_disposed) return false;
+    }
     // Deferral is an init-time, one-shot call — a definitive failure cannot be
     // retried. The strict ordering the publisher asked for is permanently
     // lost, so under fail-closed we refuse mediation-capable loads.
@@ -898,6 +920,9 @@ class AdFlow {
         );
       }
     }
+    // Deferral has now settled (succeeded, definitively failed, or was never
+    // requested): release the barrier's wait so loads can decide.
+    if (!_deferMediationSettled.isCompleted) _deferMediationSettled.complete();
 
     Future<void>? init;
     try {
@@ -1172,6 +1197,10 @@ class AdFlow {
     _configRetryTimer = null;
     _forwardRetryTimer?.cancel();
     _forwardRetryTimer = null;
+    // Release any load parked on the deferral-settled barrier (a mid-startup
+    // dispose); _settleConsentForwarding then answers false on the disposed
+    // graph and the controllers bail on their own _disposed guard.
+    if (!_deferMediationSettled.isCompleted) _deferMediationSettled.complete();
     // Loads parked in a joined config attempt resolve when that bounded
     // attempt does; _settleRequestConfig answers false on a disposed graph
     // and the controllers bail on their own _disposed guard.
