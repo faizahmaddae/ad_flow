@@ -685,11 +685,19 @@ class AdFlow {
   /// mediation-capable load — after a consent MUTATION (withdrawal/change) the
   /// forwarded signal is stale. Bumps the generation so an in-flight forward
   /// from the old state cannot mark the new one forwarded.
+  ///
+  /// Deliberately does NOT null [_forwardAttemptInFlight]: an in-flight
+  /// attempt is left in place so a post-mutation load JOINS it rather than
+  /// launching a second, concurrent invocation of the app's `forwardConsent`
+  /// callback (release-gate review: repeated mutations during a slow forwarder
+  /// otherwise stacked overlapping calls). The stale attempt completes without
+  /// marking the new generation forwarded (the generation guard), so the load
+  /// still blocks fail-closed and a fresh, correctly-generationed forward runs
+  /// next — at most one `forwardConsent` call is ever in flight.
   void _invalidateConsentForwarding() {
     _consentGeneration++;
     _consentForwarded = false;
     _forwardRetryArmed = true;
-    _forwardAttemptInFlight = null;
   }
 
   /// Minimum spacing between two consent attempts, so the gate re-checks that

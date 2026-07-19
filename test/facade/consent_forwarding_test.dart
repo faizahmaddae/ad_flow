@@ -317,6 +317,75 @@ void main() {
       ads.dispose();
     });
 
+    test('the app forwardConsent callback is never invoked CONCURRENTLY when a '
+        'mutation orphans an in-flight forward and a SECOND slot then loads '
+        '(release-gate review: serialized, at most one in flight)', () {
+      fakeAsync((async) {
+        final hold = Completer<void>();
+        var concurrent = 0;
+        var maxConcurrent = 0;
+        var calls = 0;
+        AdFlow? ads;
+        unawaited(
+          AdFlow.initialize(
+            const AdFlowConfig(
+              banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
+              nativeAd: NativeConfig(
+                adUnitId: PlatformAdUnitId(android: 'n-a'),
+                templateKind: NativeTemplateKind.small,
+              ),
+            ),
+            sdk: sdk,
+            store: InMemoryKeyValueStore(),
+            platform: AdPlatform.android,
+            forwardConsent: () async {
+              calls++;
+              concurrent++;
+              if (concurrent > maxConcurrent) maxConcurrent = concurrent;
+              // The first call hangs (a slow partner SDK); later calls fast.
+              if (calls == 1) await hold.future;
+              concurrent--;
+            },
+          ).then((f) => ads = f),
+        );
+        async.flushMicrotasks();
+
+        // Banner triggers forward #1, which hangs; the banner parks joining it.
+        final banner = ads!.banner();
+        unawaited(banner.load(width: 320));
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+        expect(calls, 1);
+
+        // A consent mutation orphans the in-flight forward, THEN a fresh slot
+        // (native) starts its own load and reaches the barrier — this is the
+        // path that, unserialized, launches a SECOND concurrent forward.
+        unawaited(ads!.consent.showPrivacyOptions());
+        async.flushMicrotasks();
+        final native = ads!.native();
+        unawaited(native.load());
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+
+        expect(
+          maxConcurrent,
+          1,
+          reason:
+              'the native load must JOIN the in-flight forward, never launch a '
+              'second concurrent invocation of a (possibly non-reentrant) '
+              'forwardConsent',
+        );
+
+        hold.complete();
+        async.elapse(const Duration(minutes: 1));
+        async.flushMicrotasks();
+        expect(maxConcurrent, 1, reason: 'still serial after recovery');
+        banner.dispose();
+        native.dispose();
+        ads!.dispose();
+      });
+    });
+
     test('a mutation DURING an in-flight forward does not let the stale forward '
         'mark the new generation as forwarded (latest-value-wins)', () {
       fakeAsync((async) {
