@@ -65,4 +65,20 @@ enum AdBlockReason {
   /// collaborator heals) but never drops a LIVE ad — a transient channel
   /// hiccup must not destroy revenue already on screen (4.0 audit).
   internalError,
+
+  /// The publisher opted into strict mediation consent ordering (supplied
+  /// `forwardConsent` and/or [AdFlowConfig.deferMediationInit]), and that step
+  /// has not completed successfully — the forwarder failed/timed out, or the
+  /// mediation-init deferral failed — while the effective
+  /// [MediationConsentFailurePolicy] is `failClosed` (the default).
+  ///
+  /// This is fail-CLOSED protection for mediation privacy: a partner SDK must
+  /// never receive a mediation-capable ad request before its required
+  /// GDPR/US-state/age signal is forwarded. A forwarder failure is retried in
+  /// the background (rate-limited) and every gate re-check re-joins it, so the
+  /// slot recovers the moment forwarding succeeds — observable via
+  /// `onAdBlocked` and the `AdBlocked` state, never a silent unsignalled
+  /// request (4.1 audit / release gate). Choose
+  /// [MediationConsentFailurePolicy.failOpen] to serve anyway (unsafe).
+  consentNotForwarded,
 }

@@ -32,15 +32,27 @@ class AdGate {
     required bool Function() isEnabled,
     Future<bool> Function()? settleRequestConfig,
     Future<void> Function()? settleConsent,
+    Future<bool> Function()? settleConsentForwarding,
   }) : _canRequestAds = canRequestAds,
        _isEnabled = isEnabled,
        _settleRequestConfig = settleRequestConfig,
-       _settleConsent = settleConsent;
+       _settleConsent = settleConsent,
+       _settleConsentForwarding = settleConsentForwarding;
 
   final Future<bool> Function() _canRequestAds;
   final bool Function() _isEnabled;
   final Future<bool> Function()? _settleRequestConfig;
   final Future<void> Function()? _settleConsent;
+
+  /// Joins (and if needed re-attempts) the bounded consent-forwarding barrier
+  /// — the app's `forwardConsent` and any mediation-init deferral. Answers
+  /// whether a MEDIATION-CAPABLE load may proceed: `false` blocks the load
+  /// with [AdBlockReason.consentNotForwarded] (the fail-closed default), so no
+  /// partner request goes out before its privacy signal is set. Checked only
+  /// AFTER consent is granted (a declined user makes no request, so nothing to
+  /// forward before). Must be BOUNDED so the gate never parks a load
+  /// indefinitely. Null when the publisher did not opt into forwarding (4.1).
+  final Future<bool> Function()? _settleConsentForwarding;
 
   /// Whether [slot] may load an ad now.
   Future<bool> canLoad(String slot) async =>
@@ -92,6 +104,15 @@ class AdGate {
       await _settleConsent?.call();
       if (!_isEnabled()) return AdBlockReason.adsDisabled;
       if (!await _canRequestAds()) return AdBlockReason.consentNotGranted;
+      // Ads ARE permitted. Before the (mediation-capable) request goes out,
+      // make sure the app's per-network privacy signal has been forwarded —
+      // fail-CLOSED by default: a partner must not receive a request without
+      // its GDPR/US-state/age flag. Runs the forwarder once per consent
+      // generation, joined by concurrent loads, and re-attempts a failure on
+      // the controller's backoff (4.1 audit / release gate).
+      if (!(await _settleConsentForwarding?.call() ?? true)) {
+        return AdBlockReason.consentNotForwarded;
+      }
       return null;
     } catch (error, stack) {
       _reportGateError(error, stack);

@@ -181,6 +181,38 @@ enum RequestConfigFailurePolicy {
   failClosed,
 }
 
+/// What happens to **mediation-capable** ad loading when the consent
+/// forwarding barrier ([AdFlow.initialize]'s `forwardConsent`) or the
+/// mediation-init deferral ([AdFlowConfig.deferMediationInit]) could not be
+/// completed — the forwarder failed/timed out, or the deferral call failed
+/// (4.1 audit / release gate).
+///
+/// This only takes effect when the publisher has OPTED IN to strict ordering
+/// by supplying `forwardConsent` and/or `deferMediationInit: true`. It never
+/// blocks app UI — only whether an ad REQUEST (which any configured mediation
+/// adapter may fill) goes out before the required per-network privacy signal
+/// is in place.
+enum MediationConsentFailurePolicy {
+  /// The default. Do NOT let a mediation-capable ad request go out after
+  /// forwarding/deferral failed: block loads
+  /// ([AdBlockReason.consentNotForwarded]) and keep retrying the forwarder in
+  /// the background — the slot recovers the moment forwarding succeeds. A
+  /// deferral failure is not retryable (it is an init-time, one-shot call), so
+  /// under this policy it blocks until the process restarts or the publisher
+  /// switches policy: the strict ordering the publisher explicitly requested
+  /// could not be honoured, and quietly requesting anyway is the exact policy
+  /// risk this exists to prevent.
+  failClosed,
+
+  /// **Revenue-first and unmistakably unsafe.** Serve ads even if consent was
+  /// never forwarded / mediation init was not deferred. A partner SDK may then
+  /// receive an ad request without its required GDPR / US-state / age signal.
+  /// Only choose this if every mediation network you use reads the IAB TCF/GPP
+  /// strings itself (so `forwardConsent` is a belt-and-suspenders convenience,
+  /// not a requirement). Named to be impossible to select by accident.
+  failOpen,
+}
+
 /// How a banner slot is sized.
 enum BannerKind {
   /// Anchored adaptive (the recommended, revenue-optimized default).
@@ -542,6 +574,7 @@ class AdFlowConfig {
     this.tagForChildDirectedTreatment,
     this.requestConfigPolicy = RequestConfigFailurePolicy.auto,
     this.deferMediationInit = false,
+    this.mediationConsentPolicy = MediationConsentFailurePolicy.failClosed,
   });
 
   /// Validates the configuration, throwing an
@@ -746,6 +779,14 @@ class AdFlowConfig {
   /// Google notes deferral "may negatively impact mediation performance" —
   /// leave it off unless you need this ordering. See doc/MEDIATION_SETUP.md.
   final bool deferMediationInit;
+
+  /// What happens to mediation-capable loads when consent forwarding
+  /// (`forwardConsent`) or [deferMediationInit] could not be completed — see
+  /// [MediationConsentFailurePolicy]. Default:
+  /// [MediationConsentFailurePolicy.failClosed] (block + retry; do not serve a
+  /// mediation request without its privacy signal). Only takes effect when the
+  /// publisher opted into forwarding/deferral; non-adopters are unaffected.
+  final MediationConsentFailurePolicy mediationConsentPolicy;
 
   /// Whether this configuration carries fields whose silent loss is a policy
   /// or invalid-traffic risk: child-directed / under-age tags, a maximum
