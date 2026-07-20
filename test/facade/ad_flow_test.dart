@@ -541,7 +541,7 @@ void main() {
       'production cold-launch latch: works through the facade default and '
       'is one-shot across reinitialization in the same process (5.1)',
       () async {
-        AppOpenAdManager.resetLaunchOpportunity(); // isolate this test
+        resetAppOpenLaunchOpportunity(); // isolate this test
         const launchConfig = AdFlowConfig(
           appOpen: AppOpenConfig(
             adUnitId: PlatformAdUnitId(android: 'ao-a'),

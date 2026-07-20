@@ -9,6 +9,8 @@ import 'package:ad_flow/src/policy/frequency_cap_policy.dart';
 import 'package:ad_flow/src/policy/full_screen_ad_coordinator.dart';
 import 'package:ad_flow/src/policy/key_value_store.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
+import 'package:ad_flow/ad_flow_testing.dart'
+    show resetAppOpenLaunchOpportunity;
 import 'package:flutter_test/flutter_test.dart';
 
 /// App-open trigger modes + the explicit cold-launch opportunity (5.1).
@@ -19,8 +21,9 @@ import 'package:flutter_test/flutter_test.dart';
 /// there and never on a warm return (and retires its inventory afterwards);
 /// `launchAndResume` supports both without a startup duplicate.
 ///
-/// The one-shot latch is a process-global static ([AppOpenAdManager]), so each
-/// test resets it in [setUp] for isolation.
+/// The one-shot latch is a process-global static (internal `LaunchLatch`), so
+/// each test resets it in [setUp] via `resetAppOpenLaunchOpportunity()` (from
+/// `ad_flow_testing.dart`) for isolation.
 void main() {
   late FakeAdSdk sdk;
   late FullScreenAdCoordinator coordinator;
@@ -29,7 +32,7 @@ void main() {
   late bool consented;
 
   setUp(() {
-    AppOpenAdManager.resetLaunchOpportunity();
+    resetAppOpenLaunchOpportunity();
     sdk = FakeAdSdk()
       ..enforceConsentGate = true
       ..canRequestAdsResult = true;

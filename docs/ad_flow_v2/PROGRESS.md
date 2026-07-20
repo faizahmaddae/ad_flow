@@ -12,10 +12,13 @@ the Phase-24 work before merge; no redesign. Findings, all fixed + fail-first:
    `public_api_compat_test.dart` (external-style subclass via the public barrel;
    neuter-verified the post-publish ordering).
 2. **Launch latch (production path).** Removed the public `LaunchOpportunity`
-   class + injected param; the one-shot is now a private `static bool`
-   (`_launchOpportunityConsumed`, allow-listed) with a `@visibleForTesting`
-   reset. Tests exercise the REAL default path (facade `initialize` + reinit),
-   not an injected surrogate.
+   class + injected param; the one-shot is a private `static bool` in the
+   internal, non-exported `LaunchLatch` (`launch_latch.dart`, allow-listed). Its
+   test reset is `ad_flow_testing.dart`'s `resetAppOpenLaunchOpportunity()` — NOT
+   a `@visibleForTesting` member on the exported manager (that would be
+   production-public since `@visibleForTesting` ≠ private; corrected in the final
+   API-hygiene pass). Tests exercise the REAL default path (facade `initialize` +
+   reinit), not an injected surrogate.
 3. **launchOnly inventory retirement.** After its single launch, launchOnly now
    retires inventory (`AppOpenAdController.retire()` → base `retireInventory()`)
    — no more dismiss/expiry/resume reloads of an ad it can never show.
@@ -28,12 +31,16 @@ the Phase-24 work before merge; no redesign. Findings, all fixed + fail-first:
    private latch); `version_consistency_test.dart` docs-drift guard.
 
 Verify: `dart format` clean, `flutter analyze` clean, **530 tests** green,
-public API delta below. Public delta v5.0.0→HEAD is now:
-`+AppOpenTriggerMode`, `+AppOpenConfig.triggerMode`,
-`+AppOpenAdManager.showAtLaunchIfReady`, `+AppOpenAdController.retire`,
+public API delta below. Public delta v5.0.0→HEAD is now — MAIN barrel
+(`package:ad_flow/ad_flow.dart`): `+AppOpenTriggerMode`,
+`+AppOpenConfig.triggerMode`, `+AppOpenAdManager.showAtLaunchIfReady`,
+`+AppOpenAdController.retire`,
 `+FullScreenAdControllerBase.{finalizeLoadedHandle,retireInventory}` (@protected),
-`+NativeConfig.maxAdAge`, `+AdFlowConfig.test(appOpenTriggerMode:)`,
-`+FakeAdSdk.onFullScreenHandleCreated` (testing). `onLoaded` unchanged. No
+`+NativeConfig.maxAdAge`, `+AdFlowConfig.test(appOpenTriggerMode:)`. TESTING
+barrel (`package:ad_flow/ad_flow_testing.dart`):
+`+FakeAdSdk.onFullScreenHandleCreated`, `+resetAppOpenLaunchOpportunity()`.
+The main barrel gains NO launch-latch reset (the `LaunchLatch` state + its
+reset are in an internal, non-exported file). `onLoaded` unchanged. No
 removals, no breaking changes.
 
 ## Previous phase

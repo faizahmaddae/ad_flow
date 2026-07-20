@@ -11,10 +11,11 @@ import 'package:flutter_test/flutter_test.dart';
 ///
 /// - `AdFlow._instance` — the convenience pointer to the last-initialized
 ///   instance (ADR-004).
-/// - `AppOpenAdManager._launchOpportunityConsumed` — the one-shot cold-launch
-///   latch that must survive `AdFlow` reinitialization within a process, so a
-///   second `initialize()` cannot mint a second launch app-open show (ADR-067).
-///   Private; reset for tests via `AppOpenAdManager.resetLaunchOpportunity`.
+/// - `LaunchLatch._consumed` (internal, non-exported) — the one-shot
+///   cold-launch latch that must survive `AdFlow` reinitialization within a
+///   process, so a second `initialize()` cannot mint a second launch app-open
+///   show (ADR-067). Not public API; reset for tests via `ad_flow_testing.dart`'s
+///   `resetAppOpenLaunchOpportunity()`.
 ///
 /// Only `static const` is exempt — `const` is the one Dart-enforced
 /// guarantee of deep immutability. An earlier version of this test also
@@ -36,10 +37,7 @@ void main() {
     );
     const allowed = <(String, String)>[
       ('lib/src/facade/ad_flow.dart', 'static AdFlow? _instance'),
-      (
-        'lib/src/lifecycle/app_open_ad_manager.dart',
-        'static bool _launchOpportunityConsumed',
-      ),
+      ('lib/src/lifecycle/launch_latch.dart', 'static bool _consumed'),
     ];
 
     final offenders = <String>[];

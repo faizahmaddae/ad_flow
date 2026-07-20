@@ -1,13 +1,12 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
-
 import '../config/ad_flow_config.dart';
 import '../controllers/app_open_ad_controller.dart';
 import '../policy/full_screen_ad_coordinator.dart';
 import '../core/callback_guard.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
+import 'launch_latch.dart';
 
 /// The single owner of app-open behaviour (v1 trap: two reactors coordinated
 /// through statics fought each other — the facade creates exactly one manager
@@ -62,18 +61,10 @@ class AppOpenAdManager {
   /// launch of a process is a single moment, so `showAtLaunchIfReady` may
   /// succeed at most once per process, and that must hold even across [AdFlow]
   /// reinitialization (a second `initialize()` builds a new manager but must
-  /// NOT mint a second launch show). This cannot be expressed as injected
-  /// instance state, so it is a private `static` — invariant 9's second
-  /// sanctioned exception (like `AdFlow._instance`; allow-listed in
-  /// no_global_state_test, ADR-067). It is never reset in production; tests use
-  /// [resetLaunchOpportunity].
-  static bool _launchOpportunityConsumed = false;
-
-  /// Test-only: restore the one-shot cold-launch latch between tests. Not part
-  /// of the public API (test-visible only) — call it in `setUp`.
-  @visibleForTesting
-  static void resetLaunchOpportunity() => _launchOpportunityConsumed = false;
-
+  /// NOT mint a second launch show). The latch lives in the internal
+  /// [LaunchLatch] (a non-exported file) so nothing here adds to the public
+  /// API; tests reset it through `ad_flow_testing.dart`'s
+  /// `resetAppOpenLaunchOpportunity()`.
   final AppOpenAdController _controller;
   final AdSdk _sdk;
   final AppOpenConfig _config;
@@ -118,8 +109,7 @@ class AppOpenAdManager {
     if (_config.triggerMode == AppOpenTriggerMode.resumeOnly) return false;
     // Consume the one-shot up front — even a not-ready launch spends the
     // launch moment, so we never show a "launch" ad seconds into the session.
-    if (_launchOpportunityConsumed) return false;
-    _launchOpportunityConsumed = true;
+    if (!LaunchLatch.consume()) return false;
 
     final launchOnly = _config.triggerMode == AppOpenTriggerMode.launchOnly;
     // Only an already-ready ad; never wait for a load.
