@@ -96,6 +96,7 @@ class AppOpenAdManager {
   final LaunchOpportunity _launch;
 
   StreamSubscription<AppForegroundEvent>? _sub;
+  bool _disposed = false;
 
   /// Whether the manager is currently reacting to foreground events.
   bool get isStarted => _sub != null;
@@ -106,7 +107,7 @@ class AppOpenAdManager {
   /// resume; whether it SHOWS on a foreground return is decided by
   /// [AppOpenConfig.triggerMode].
   void start() {
-    if (_sub != null) return;
+    if (_disposed || _sub != null) return;
     _sub = _sdk.appForegroundEvents.listen(_onForeground);
     unawaited(_controller.load());
   }
@@ -127,6 +128,7 @@ class AppOpenAdManager {
   /// - The controller still enforces consent, caps, coordinator, expiry and
   ///   Remove-Ads; a refusal there also returns `false` (and re-warms the next).
   Future<bool> showAtLaunchIfReady() async {
+    if (_disposed) return false;
     if (_config.triggerMode == AppOpenTriggerMode.resumeOnly) return false;
     // Consume the one-shot up front — even a not-ready launch spends the
     // launch moment, so we never show a "launch" ad seconds into the session.
@@ -189,5 +191,8 @@ class AppOpenAdManager {
 
   /// Stops the manager. Does NOT dispose the controller (the facade owns
   /// controller lifecycles).
-  void dispose() => stop();
+  void dispose() {
+    _disposed = true;
+    stop();
+  }
 }

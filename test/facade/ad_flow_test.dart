@@ -525,6 +525,18 @@ void main() {
       expect(ads.dispose, returnsNormally);
     });
 
+    test('enableAds/disableAds after dispose are inert, not explosive '
+        '(5.1 hardening)', () async {
+      final ads = await boot();
+      ads.dispose();
+      // disableAds() flips the (now-disposed) _adsEnabled notifier true→false;
+      // without a _disposed guard that write-after-dispose throws a "used after
+      // being disposed" FlutterError — inconsistent with every other post-
+      // dispose call, which is a quiet no-op.
+      expect(ads.disableAds, returnsNormally);
+      expect(ads.enableAds, returnsNormally);
+    });
+
     test('dispose() releases a self-created ConsentGateway but leaves an '
         'injected one usable', () async {
       // Self-created (no `consent:` injected): AdFlow owns it, so dispose()

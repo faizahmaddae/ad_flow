@@ -318,4 +318,22 @@ void main() {
     expect(sdk.appOpens.last.showCalls, 1);
     m.dispose();
   });
+
+  test('after dispose, showAtLaunchIfReady is inert and does not spend the '
+      'process launch latch', () async {
+    final launch = LaunchOpportunity();
+    final c = controller(AppOpenTriggerMode.launchAndResume);
+    final m = manager(c, AppOpenTriggerMode.launchAndResume, launch: launch);
+    m.start();
+    await settle();
+    m.dispose();
+
+    expect(await m.showAtLaunchIfReady(), isFalse);
+    expect(
+      launch.isAvailable,
+      isTrue,
+      reason: 'a disposed manager must not consume the one-shot launch latch',
+    );
+    c.dispose();
+  });
 }
