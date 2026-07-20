@@ -32,10 +32,21 @@ spells out exactly what is automatic and what remains your job.
 
 **Preferred:** Google publishes official Flutter mediation adapter packages
 (`gma_mediation_<network>` on pub.dev — e.g. `gma_mediation_applovin`,
-`gma_mediation_unityads`, `gma_mediation_meta`). Add the ones for your
+`gma_mediation_unity`, `gma_mediation_meta`). Add the ones for your
 networks to `pubspec.yaml`; they bundle the correct native adapter on both
 platforms and usually expose the network's privacy APIs as Dart calls.
 Check each package's compatibility with `google_mobile_ads` 9.x first.
+
+> **Unity Ads specifically — not resolvable with ad_flow 5.0.0 yet.** The
+> latest *published* `gma_mediation_unity` (**1.8.1**) requires
+> `google_mobile_ads: ^8.0.0`, while ad_flow 5.0.0 requires
+> `google_mobile_ads: ^9.0.0` — the two **cannot resolve together**. Google's
+> `main` branch carries an in-progress **1.9.0** adapter that targets
+> `google_mobile_ads: ^9.0.0`, but it is **unpublished**; pulling it in via a
+> git dependency or `dependency_overrides` is **not recommended for
+> production** (unversioned, may change or break without notice). Until a
+> `gma_mediation_unity` release supporting `google_mobile_ads` 9.x ships on
+> pub.dev, Unity mediation cannot be combined with ad_flow 5.0.0.
 
 **Fallback (no Flutter package for the network):** add the native adapter
 yourself —
@@ -87,10 +98,21 @@ not propagated for you):
 
 - **Networks that need their own privacy API calls.** As of this writing
   (2026-07, verify against each partner's current AdMob page):
-  - *Unity Ads*: explicit `MetaData` calls — `gdpr.consent` and
-    `privacy.consent` (US states) — recommended before requesting ads
-    (`GmaMediationUnity.setGDPRConsent` / `setCCPAConsent` in the Flutter
-    adapter package).
+  - *Unity Ads*: explicit consent `MetaData` — `gdpr.consent` and
+    `privacy.consent` (US states) — recommended before requesting ads. The
+    Flutter adapter exposes these as **instance** methods
+    `GmaMediationUnity().setGDPRConsent(...)` / `setCCPAConsent(...)` (note:
+    Google's guide currently shows a *static* `GmaMediationUnity.setGDPRConsent`
+    call, which does not match the published instance API). **Caveat, verified
+    against the adapter source (1.8.x and the in-progress 1.9.0):** both
+    wrappers are **fire-and-forget** — the method body calls the generated
+    platform API *without* `await`ing or returning its `Future`, so the
+    `Future<void>` you get back completes on the next microtask **whether or not
+    the native SDK has applied the value**. Awaiting the call therefore does
+    **not** prove the Unity signal landed before init (see the ordering
+    principle below). Do **not** work around this by importing the adapter's
+    generated internal API (`UnityPrivacyApi`) or hand-rolling a bridge — both
+    are unstable, unsupported internals.
   - *AppLovin*: US-state `setDoNotSell` (and `setHasUserConsent` for
     SDK < 12) — the AppLovin flags must be set **before the Google Mobile
     Ads SDK initializes**.
@@ -123,12 +145,29 @@ ad_flow's surfaces for this:
       final prefs = await SharedPreferences.getInstance();
       final gdprApplies = prefs.getInt('IABTCF_gdprApplies') == 1;
       final consented = _hasPurpose1(prefs.getString('IABTCF_PurposeConsents'));
-      // Set BEFORE the GMA SDK initializes:
-      await GmaMediationUnity().setGDPRConsent(gdprApplies && consented);
-      // AppLovin US-state / Meta LDU etc. per each partner's page.
+      // Forward to each partner SDK that needs its own signal (AppLovin
+      // US-state, Meta LDU, Unity MetaData, …) using that partner's published
+      // Flutter privacy API. IMPORTANT: let this callback COMPLETE only once
+      // those native APIs have ACKNOWLEDGED the update — that acknowledgement is
+      // what ad_flow's before-init ordering carries to the SDK. Only `await` a
+      // partner API that actually reports back; a fire-and-forget wrapper (see
+      // the Unity caveat in §4) gives no such guarantee.
+      await forwardPartnerPrivacy(gdprApplies && consented); // your per-network wiring
     },
   );
   ```
+
+  **What "before init" guarantees — and what it does not.** ad_flow guarantees
+  the *ordering*: your `forwardConsent` callback runs to completion **before**
+  `MobileAds.initialize()` is called, and no mediation-capable request goes out
+  until it succeeds. It cannot guarantee a partner's native SDK actually applied
+  the value — that depends on the partner's Flutter API reporting completion.
+  So a `forwardConsent` callback must **complete only after the native partner
+  API acknowledges the update**. Where a partner's published wrapper is
+  fire-and-forget (Unity today, §4), the public API cannot give you that
+  acknowledgement; treat that partner as request-time best-effort until the
+  adapter fixes its wrapper, and do **not** import its generated internals or
+  build a custom bridge to force an await.
 
   **Fail-closed by default** (`MediationConsentFailurePolicy.failClosed`): if
   the forwarder fails or times out (15s), the **GMA SDK is not initialized**
@@ -212,9 +251,9 @@ with each partner's AdMob mediation page and the Ad Inspector.
 - [ ] Mediation group per format in the console
 - [ ] Partners selected under Privacy & messaging (GDPR + US states)
 - [ ] Adapters added (`gma_mediation_*` package, or native build files)
-- [ ] Per-network consent APIs wired in `forwardConsent` (awaited, ordered
-      before the first request) or `onConsentChanged` (Unity, AppLovin US
-      flag, Meta LDU, …) — see §4
+- [ ] Per-network consent APIs wired in `forwardConsent` (each completing only
+      after the partner's native API acknowledges — see the §4 Unity caveat) or
+      `onConsentChanged` (Unity, AppLovin US flag, Meta LDU, …) — see §4
 - [ ] `forwardConsent` supplied if any partner needs its flag before init
 - [ ] iOS: partner `SKAdNetworkItems` in `Info.plist`
 - [ ] `app-ads.txt` updated with partner lines
