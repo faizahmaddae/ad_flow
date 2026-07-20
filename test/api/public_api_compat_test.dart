@@ -31,38 +31,42 @@ class _ExternalController extends FullScreenAdControllerBase {
 }
 
 void main() {
-  test('an external subclass overriding onLoaded() still compiles against '
-      'package:ad_flow/ad_flow.dart and onLoaded runs AFTER AdLoaded', () async {
-    final sdk = FakeAdSdk()..canRequestAdsResult = true;
-    addTearDown(sdk.dispose);
-    final coordinator = FullScreenAdCoordinator();
-    addTearDown(coordinator.dispose);
+  test(
+    'an external subclass overriding onLoaded() still compiles against '
+    'package:ad_flow/ad_flow.dart and onLoaded runs AFTER AdLoaded',
+    () async {
+      final sdk = FakeAdSdk()..canRequestAdsResult = true;
+      addTearDown(sdk.dispose);
+      final coordinator = FullScreenAdCoordinator();
+      addTearDown(coordinator.dispose);
 
-    final c = _ExternalController(
-      sdk: sdk,
-      gate: AdGate(canRequestAds: () async => true, isEnabled: () => true),
-      caps: StoredFrequencyCapPolicy(
-        store: InMemoryKeyValueStore(),
-        slotCaps: const {},
-        globalCap: const FrequencyCap(),
-      ),
-      coordinator: coordinator,
-      adUnitId: 'unit-x',
-    );
+      final c = _ExternalController(
+        sdk: sdk,
+        gate: AdGate(canRequestAds: () async => true, isEnabled: () => true),
+        caps: StoredFrequencyCapPolicy(
+          store: InMemoryKeyValueStore(),
+          slotCaps: const {},
+          globalCap: const FrequencyCap(),
+        ),
+        coordinator: coordinator,
+        adUnitId: 'unit-x',
+      );
 
-    await c.load();
+      await c.load();
 
-    expect(c.state.value, isA<AdLoaded>());
-    expect(
-      c.onLoadedSaw,
-      hasLength(1),
-      reason: 'onLoaded fires exactly once per successful load',
-    );
-    expect(
-      c.onLoadedSaw.single,
-      isA<AdLoaded>(),
-      reason: 'onLoaded keeps its post-publish semantics (AdLoaded already set)',
-    );
-    c.dispose();
-  });
+      expect(c.state.value, isA<AdLoaded>());
+      expect(
+        c.onLoadedSaw,
+        hasLength(1),
+        reason: 'onLoaded fires exactly once per successful load',
+      );
+      expect(
+        c.onLoadedSaw.single,
+        isA<AdLoaded>(),
+        reason:
+            'onLoaded keeps its post-publish semantics (AdLoaded already set)',
+      );
+      c.dispose();
+    },
+  );
 }

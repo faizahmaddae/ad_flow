@@ -54,18 +54,19 @@ void main() {
     triggerMode: mode,
   );
 
-  AppOpenAdController controller(AppOpenTriggerMode mode) => AppOpenAdController(
-    sdk: sdk,
-    gate: AdGate(
-      canRequestAds: () async => consented && sdk.canRequestAdsResult,
-      isEnabled: () => true,
-    ),
-    caps: caps,
-    coordinator: coordinator,
-    config: cfg(mode),
-    adUnitId: 'unit-ao',
-    now: () => now,
-  );
+  AppOpenAdController controller(AppOpenTriggerMode mode) =>
+      AppOpenAdController(
+        sdk: sdk,
+        gate: AdGate(
+          canRequestAds: () async => consented && sdk.canRequestAdsResult,
+          isEnabled: () => true,
+        ),
+        caps: caps,
+        coordinator: coordinator,
+        config: cfg(mode),
+        adUnitId: 'unit-ao',
+        now: () => now,
+      );
 
   AppOpenAdManager manager(AppOpenAdController c, AppOpenTriggerMode mode) =>
       AppOpenAdManager(
@@ -185,28 +186,31 @@ void main() {
   });
 
   group('launchAndResume', () {
-    test('shows at launch AND on a later warm return, no startup double', () async {
-      final m = await booted(AppOpenTriggerMode.launchAndResume);
-      expect(await m.showAtLaunchIfReady(), isTrue);
-      final first = sdk.appOpens.first;
-      expect(first.showCalls, 1);
+    test(
+      'shows at launch AND on a later warm return, no startup double',
+      () async {
+        final m = await booted(AppOpenTriggerMode.launchAndResume);
+        expect(await m.showAtLaunchIfReady(), isTrue);
+        final first = sdk.appOpens.first;
+        expect(first.showCalls, 1);
 
-      // Dismiss the launch ad; a fresh one warms (NOT retired).
-      first.simulateDismissed();
-      await settle();
-      expect(
-        sdk.appOpens.length,
-        greaterThan(1),
-        reason: 'launchAndResume keeps maintaining inventory for resumes',
-      );
+        // Dismiss the launch ad; a fresh one warms (NOT retired).
+        first.simulateDismissed();
+        await settle();
+        expect(
+          sdk.appOpens.length,
+          greaterThan(1),
+          reason: 'launchAndResume keeps maintaining inventory for resumes',
+        );
 
-      // A genuine warm return, comfortably past the post-dismiss window.
-      now = now.add(const Duration(minutes: 5));
-      sdk.emitAppForeground();
-      await settle();
-      expect(sdk.appOpens.last.showCalls, 1);
-      m.dispose();
-    });
+        // A genuine warm return, comfortably past the post-dismiss window.
+        now = now.add(const Duration(minutes: 5));
+        sdk.emitAppForeground();
+        await settle();
+        expect(sdk.appOpens.last.showCalls, 1);
+        m.dispose();
+      },
+    );
 
     test('no startup duplicate: launch show holds the coordinator so a '
         'simultaneous foreground cannot stack a second ad', () async {
@@ -252,17 +256,23 @@ void main() {
       c.dispose();
     });
 
-    test('not ready: returns false immediately without kicking a load or show',
-        () async {
-      // Manager NOT started → nothing preloaded.
-      final c = controller(AppOpenTriggerMode.launchAndResume);
-      final m = manager(c, AppOpenTriggerMode.launchAndResume);
-      expect(await m.showAtLaunchIfReady(), isFalse);
-      expect(sdk.loadLog, isEmpty, reason: 'never waits for / triggers a load');
-      expect(sdk.appOpens, isEmpty);
-      m.dispose();
-      c.dispose();
-    });
+    test(
+      'not ready: returns false immediately without kicking a load or show',
+      () async {
+        // Manager NOT started → nothing preloaded.
+        final c = controller(AppOpenTriggerMode.launchAndResume);
+        final m = manager(c, AppOpenTriggerMode.launchAndResume);
+        expect(await m.showAtLaunchIfReady(), isFalse);
+        expect(
+          sdk.loadLog,
+          isEmpty,
+          reason: 'never waits for / triggers a load',
+        );
+        expect(sdk.appOpens, isEmpty);
+        m.dispose();
+        c.dispose();
+      },
+    );
 
     test('returning false at launch does NOT allow a surprise app-open once '
         'the ad later becomes ready (the one-shot is spent)', () async {
@@ -317,19 +327,21 @@ void main() {
       m.dispose();
     });
 
-    test('full-screen overlap: launch is suppressed while another ad shows',
-        () async {
-      final c = controller(AppOpenTriggerMode.launchAndResume);
-      final m = manager(c, AppOpenTriggerMode.launchAndResume);
-      m.start();
-      await settle();
-      coordinator.enter(); // e.g. an interstitial is showing
+    test(
+      'full-screen overlap: launch is suppressed while another ad shows',
+      () async {
+        final c = controller(AppOpenTriggerMode.launchAndResume);
+        final m = manager(c, AppOpenTriggerMode.launchAndResume);
+        m.start();
+        await settle();
+        coordinator.enter(); // e.g. an interstitial is showing
 
-      expect(await m.showAtLaunchIfReady(), isFalse);
-      expect(sdk.appOpens.single.showCalls, 0);
-      coordinator.exit();
-      m.dispose();
-    });
+        expect(await m.showAtLaunchIfReady(), isFalse);
+        expect(sdk.appOpens.single.showCalls, 0);
+        coordinator.exit();
+        m.dispose();
+      },
+    );
   });
 
   group('process-global one-shot latch (production default, no injection)', () {
@@ -365,7 +377,10 @@ void main() {
       m1.start();
       await settle();
       m1.dispose(); // disposed BEFORE any launch
-      expect(await m1.showAtLaunchIfReady(), isFalse); // inert, does not consume
+      expect(
+        await m1.showAtLaunchIfReady(),
+        isFalse,
+      ); // inert, does not consume
       c1.dispose();
 
       final c2 = controller(AppOpenTriggerMode.launchAndResume);

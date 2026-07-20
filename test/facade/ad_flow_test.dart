@@ -537,38 +537,42 @@ void main() {
       expect(ads.enableAds, returnsNormally);
     });
 
-    test('production cold-launch latch: works through the facade default and '
-        'is one-shot across reinitialization in the same process (5.1)', () async {
-      AppOpenAdManager.resetLaunchOpportunity(); // isolate this test
-      const launchConfig = AdFlowConfig(
-        appOpen: AppOpenConfig(
-          adUnitId: PlatformAdUnitId(android: 'ao-a'),
-          cap: FrequencyCap(),
-          triggerMode: AppOpenTriggerMode.launchAndResume,
-        ),
-      );
+    test(
+      'production cold-launch latch: works through the facade default and '
+      'is one-shot across reinitialization in the same process (5.1)',
+      () async {
+        AppOpenAdManager.resetLaunchOpportunity(); // isolate this test
+        const launchConfig = AdFlowConfig(
+          appOpen: AppOpenConfig(
+            adUnitId: PlatformAdUnitId(android: 'ao-a'),
+            cap: FrequencyCap(),
+            triggerMode: AppOpenTriggerMode.launchAndResume,
+          ),
+        );
 
-      final ads1 = await boot(config: launchConfig);
-      await pumpEventQueue(); // let the app-open preload land
-      expect(ads1.appOpenController.isReady, isTrue);
-      expect(
-        await ads1.appOpen.showAtLaunchIfReady(),
-        isTrue,
-        reason: 'a warm ad shows at launch via the process-default latch',
-      );
-      ads1.dispose();
+        final ads1 = await boot(config: launchConfig);
+        await pumpEventQueue(); // let the app-open preload land
+        expect(ads1.appOpenController.isReady, isTrue);
+        expect(
+          await ads1.appOpen.showAtLaunchIfReady(),
+          isTrue,
+          reason: 'a warm ad shows at launch via the process-default latch',
+        );
+        ads1.dispose();
 
-      // Reinitialize AdFlow in the SAME process — the latch must persist.
-      final ads2 = await boot(config: launchConfig);
-      await pumpEventQueue();
-      expect(ads2.appOpenController.isReady, isTrue);
-      expect(
-        await ads2.appOpen.showAtLaunchIfReady(),
-        isFalse,
-        reason: 'the cold-launch moment is spent; reinit gets no second launch',
-      );
-      ads2.dispose();
-    });
+        // Reinitialize AdFlow in the SAME process — the latch must persist.
+        final ads2 = await boot(config: launchConfig);
+        await pumpEventQueue();
+        expect(ads2.appOpenController.isReady, isTrue);
+        expect(
+          await ads2.appOpen.showAtLaunchIfReady(),
+          isFalse,
+          reason:
+              'the cold-launch moment is spent; reinit gets no second launch',
+        );
+        ads2.dispose();
+      },
+    );
 
     test('dispose() releases a self-created ConsentGateway but leaves an '
         'injected one usable', () async {

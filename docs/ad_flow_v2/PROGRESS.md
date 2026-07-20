@@ -1,6 +1,42 @@
 # PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
+**Phase 25 — 5.1.0 release-gate follow-up (2026-07-20)** — ✅ on branch
+**`hardening-5.1.0`** (NOT pushed/tagged/merged/published). A focused gate on
+the Phase-24 work before merge; no redesign. Findings, all fixed + fail-first:
+
+1. **Semver break (CONFIRMED).** `FullScreenAdControllerBase` is exported, so
+   `onLoaded()` is PUBLIC API — Phase 24 renamed it to `finalizeLoadedHandle`,
+   which is breaking. RESTORED `onLoaded()` (post-publish) and KEPT
+   `finalizeLoadedHandle()` as the additive pre-publish hook. New
+   `public_api_compat_test.dart` (external-style subclass via the public barrel;
+   neuter-verified the post-publish ordering).
+2. **Launch latch (production path).** Removed the public `LaunchOpportunity`
+   class + injected param; the one-shot is now a private `static bool`
+   (`_launchOpportunityConsumed`, allow-listed) with a `@visibleForTesting`
+   reset. Tests exercise the REAL default path (facade `initialize` + reinit),
+   not an injected surrogate.
+3. **launchOnly inventory retirement.** After its single launch, launchOnly now
+   retires inventory (`AppOpenAdController.retire()` → base `retireInventory()`)
+   — no more dismiss/expiry/resume reloads of an ad it can never show.
+   launchAndResume/resumeOnly unchanged. Request-count assertions; neuter-verified.
+4. **Value semantics.** `NativeConfig.maxAdAge` ==/hashCode/validation tested;
+   `AppOpenConfig` has no `==` so `triggerMode` needs none.
+5. **Docs (release gate).** README install/migration → `^5.1.0`, stale v2/v3
+   prompt rewritten, App Open cold-vs-warm + 3-mode examples + "can't guarantee
+   cold launch without delaying the user"; ADR-067/068 corrected (onLoaded kept,
+   private latch); `version_consistency_test.dart` docs-drift guard.
+
+Verify: `dart format` clean, `flutter analyze` clean, **530 tests** green,
+public API delta below. Public delta v5.0.0→HEAD is now:
+`+AppOpenTriggerMode`, `+AppOpenConfig.triggerMode`,
+`+AppOpenAdManager.showAtLaunchIfReady`, `+AppOpenAdController.retire`,
+`+FullScreenAdControllerBase.{finalizeLoadedHandle,retireInventory}` (@protected),
+`+NativeConfig.maxAdAge`, `+AdFlowConfig.test(appOpenTriggerMode:)`,
+`+FakeAdSdk.onFullScreenHandleCreated` (testing). `onLoaded` unchanged. No
+removals, no breaking changes.
+
+## Previous phase
 **Phase 24 — 5.1.0 reliability + App Open UX pass (2026-07-20)** — ✅
 implemented on branch **`hardening-5.1.0`** (off `main` at v5.0.0; NOT pushed/
 tagged/merged/published — Faiz reviews). A focused, additive, backward-compatible
