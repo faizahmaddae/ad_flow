@@ -1,6 +1,86 @@
 # PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
+**Phase 25 — 5.1.0 release-gate follow-up (2026-07-20)** — ✅ on branch
+**`hardening-5.1.0`** (NOT pushed/tagged/merged/published). A focused gate on
+the Phase-24 work before merge; no redesign. Findings, all fixed + fail-first:
+
+1. **Semver break (CONFIRMED).** `FullScreenAdControllerBase` is exported, so
+   `onLoaded()` is PUBLIC API — Phase 24 renamed it to `finalizeLoadedHandle`,
+   which is breaking. RESTORED `onLoaded()` (post-publish) and KEPT
+   `finalizeLoadedHandle()` as the additive pre-publish hook. New
+   `public_api_compat_test.dart` (external-style subclass via the public barrel;
+   neuter-verified the post-publish ordering).
+2. **Launch latch (production path).** Removed the public `LaunchOpportunity`
+   class + injected param; the one-shot is a private `static bool` in the
+   internal, non-exported `LaunchLatch` (`launch_latch.dart`, allow-listed). Its
+   test reset is `ad_flow_testing.dart`'s `resetAppOpenLaunchOpportunity()` — NOT
+   a `@visibleForTesting` member on the exported manager (that would be
+   production-public since `@visibleForTesting` ≠ private; corrected in the final
+   API-hygiene pass). Tests exercise the REAL default path (facade `initialize` +
+   reinit), not an injected surrogate.
+3. **launchOnly inventory retirement.** After its single launch, launchOnly now
+   retires inventory (`AppOpenAdController.retire()` → base `retireInventory()`)
+   — no more dismiss/expiry/resume reloads of an ad it can never show.
+   launchAndResume/resumeOnly unchanged. Request-count assertions; neuter-verified.
+4. **Value semantics.** `NativeConfig.maxAdAge` ==/hashCode/validation tested;
+   `AppOpenConfig` has no `==` so `triggerMode` needs none.
+5. **Docs (release gate).** README install/migration → `^5.1.0`, stale v2/v3
+   prompt rewritten, App Open cold-vs-warm + 3-mode examples + "can't guarantee
+   cold launch without delaying the user"; ADR-067/068 corrected (onLoaded kept,
+   private latch); `version_consistency_test.dart` docs-drift guard.
+
+Verify: `dart format` clean, `flutter analyze` clean, **530 tests** green,
+public API delta below. Public delta v5.0.0→HEAD is now — MAIN barrel
+(`package:ad_flow/ad_flow.dart`): `+AppOpenTriggerMode`,
+`+AppOpenConfig.triggerMode`, `+AppOpenAdManager.showAtLaunchIfReady`,
+`+AppOpenAdController.retire`,
+`+FullScreenAdControllerBase.{finalizeLoadedHandle,retireInventory}` (@protected),
+`+NativeConfig.maxAdAge`, `+AdFlowConfig.test(appOpenTriggerMode:)`. TESTING
+barrel (`package:ad_flow/ad_flow_testing.dart`):
+`+FakeAdSdk.onFullScreenHandleCreated`, `+resetAppOpenLaunchOpportunity()`.
+The main barrel gains NO launch-latch reset (the `LaunchLatch` state + its
+reset are in an internal, non-exported file). `onLoaded` unchanged. No
+removals, no breaking changes.
+
+## Previous phase
+**Phase 24 — 5.1.0 reliability + App Open UX pass (2026-07-20)** — ✅
+implemented on branch **`hardening-5.1.0`** (off `main` at v5.0.0; NOT pushed/
+tagged/merged/published — Faiz reviews). A focused, additive, backward-compatible
+minor. Four coherent slices, each fail-first + neuter-verified:
+
+1. **Runtime SSV readiness race (ADR-068).** A rewarded/RI ad could be
+   externally ready/showable carrying a STALE SSV payload — the base published
+   `AdLoaded` then re-attached a runtime override afterwards (unawaited), and
+   concurrent updates had no ordering guard. Fixed: `onLoaded()` → awaited
+   `finalizeLoadedHandle()` runs BEFORE `AdLoaded` (throw → fail closed);
+   `showEngine` gates on `isReady`; the mixin overrides `isReady` during a warm
+   re-attach and generation-serializes updates (latest wins on reverse-order
+   native completion). `runtime_ssv_race_test.dart` (5 cases). Hypothesis
+   CONFIRMED.
+2. **Native ad expiration (ADR-069).** `NativeConfig.maxAdAge` (default 55min,
+   null-disables). Timestamp loads, arm expiry on the shared `_timer`, drop +
+   reload through the gate exactly once. `native_ad_expiry_test.dart` (7 cases).
+3. **App Open trigger modes (ADR-067).** `AppOpenTriggerMode {launchOnly,
+   resumeOnly (default), launchAndResume}` + `AppOpenAdManager.showAtLaunchIfReady()`
+   — an explicit, one-shot, never-waits cold-launch path (cold launch is NOT
+   faked from a lifecycle event). One-shot survives reinit via a process-global
+   `LaunchOpportunity` (invariant-9's 2nd sanctioned exception, allow-listed).
+   Example gains a real `StartupScreen`. `app_open_trigger_mode_test.dart` (17
+   cases). Chosen shape = the recommended enum; `showAtLaunchIfReady` on the
+   already-exposed manager (no new facade method).
+4. **Cheap hardening.** Contained `startListening()` rejection (seam);
+   `enableAds`/`disableAds` inert after dispose (were an explosive
+   write-after-dispose); `AppOpenAdManager` `_disposed` guard.
+
+Verify: `dart format` clean, `flutter analyze` clean, **522 tests** green
+(+28). Version **5.1.0**. Public delta: +`AppOpenTriggerMode`,
++`AppOpenConfig.triggerMode`, +`AppOpenAdManager.showAtLaunchIfReady`,
++`LaunchOpportunity`, +`NativeConfig.maxAdAge`, +`AdFlowConfig.test(appOpenTriggerMode:)`,
++`FakeAdSdk.onFullScreenHandleCreated` (test infra). No breaking changes.
+ADR-067/068/069. See "How to verify" for the remaining publish-gate steps.
+
+## Previous phase
 **Phase 23 — 5.0.0 simplification / maintainability pass (2026-07-19)** — ✅
 implemented on branch **`post-release-audit-4.1`** (off tag `v4.0.0`; NOT
 merged/tagged/published — Faiz reviews). The ADR-065 redesign is accepted and

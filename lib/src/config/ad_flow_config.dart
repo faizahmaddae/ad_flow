@@ -429,6 +429,7 @@ class NativeConfig {
     this.factoryId,
     this.factoryExtras,
     this.request = const AdRequestOptions(),
+    this.maxAdAge = const Duration(minutes: 55),
   }) : assert(
          (templateKind != null) ^ (factoryId != null),
          'Provide exactly one of templateKind or factoryId.',
@@ -439,6 +440,12 @@ class NativeConfig {
 
   /// Request options for this slot — see [BannerConfig.request].
   final AdRequestOptions request;
+
+  /// A loaded native ad older than this is discarded and reloaded, so stale
+  /// inventory never keeps rendering (Google documents native ads as expiring
+  /// after ~1 hour). Defaults to 55 minutes, consistent with the full-screen
+  /// formats' [InterstitialConfig.maxAdAge]; set `null` to disable expiry.
+  final Duration? maxAdAge;
 
   /// Render with a built-in template of this kind.
   final NativeTemplateKind? templateKind;
@@ -466,6 +473,7 @@ class NativeConfig {
         other.templateKind == templateKind &&
         other.factoryId == factoryId &&
         other.request == request &&
+        other.maxAdAge == maxAdAge &&
         extrasEqual;
   }
 
@@ -476,7 +484,33 @@ class NativeConfig {
     factoryId,
     factoryExtras?.length,
     request,
+    maxAdAge,
   );
+}
+
+/// When an app-open ad may be shown (5.1).
+///
+/// App-open ads legitimately serve two distinct product moments — a cold
+/// process launch and a genuine background→foreground return. Pick the one (or
+/// both) your app actually uses. A cold launch is NEVER faked from a lifecycle
+/// event (`AppStateEventNotifier` does not emit one); it is an explicit,
+/// one-shot opportunity you take from your loading screen via
+/// [AppOpenAdManager.showAtLaunchIfReady].
+enum AppOpenTriggerMode {
+  /// Show only at a real cold process launch — call
+  /// [AppOpenAdManager.showAtLaunchIfReady] from your loading screen, before
+  /// entering main content. A genuine warm return does NOT auto-show. An ad is
+  /// still preloaded so one can be ready for the launch moment.
+  launchOnly,
+
+  /// Show only on a genuine background→foreground return (the v5 default and
+  /// behaviour). The launch path ([AppOpenAdManager.showAtLaunchIfReady]) is a
+  /// no-op in this mode.
+  resumeOnly,
+
+  /// Show at cold launch (via [AppOpenAdManager.showAtLaunchIfReady]) AND on
+  /// foreground returns — without a startup duplicate.
+  launchAndResume,
 }
 
 /// Configuration for the app open slot.
@@ -487,6 +521,7 @@ class AppOpenConfig {
     this.cap = const FrequencyCap(minGap: Duration(minutes: 4)),
     this.expiry = const Duration(hours: 4),
     this.request = const AdRequestOptions(),
+    this.triggerMode = AppOpenTriggerMode.resumeOnly,
   });
 
   /// Per-platform app open ad unit IDs.
@@ -501,6 +536,10 @@ class AppOpenConfig {
   /// Loaded ads older than this are discarded and reloaded
   /// (Google mandates 4 hours).
   final Duration expiry;
+
+  /// Which moment(s) an app-open ad may appear. Defaults to
+  /// [AppOpenTriggerMode.resumeOnly] — the v5 behaviour.
+  final AppOpenTriggerMode triggerMode;
 }
 
 // 3.0: `showOnColdStart` (deprecated + ignored since 2.1.0/ADR-043) is
@@ -665,6 +704,7 @@ class AdFlowConfig {
         (nativeAd.templateKind != null) ^ (nativeAd.factoryId != null),
         'nativeAd must set exactly one of templateKind or factoryId.',
       );
+      checkAge(nativeAd.maxAdAge, 'nativeAd.maxAdAge');
     }
     final appOpen = this.appOpen;
     if (appOpen != null) {
@@ -699,6 +739,7 @@ class AdFlowConfig {
   factory AdFlowConfig.test({
     FrequencyCap? globalFrequencyCap,
     RetryConfig? retry,
+    AppOpenTriggerMode appOpenTriggerMode = AppOpenTriggerMode.resumeOnly,
   }) => AdFlowConfig(
     banner: const BannerConfig(adUnitId: TestAdUnitIds.banner),
     interstitial: const InterstitialConfig(
@@ -712,7 +753,10 @@ class AdFlowConfig {
       adUnitId: TestAdUnitIds.native,
       templateKind: NativeTemplateKind.medium,
     ),
-    appOpen: const AppOpenConfig(adUnitId: TestAdUnitIds.appOpen),
+    appOpen: AppOpenConfig(
+      adUnitId: TestAdUnitIds.appOpen,
+      triggerMode: appOpenTriggerMode,
+    ),
     globalFrequencyCap:
         globalFrequencyCap ??
         const FrequencyCap(maxPerSession: 100, minGap: Duration(seconds: 15)),

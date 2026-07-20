@@ -11,8 +11,8 @@ console setup.)
 [![google_mobile_ads](https://img.shields.io/badge/google__mobile__ads-9.x-green.svg)](https://pub.dev/packages/google_mobile_ads)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-v2 is a ground-up rewrite on `google_mobile_ads ^9.0.0`. Coming from 1.x?
-Read [MIGRATION](MIGRATION.md).
+Built on `google_mobile_ads ^9.0.0` (Android + iOS). Upgrading from an older
+ad_flow? Read [MIGRATION](MIGRATION.md).
 
 **What you get for free:**
 
@@ -48,7 +48,7 @@ Set up the ad_flow Flutter package (AdMob) in my project. Do it idiomatically �
    • If you find any: show me what it is, then REPLACE it with ad_flow equivalents and remove the
      old implementation (and the direct google_mobile_ads dependency if nothing else uses it).
    • If none: do a clean fresh integration.
-3. Add ad_flow: ^5.0.0 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
+3. Add ad_flow: ^5.1.0 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
    Android minSdk 24 / compileSdk 36). Platform setup: Android APPLICATION_ID meta-data, iOS
    GADApplicationIdentifier + NSUserTrackingUsageDescription. Remind me to publish & verify app-ads.txt.
 4. Ask me which formats I want and for my ad unit IDs (or use AdFlowConfig.test() for now).
@@ -60,25 +60,25 @@ Set up the ad_flow Flutter package (AdMob) in my project. Do it idiomatically �
 Ask me anything you need (formats, IDs, EEA/iOS) before writing code. Keep changes minimal and explained.
 ```
 
-### 🔁 Migrate — upgrade from ad_flow 1.x/2.x to 3.0.0
+### 🔁 Migrate — upgrade an older ad_flow to the current release
 
 ```
-Migrate my project from ad_flow 1.x/2.x to 3.0.0 (v2 was a ground-up rewrite; 3.0 refines its API). Be careful — the API changed a lot.
+Upgrade my project's ad_flow to the latest release. Be careful — older majors changed the API a lot.
 
-1. FIRST read ad_flow's MIGRATION.md plus the 3.0.0 README and public API. Use only real v2 symbols.
-2. Bump ad_flow to ^5.0.0 and meet v2's min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
+1. FIRST read ad_flow's MIGRATION.md plus the current README and public API
+   (package:ad_flow/ad_flow.dart). Use only symbols that exist there.
+2. Bump ad_flow to ^5.1.0 and meet its min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
    Android minSdk 24 / compileSdk 36; adopt the iOS UISceneDelegate lifecycle if I have a custom AppDelegate).
-3. Find EVERY v1 ad_flow usage (AdFlow.instance, initialize / initializeWithExplainer, EasyBannerAd,
-   the old managers/widgets, the broad google_mobile_ads re-export). List them, then migrate each to
-   its v2 equivalent per MIGRATION.md.
-4. Apply the v2 best practices while you're in there: non-blocking init (drop any FutureBuilder/await
-   that gates the UI on init), widget-first ad widgets (AdFlowBanner(adFlow: ads)), the presenter-based
-   consent/ATT explainer (the v2 replacement for initializeWithExplainer), and ValueListenable state.
-5. Remove whatever is now dead from v1; keep my ad unit IDs and behavior intact.
+3. Find EVERY older ad_flow usage (legacy AdFlow.instance/initializeWithExplainer/EasyBannerAd, old
+   managers/widgets, a broad google_mobile_ads re-export). List them, then migrate each per MIGRATION.md.
+4. Apply the current best practices: non-blocking init (drop any FutureBuilder/await that gates the UI
+   on init), the widget-first ad widgets (AdFlowBanner(adFlow: ads) — they own their controllers), the
+   presenter-based consent/ATT explainer, and ValueListenable state.
+5. Remove whatever is now dead; keep my ad unit IDs and behavior intact.
 6. Verify: flutter analyze is clean and the app builds.
 
-Show me the v1 → v2 mapping before large edits, and flag any behavior change (e.g. EEA users now see
-the GDPR consent form even if they denied ATT).
+Show me the mapping before large edits, and flag any behavior change (e.g. EEA users now see the GDPR
+consent form even if they denied ATT; native ads now expire after ~55 min by default).
 ```
 
 > These prompts intentionally defer to the package's own README / MIGRATION for exact symbols, so they stay correct as the package evolves.
@@ -89,7 +89,7 @@ the GDPR consent form even if they denied ATT).
 
 ```yaml
 dependencies:
-  ad_flow: ^5.0.0
+  ad_flow: ^5.1.0
 ```
 
 Requirements (from `google_mobile_ads` 9.x): Flutter ≥ 3.38.1, Dart ≥ 3.10,
@@ -323,12 +323,14 @@ await ads.rewarded.setServerSideVerification(
 
 The update applies to the already-loaded ad AND every future load, and
 **throws** if attaching fails — when you grant high-value rewards, you want to
-know your verification payload did not make it.
+know your verification payload did not make it. The ad is never ready or
+showable until the latest payload has settled (5.1), so a `show()` right after
+`setServerSideVerification` can never race ahead of it with the old value.
 
-Preloaded full-screen ads also **expire** (Google documents ~1 hour): ad_flow
-timestamps every load, proactively replaces a warm ad that goes stale
-(`maxAdAge`, default 55 minutes for interstitial/rewarded formats, 4 hours for
-app-open) and never shows an expired one.
+Preloaded ads also **expire** (Google documents ~1 hour): ad_flow timestamps
+every load, proactively replaces a stale ad and never shows an expired one.
+`maxAdAge` defaults to 55 minutes for the full-screen formats **and native ads**
+(5.1), and 4 hours for app-open; set it `null` on a format to disable.
 
 A rewarded ad is one the user **asked for**, so the global frequency cap never
 blocks it (ADR-039) — a user who taps "watch an ad for 100 coins" must never be
@@ -362,15 +364,73 @@ needs no native code. For fully custom layouts register a platform
 `NativeAdFactory` (see the [official guide](https://developers.google.com/admob/flutter/native/platforms))
 and use `NativeConfig(factoryId: 'yourFactoryId')`.
 
+Native ads **expire** too (`NativeConfig.maxAdAge`, default 55 min; 5.1): a
+long-lived screen never renders stale inventory — the widget briefly shows its
+placeholder while a fresh ad loads, then swaps it in.
+
 ### App open
 
-Nothing to call. The `AppOpenAdManager` (started by `initialize`) shows a
-preloaded ad when the app returns to the foreground — never on cold launch,
-never over another full-screen ad, never past the 4-hour expiry (stale ads
-are discarded and proactively replaced). App-open ads show on the first
-genuine warm return of a session; a cold launch emits no foreground event, so
-there is nothing to show on one (`AppOpenConfig.showOnColdStart` was removed
-in 3.0 for the same reason — it never could do anything).
+App-open ads serve two legitimate moments — a genuine **warm return** and a
+**cold launch** — chosen per config with `AppOpenConfig.triggerMode` (5.1):
+
+| Mode | Warm return | Cold launch |
+| --- | --- | --- |
+| `resumeOnly` *(default — v5 behaviour)* | shows | — |
+| `launchOnly` | — | shows |
+| `launchAndResume` | shows | shows |
+
+**Warm return** needs nothing to call: the `AppOpenAdManager` (started by
+`initialize`) shows a preloaded ad when the app foregrounds — never over another
+full-screen ad, never past the 4-hour expiry (stale ads are discarded and
+proactively replaced), never behind a banner/native click. It shows on the
+first genuine warm return of a session.
+
+**Cold launch is explicit**, because a cold launch emits no foreground event to
+hook (`AppOpenConfig.showOnColdStart` was removed in 3.0 for that reason). Call
+`showAtLaunchIfReady()` from your real loading screen, right before entering main
+content, when `triggerMode` is `launchOnly` or `launchAndResume`:
+
+```dart
+// In your loading/startup screen, AFTER your startup work, BEFORE main content:
+await ads.appOpen.showAtLaunchIfReady();
+```
+
+It shows an **already-ready** ad and **never waits** for the network, UMP, SDK
+init, or a load — if nothing is warm yet it returns `false` immediately and you
+proceed. It is **one-shot per process launch** (surviving a re-`initialize`), so
+a `false` result can never turn into a surprise app-open after the user is
+already in main content. Never busy-wait for an ad here — that would reintroduce
+a splash hang; do your real startup work and take the ad only if it happens to
+be ready. See `example/lib/main.dart`'s `StartupScreen`.
+
+> **You cannot guarantee a cold-launch ad without delaying the user, and
+> ad_flow deliberately refuses to.** At a true cold launch the ad is usually not
+> ready yet (consent and the first load have not finished), so
+> `showAtLaunchIfReady()` returns `false` and your app proceeds. Making it
+> "always show" would mean blocking the user behind a spinner waiting for an
+> ad — a poor experience and a policy risk. Warm returns are the reliable
+> app-open moment; cold-launch is best-effort by design.
+
+Pick a mode in config (`launchOnly` also retires its inventory after the single
+launch, so it never keeps requesting an ad it can no longer show):
+
+```dart
+// resumeOnly — the default; show only on a genuine warm return.
+appOpen: AppOpenConfig(adUnitId: PlatformAdUnitId(android: '…', ios: '…')),
+
+// launchOnly — show only at cold launch (call showAtLaunchIfReady from your
+// loading screen); never auto-show on a warm return.
+appOpen: AppOpenConfig(
+  adUnitId: PlatformAdUnitId(android: '…', ios: '…'),
+  triggerMode: AppOpenTriggerMode.launchOnly,
+),
+
+// launchAndResume — cold launch (via showAtLaunchIfReady) AND warm returns.
+appOpen: AppOpenConfig(
+  adUnitId: PlatformAdUnitId(android: '…', ios: '…'),
+  triggerMode: AppOpenTriggerMode.launchAndResume,
+),
+```
 
 > **Policy note:** Google prohibits app-open ads in "Designed for Families"
 > apps. If your app is in the Families program, leave the `appOpen` slot
@@ -522,7 +582,7 @@ ads.interstitial.lastBlockReason; // AdBlockReason? — per-slot snapshot
 `AdBlockReason` is one of `adsDisabled` (Remove-Ads on), `consentNotGranted`
 (the user declined, or consent hasn't succeeded yet — e.g. offline),
 `frequencyCapped`, `otherAdShowing`, `notReady` (nothing warm yet),
-`userActionPacing`, `expired` (a stale app-open ad), `introSkipped` (the user
+`userActionPacing`, `expired` (a stale ad past its `maxAdAge`), `introSkipped` (the user
 skipped the rewarded intro), `requestConfigNotApplied` (request configuration
 not yet applied under a fail-closed policy — recovers when the retried apply
 succeeds, 4.0), `internalError` (a collaborator/gate fault — blocks new
@@ -566,6 +626,13 @@ default):
 - **Stale-consent invalidation** — after a consent/privacy change, an ad
   already loaded under the old consent is dropped and reloaded under the fresh
   one (a full-screen ad on screen is not interrupted).
+
+**5.1 (additive, no breaking changes):** App Open **trigger modes**
+(`AppOpenConfig.triggerMode`) + an explicit one-shot cold-launch path
+(`ads.appOpen.showAtLaunchIfReady()`); **native ad expiry**
+(`NativeConfig.maxAdAge`, default 55 min); and a **runtime-SSV readiness fix** —
+a rewarded ad is never showable until the latest SSV payload has settled. See
+the [App open](#app-open) and [rewarded](#rewarded) sections above.
 
 ## 7. Testing your integration
 

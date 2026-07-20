@@ -3,11 +3,19 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Enforces invariant 9 (SKILL.md §2): no global mutable state / static
-/// singleton config. `AdFlow._instance` is the ONE sanctioned exception —
-/// a convenience pointer backed by an injectable instance (ADR-004) — so
-/// this test allow-lists exactly that line instead of banning `static`
-/// outright (which would also flag legitimate `static const`/factory
-/// constructors).
+/// singleton config. Two sanctioned exceptions, each a single process-scoped
+/// latch that CANNOT be expressed as injected instance state and each backed by
+/// an injectable override for tests, so this test allow-lists exactly those
+/// lines instead of banning `static` outright (which would also flag legitimate
+/// `static const`/factory constructors):
+///
+/// - `AdFlow._instance` — the convenience pointer to the last-initialized
+///   instance (ADR-004).
+/// - `LaunchLatch._consumed` (internal, non-exported) — the one-shot
+///   cold-launch latch that must survive `AdFlow` reinitialization within a
+///   process, so a second `initialize()` cannot mint a second launch app-open
+///   show (ADR-067). Not public API; reset for tests via `ad_flow_testing.dart`'s
+///   `resetAppOpenLaunchOpportunity()`.
 ///
 /// Only `static const` is exempt — `const` is the one Dart-enforced
 /// guarantee of deep immutability. An earlier version of this test also
@@ -27,8 +35,10 @@ void main() {
       r'^\s*static\s+(?!const\b)\S.*\b\w+\s*(=|;)',
       multiLine: true,
     );
-    const allowedFile = 'lib/src/facade/ad_flow.dart';
-    const allowedSnippet = 'static AdFlow? _instance';
+    const allowed = <(String, String)>[
+      ('lib/src/facade/ad_flow.dart', 'static AdFlow? _instance'),
+      ('lib/src/lifecycle/launch_latch.dart', 'static bool _consumed'),
+    ];
 
     final offenders = <String>[];
     for (final entity in Directory(
@@ -44,7 +54,7 @@ void main() {
         // only targets bare field declarations, but double-check here to
         // avoid false positives on e.g. `static Future<AdFlow> initialize(`.
         if (line.contains('(')) continue;
-        if (relative == allowedFile && line.contains(allowedSnippet)) {
+        if (allowed.any((a) => relative == a.$1 && line.contains(a.$2))) {
           continue;
         }
         offenders.add('$relative: $line');
@@ -55,10 +65,9 @@ void main() {
       offenders,
       isEmpty,
       reason:
-          'Found mutable static state outside the sanctioned '
-          '$allowedFile ($allowedSnippet). ad_flow uses dependency '
-          'injection, not static/singleton config (ADR-004) — inject this '
-          'instead: $offenders',
+          'Found mutable static state outside the sanctioned exceptions '
+          '($allowed). ad_flow uses dependency injection, not static/singleton '
+          'config (ADR-004) — inject this instead: $offenders',
     );
   });
 }

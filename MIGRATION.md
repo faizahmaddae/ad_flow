@@ -1,3 +1,28 @@
+# Upgrading 5.0.x → 5.1.0
+
+**Nothing required — 5.1.0 is fully additive and backward-compatible.** Every
+5.0 call site compiles and behaves the same, and the App Open default is
+unchanged. Opt in to the new capabilities as needed:
+
+1. **App Open trigger modes.** `AppOpenConfig.triggerMode` defaults to
+   `AppOpenTriggerMode.resumeOnly` (the 5.0 behaviour). For a cold-launch
+   experience, set `launchOnly` or `launchAndResume` and call
+   `await ads.appOpen.showAtLaunchIfReady()` from your loading screen, right
+   before entering main content (see README §App open). It never waits for a
+   load and is one-shot per process launch. Cold launch is **not** faked from a
+   lifecycle event — do not try to trigger App Open from `AppStateEventNotifier`.
+2. **Native ad expiry.** `NativeConfig.maxAdAge` now defaults to 55 minutes
+   (was: no expiry). A native ad older than this is dropped and reloaded; the
+   widget shows its placeholder briefly during the reload. Set `maxAdAge: null`
+   to restore the old keep-forever behaviour.
+3. **Runtime SSV.** No API change. A rewarded / rewarded-interstitial ad is now
+   never ready or showable until the latest `setServerSideVerification` payload
+   has settled — if you previously `show()`-ed immediately after setting it
+   without awaiting, the ad now correctly waits for the payload rather than
+   racing ahead with the old value.
+
+---
+
 # Upgrading 4.0.x → 5.0.0
 
 Most apps compile and behave unchanged. Check these:

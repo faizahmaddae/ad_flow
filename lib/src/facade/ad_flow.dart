@@ -1035,6 +1035,7 @@ class AdFlow {
   /// Re-enables ad loading after [disableAds] and re-warms inventory at
   /// once (no gate-recheck backoff wait).
   void enableAds() {
+    if (_disposed) return; // inert after dispose, like every other public call
     _adsEnabled.value = true;
     _recheckAll();
   }
@@ -1046,6 +1047,7 @@ class AdFlow {
   /// dropped live ads, a Remove-Ads purchaser kept seeing — and AdMob kept
   /// server-side refreshing — the already-mounted banner (2026-07 audit).
   void disableAds() {
+    if (_disposed) return; // inert after dispose, like every other public call
     _adsEnabled.value = false;
     _recheckAll();
   }

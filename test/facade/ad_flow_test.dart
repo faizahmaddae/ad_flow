@@ -525,6 +525,55 @@ void main() {
       expect(ads.dispose, returnsNormally);
     });
 
+    test('enableAds/disableAds after dispose are inert, not explosive '
+        '(5.1 hardening)', () async {
+      final ads = await boot();
+      ads.dispose();
+      // disableAds() flips the (now-disposed) _adsEnabled notifier true→false;
+      // without a _disposed guard that write-after-dispose throws a "used after
+      // being disposed" FlutterError — inconsistent with every other post-
+      // dispose call, which is a quiet no-op.
+      expect(ads.disableAds, returnsNormally);
+      expect(ads.enableAds, returnsNormally);
+    });
+
+    test(
+      'production cold-launch latch: works through the facade default and '
+      'is one-shot across reinitialization in the same process (5.1)',
+      () async {
+        resetAppOpenLaunchOpportunity(); // isolate this test
+        const launchConfig = AdFlowConfig(
+          appOpen: AppOpenConfig(
+            adUnitId: PlatformAdUnitId(android: 'ao-a'),
+            cap: FrequencyCap(),
+            triggerMode: AppOpenTriggerMode.launchAndResume,
+          ),
+        );
+
+        final ads1 = await boot(config: launchConfig);
+        await pumpEventQueue(); // let the app-open preload land
+        expect(ads1.appOpenController.isReady, isTrue);
+        expect(
+          await ads1.appOpen.showAtLaunchIfReady(),
+          isTrue,
+          reason: 'a warm ad shows at launch via the process-default latch',
+        );
+        ads1.dispose();
+
+        // Reinitialize AdFlow in the SAME process — the latch must persist.
+        final ads2 = await boot(config: launchConfig);
+        await pumpEventQueue();
+        expect(ads2.appOpenController.isReady, isTrue);
+        expect(
+          await ads2.appOpen.showAtLaunchIfReady(),
+          isFalse,
+          reason:
+              'the cold-launch moment is spent; reinit gets no second launch',
+        );
+        ads2.dispose();
+      },
+    );
+
     test('dispose() releases a self-created ConsentGateway but leaves an '
         'injected one usable', () async {
       // Self-created (no `consent:` injected): AdFlow owns it, so dispose()

@@ -36,6 +36,7 @@ class NativeAdController implements AdController {
     void Function(AdPaidEvent event)? onPaid,
     void Function(String slotName, AdBlockReason reason)? onBlocked,
     void Function()? onDisposed,
+    DateTime Function()? now,
   }) : _sdk = sdk,
        _gate = gate,
        _config = config,
@@ -44,7 +45,8 @@ class NativeAdController implements AdController {
        _retry = retry ?? RetryPolicy(const RetryConfig()),
        _onPaid = onPaid,
        _onBlocked = onBlocked,
-       _onDisposed = onDisposed;
+       _onDisposed = onDisposed,
+       _now = now ?? DateTime.now;
 
   /// The gate/cap slot name for native ads.
   static const slotName = 'native';
@@ -57,6 +59,8 @@ class NativeAdController implements AdController {
   final RetryPolicy _retry;
   final void Function(AdPaidEvent event)? _onPaid;
   final void Function(String slotName, AdBlockReason reason)? _onBlocked;
+  final DateTime Function() _now;
+  DateTime? _loadedAt;
 
   /// Notified exactly once, when [dispose] runs — lets the minting `AdFlow`
   /// drop this controller from its recheck registry (2026-07 audit).
@@ -125,6 +129,35 @@ class NativeAdController implements AdController {
     null => 100,
   };
 
+  /// Whether the loaded native ad has outlived [NativeConfig.maxAdAge].
+  ///
+  /// Google documents native ads as expiring after ~1 hour: a stale ad may
+  /// stop earning or violate policy if left rendering. The expiry timer drops
+  /// and reloads a stale ad proactively; this getter is the belt-and-suspenders
+  /// check (timers do not fire while the app is suspended).
+  bool get isExpired {
+    final loadedAt = _loadedAt;
+    final maxAdAge = _config.maxAdAge;
+    if (loadedAt == null || maxAdAge == null) return false;
+    return _now().difference(loadedAt) >= maxAdAge;
+  }
+
+  /// Arms the expiry replacement for the ad just loaded, reusing the shared
+  /// single-slot [_timer]: while `AdLoaded` no retry or gate-recheck timer is
+  /// pending, and every transition out of `AdLoaded` (reload, recheckGate drop,
+  /// dispose) cancels it. Best-effort — [reload] on a resume covers a timer
+  /// that could not fire while suspended.
+  void _scheduleExpiry() {
+    final maxAdAge = _config.maxAdAge;
+    if (maxAdAge == null) return;
+    _timer?.cancel();
+    _timer = Timer(maxAdAge, () {
+      if (_disposed || _state.value is! AdLoaded || !isExpired) return;
+      _noteBlocked(AdBlockReason.expired);
+      unawaited(reload());
+    });
+  }
+
   @override
   Future<void> load() async {
     if (_disposed) return;
@@ -187,7 +220,9 @@ class NativeAdController implements AdController {
       _gateAttempts = 0;
       _lastBlockReason = null;
       _loadedGeneration = requestGeneration;
+      _loadedAt = _now();
       _state.value = const AdLoaded();
+      _scheduleExpiry();
     } catch (e) {
       // See BannerAdController.load: catch everything, not just AdFlowError —
       // a raw platform exception must degrade to AdFailed + retry, never pin

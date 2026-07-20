@@ -176,6 +176,40 @@ void main() {
       );
     });
 
+    test('NativeConfig maxAdAge defaults to 55 minutes and participates in '
+        'equality + hashCode (5.1)', () {
+      const base = NativeConfig(
+        adUnitId: PlatformAdUnitId(android: 'a'),
+        templateKind: NativeTemplateKind.small,
+      );
+      expect(base.maxAdAge, const Duration(minutes: 55));
+
+      const sameAge = NativeConfig(
+        adUnitId: PlatformAdUnitId(android: 'a'),
+        templateKind: NativeTemplateKind.small,
+        maxAdAge: Duration(minutes: 55),
+      );
+      const differentAge = NativeConfig(
+        adUnitId: PlatformAdUnitId(android: 'a'),
+        templateKind: NativeTemplateKind.small,
+        maxAdAge: Duration(minutes: 30),
+      );
+      const disabledAge = NativeConfig(
+        adUnitId: PlatformAdUnitId(android: 'a'),
+        templateKind: NativeTemplateKind.small,
+        maxAdAge: null,
+      );
+
+      expect(base, sameAge);
+      expect(base.hashCode, sameAge.hashCode);
+      expect(base, isNot(differentAge));
+      expect(base, isNot(disabledAge));
+      // A widget compares configs to decide whether to re-mint its controller
+      // (ADR-029); maxAdAge must therefore change equality or a maxAdAge-only
+      // config swap would be silently ignored.
+      expect(base == differentAge, isFalse);
+    });
+
     test('toRequestConfig maps config to seam AdRequestConfig', () {
       const config = AdFlowConfig(
         testDeviceIds: ['dev-1'],
@@ -241,6 +275,16 @@ void main() {
           () => const AdFlowConfig(
             rewarded: RewardedConfig(
               adUnitId: PlatformAdUnitId(android: 'r'),
+              maxAdAge: Duration.zero,
+            ),
+          ).validate(),
+          throwsInvalidConfig,
+        );
+        expect(
+          () => const AdFlowConfig(
+            nativeAd: NativeConfig(
+              adUnitId: PlatformAdUnitId(android: 'n'),
+              templateKind: NativeTemplateKind.small,
               maxAdAge: Duration.zero,
             ),
           ).validate(),

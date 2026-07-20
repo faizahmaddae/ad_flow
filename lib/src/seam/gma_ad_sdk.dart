@@ -448,7 +448,14 @@ class GmaAdSdk implements AdSdk {
     // The plugin requires startListening() before the platform emits events.
     if (!_appStateListening) {
       _appStateListening = true;
-      unawaited(gma.AppStateEventNotifier.startListening());
+      // Contain a rejection: startListening() hits a platform channel and can
+      // reject (e.g. MissingPluginException on a misconfigured host). Left
+      // uncontained it becomes an unhandled zone error; app-open-on-foreground
+      // simply won't fire. The returned appStateStream is still valid.
+      safeUnawaited(
+        gma.AppStateEventNotifier.startListening(),
+        debugName: 'startListening',
+      );
     }
     return gma.AppStateEventNotifier.appStateStream
         .where((state) => state == gma.AppState.foreground)
