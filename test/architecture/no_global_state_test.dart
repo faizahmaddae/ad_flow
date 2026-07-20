@@ -11,10 +11,10 @@ import 'package:flutter_test/flutter_test.dart';
 ///
 /// - `AdFlow._instance` — the convenience pointer to the last-initialized
 ///   instance (ADR-004).
-/// - `AppOpenAdManager._processLaunchOpportunity` — the one-shot cold-launch
+/// - `AppOpenAdManager._launchOpportunityConsumed` — the one-shot cold-launch
 ///   latch that must survive `AdFlow` reinitialization within a process, so a
 ///   second `initialize()` cannot mint a second launch app-open show (ADR-067).
-///   Injectable via the manager's `launchOpportunity` param.
+///   Private; reset for tests via `AppOpenAdManager.resetLaunchOpportunity`.
 ///
 /// Only `static const` is exempt — `const` is the one Dart-enforced
 /// guarantee of deep immutability. An earlier version of this test also
@@ -38,7 +38,7 @@ void main() {
       ('lib/src/facade/ad_flow.dart', 'static AdFlow? _instance'),
       (
         'lib/src/lifecycle/app_open_ad_manager.dart',
-        'static final LaunchOpportunity _processLaunchOpportunity',
+        'static bool _launchOpportunityConsumed',
       ),
     ];
 

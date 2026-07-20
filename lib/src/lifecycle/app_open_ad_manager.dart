@@ -1,34 +1,13 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 import '../config/ad_flow_config.dart';
 import '../controllers/app_open_ad_controller.dart';
 import '../policy/full_screen_ad_coordinator.dart';
 import '../core/callback_guard.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
-
-/// A one-shot, process-scoped latch for the cold-launch app-open opportunity
-/// (5.1).
-///
-/// The cold launch of a process is a single moment; an app may take at most one
-/// app-open show for it, via [AppOpenAdManager.showAtLaunchIfReady]. This latch
-/// makes that "once per process" hold even across [AdFlow] reinitialization — a
-/// second `initialize()` builds a new manager but shares the same process
-/// latch, so it cannot mint a second launch show. Injectable so tests get
-/// isolation; the manager's default is process-global by design.
-class LaunchOpportunity {
-  bool _consumed = false;
-
-  /// Whether the one-shot launch opportunity is still available.
-  bool get isAvailable => !_consumed;
-
-  /// Consumes the one-shot; returns true iff it was still available.
-  bool consume() {
-    if (_consumed) return false;
-    _consumed = true;
-    return true;
-  }
-}
 
 /// The single owner of app-open behaviour (v1 trap: two reactors coordinated
 /// through statics fought each other — the facade creates exactly one manager
@@ -48,7 +27,9 @@ class LaunchOpportunity {
 ///   already foregrounded), and one-shot per process.
 ///
 /// The default [AppOpenTriggerMode.resumeOnly] preserves the v5 behaviour. In
-/// all modes [start] preloads one ad so it can be ready for either moment.
+/// all modes [start] preloads one ad so it can be ready for either moment;
+/// `launchOnly` retires its inventory after the single launch so it does not
+/// keep reloading an ad that can never be shown again this process.
 ///
 /// Invariant 3 ("never show on a cold launch by surprise") holds structurally
 /// on the resume path: at a real cold launch nothing is loaded yet, so
@@ -62,8 +43,7 @@ class AppOpenAdManager {
   /// instance shared with every other controller — lets the manager avoid
   /// showing an app-open ad immediately behind another format's dismiss
   /// (review finding #7). [postDismissSuppression] is the minimum gap enforced;
-  /// [now] is an injectable clock for tests. [launchOpportunity] overrides the
-  /// process-global cold-launch latch (tests inject their own for isolation).
+  /// [now] is an injectable clock for tests.
   AppOpenAdManager({
     required AppOpenAdController controller,
     required AdSdk sdk,
@@ -71,22 +51,28 @@ class AppOpenAdManager {
     FullScreenAdCoordinator? coordinator,
     Duration postDismissSuppression = const Duration(seconds: 1),
     DateTime Function()? now,
-    LaunchOpportunity? launchOpportunity,
   }) : _controller = controller,
        _sdk = sdk,
        _config = config,
        _coordinator = coordinator,
        _postDismissSuppression = postDismissSuppression,
-       _now = now ?? DateTime.now,
-       _launch = launchOpportunity ?? _processLaunchOpportunity;
+       _now = now ?? DateTime.now;
 
-  /// The sole process-global cold-launch latch (invariant 9's second
-  /// sanctioned exception, like `AdFlow._instance` — see the
-  /// no_global_state_test allow-list and ADR-067). Shared across [AdFlow]
-  /// reinitialization so a second `initialize()` cannot hand out a second
-  /// launch show. Never reset in production; tests inject their own.
-  static final LaunchOpportunity _processLaunchOpportunity =
-      LaunchOpportunity();
+  /// The one-shot cold-launch latch — process-scoped ON PURPOSE. The cold
+  /// launch of a process is a single moment, so `showAtLaunchIfReady` may
+  /// succeed at most once per process, and that must hold even across [AdFlow]
+  /// reinitialization (a second `initialize()` builds a new manager but must
+  /// NOT mint a second launch show). This cannot be expressed as injected
+  /// instance state, so it is a private `static` — invariant 9's second
+  /// sanctioned exception (like `AdFlow._instance`; allow-listed in
+  /// no_global_state_test, ADR-067). It is never reset in production; tests use
+  /// [resetLaunchOpportunity].
+  static bool _launchOpportunityConsumed = false;
+
+  /// Test-only: restore the one-shot cold-launch latch between tests. Not part
+  /// of the public API (test-visible only) — call it in `setUp`.
+  @visibleForTesting
+  static void resetLaunchOpportunity() => _launchOpportunityConsumed = false;
 
   final AppOpenAdController _controller;
   final AdSdk _sdk;
@@ -94,7 +80,6 @@ class AppOpenAdManager {
   final FullScreenAdCoordinator? _coordinator;
   final Duration _postDismissSuppression;
   final DateTime Function() _now;
-  final LaunchOpportunity _launch;
 
   StreamSubscription<AppForegroundEvent>? _sub;
   bool _disposed = false;
@@ -127,25 +112,37 @@ class AppOpenAdManager {
   ///   never turn into a surprise app-open ad after the user is in main content.
   /// - It is a no-op (`false`) under [AppOpenTriggerMode.resumeOnly].
   /// - The controller still enforces consent, caps, coordinator, expiry and
-  ///   Remove-Ads; a refusal there also returns `false` (and re-warms the next).
+  ///   Remove-Ads; a refusal there also returns `false`.
   Future<bool> showAtLaunchIfReady() async {
     if (_disposed) return false;
     if (_config.triggerMode == AppOpenTriggerMode.resumeOnly) return false;
     // Consume the one-shot up front — even a not-ready launch spends the
     // launch moment, so we never show a "launch" ad seconds into the session.
-    if (!_launch.consume()) return false;
+    if (_launchOpportunityConsumed) return false;
+    _launchOpportunityConsumed = true;
+
+    final launchOnly = _config.triggerMode == AppOpenTriggerMode.launchOnly;
     // Only an already-ready ad; never wait for a load.
-    if (!_controller.isReady) return false;
-    return _controller.show();
+    if (!_controller.isReady) {
+      // launchOnly will never show on a resume, and the launch moment is now
+      // spent — retire its inventory so it does not keep reloading an ad that
+      // can never be shown again this process.
+      if (launchOnly) _controller.retire();
+      return false;
+    }
+    final shown = await _controller.show();
+    // launchOnly: the single launch is done — stop maintaining inventory. The
+    // ad that is now on screen finishes normally; its dismiss will not reload.
+    if (launchOnly) _controller.retire();
+    return shown;
   }
 
   Future<void> _onForeground(AppForegroundEvent event) async {
-    // launchOnly never auto-shows on resume — but keep one warm (it is the
-    // launch path's inventory).
-    if (_config.triggerMode == AppOpenTriggerMode.launchOnly) {
-      unawaited(_controller.load());
-      return;
-    }
+    // launchOnly never auto-shows on resume, and never RELOADS on resume
+    // either: its inventory is preloaded once (in start) for the launch moment
+    // and retired afterwards. Reloading here would keep requesting ads that can
+    // never be shown this process.
+    if (_config.triggerMode == AppOpenTriggerMode.launchOnly) return;
     // The user is coming back from a banner/native ad they just clicked: this
     // foreground event is a return FROM AN AD, not a genuine warm return
     // (ADR-042). One-shot — the next return is a normal one.

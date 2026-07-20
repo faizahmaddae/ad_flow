@@ -119,6 +119,13 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   bool _impressionPending = false;
   bool _disposed = false;
 
+  /// Once retired, this controller stops maintaining inventory: [load] is inert
+  /// and the autonomous reloads (dismiss, expiry, retry) become no-ops. Used by
+  /// the app-open manager for `launchOnly` after its single launch, so it does
+  /// not keep requesting an ad that can never be shown again this process
+  /// (5.1). Distinct from [dispose]: the controller stays alive and observable.
+  bool _retired = false;
+
   /// The seam load call for this format.
   @protected
   Future<FullScreenAdHandle> loadHandle();
@@ -141,6 +148,14 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   @protected
   Future<void> finalizeLoadedHandle() async {}
 
+  /// Hook invoked right AFTER a load succeeds and [AdLoaded] is published
+  /// (synchronous, post-publish). Retained for backward compatibility — this
+  /// has been a public/overridable hook since 2.2.0, so its semantics are held
+  /// stable. New pre-publish finalization belongs in [finalizeLoadedHandle].
+  /// Default: no-op.
+  @protected
+  void onLoaded() {}
+
   /// Drops the current handle (without showing it) and preloads a fresh
   /// one — used by app-open to discard expired ads.
   ///
@@ -156,6 +171,27 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     _dropHandle();
     _state.value = const AdIdle();
     unawaited(load());
+  }
+
+  /// Retires this controller's inventory: cancels the timer, drops a warm
+  /// (not-showing) handle, and makes [load] and every autonomous reload
+  /// (dismiss/expiry/retry) a no-op for the rest of the process. A currently
+  /// SHOWING ad finishes on screen — its dismiss cleans up but does not reload,
+  /// because [load] is now inert. Idempotent; safe after [dispose].
+  ///
+  /// Used by the app-open manager for `launchOnly` after the single launch (a
+  /// launchOnly ad is never shown again this process). Not a general lifecycle
+  /// control — exposed publicly only via `AppOpenAdController.retire`.
+  @protected
+  void retireInventory() {
+    if (_disposed || _retired) return;
+    _retired = true;
+    _timer?.cancel();
+    _timer = null;
+    if (_state.value is! AdShowing) {
+      _dropHandle();
+      _state.value = const AdIdle();
+    }
   }
 
   @override
@@ -208,7 +244,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
 
   @override
   Future<void> load() async {
-    if (_disposed) return;
+    if (_disposed || _retired) return;
     if (_state.value is AdLoading ||
         _state.value is AdLoaded ||
         _state.value is AdShowing) {
@@ -227,7 +263,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     // audit; the gate await used to sit outside this try).
     try {
       final blocked = await _gate.loadBlockReason(slot);
-      if (_disposed) return;
+      if (_disposed || _retired) return;
       if (blocked != null) {
         noteBlocked(blocked);
         // A refused load is a STATE, not a side channel (3.0): consent still
@@ -254,7 +290,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         disposeLate: (late) => late.dispose(),
         slot: slot,
       );
-      if (_disposed) {
+      if (_disposed || _retired) {
         safeUnawaited(handle.dispose(), debugName: 'handle');
         return;
       }
@@ -290,6 +326,12 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       // dispose() can run during finalization (it already dropped the handle
       // and disposed the state notifier) — never publish onto a dead graph.
       if (_disposed) return;
+      // retire() can run during finalization too — drop the installed handle
+      // (idempotent if retire already did) and do not publish AdLoaded.
+      if (_retired) {
+        _dropHandle();
+        return;
+      }
       if (_gate.consentGeneration != requestGeneration) {
         // Consent mutated DURING finalization — the ad carries the OLD
         // consent/forwarding. Drop unshown and reload through the re-forwarded
@@ -304,6 +346,9 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       _lastBlockReason = null;
       _state.value = const AdLoaded();
       _scheduleExpiry();
+      // Legacy post-publish hook (public since 2.2.0) — runs AFTER AdLoaded, as
+      // it always has. Pre-publish finalization is finalizeLoadedHandle above.
+      onLoaded();
     } catch (e) {
       // Catch EVERYTHING, not just AdFlowError. The seam's contract says it
       // throws AdFlowError, but a real platform channel violates that freely:
