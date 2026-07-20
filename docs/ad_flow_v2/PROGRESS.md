@@ -1,6 +1,136 @@
-# PROGRESS — ad_flow v2/v3/v4
+# PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
+**Phase 23 — 5.0.0 simplification / maintainability pass (2026-07-19)** — ✅
+implemented on branch **`post-release-audit-4.1`** (off tag `v4.0.0`; NOT
+merged/tagged/published — Faiz reviews). The ADR-065 redesign is accepted and
+correct; this pass removes accidental complexity from its final diff without
+touching the verified privacy/ordering invariants. ADR-066:
+
+1. **Folded stale-consent invalidation into the existing `recheckGate()`.**
+   Removed `AdController.invalidateForConsentChange()` + all 3 impls + the
+   facade's `_invalidateLoadedAdsForConsentChange` fan-out. Each controller now
+   stamps `_loadedGeneration` on install and `recheckGate` drops-and-reloads a
+   generation-stale `AdLoaded` (before the permission check). `recheckGate`
+   already ran after every consent mutation, so `_afterConsentMutation` calls
+   only `_recheckAll()`. **Net: the `AdController` interface is unchanged vs
+   v4.0.0** (no new public method); one owner for "re-evaluate a loaded ad."
+2. **Renamed `MediationConsentFailurePolicy.failOpen → unsafeFailOpen`** (free
+   rename, unreleased 5.0 enum). The `unsafe` prefix makes the opt-out hard to
+   select by accident — no machinery added. `RequestConfigFailurePolicy.failOpen`
+   (shipped 4.0) is untouched.
+3. **Retained (deliberate):** `_loadedGeneration` per controller;
+   `AdGate.consentGeneration` optional callback (public because the gate class
+   already is, and per-file-library privacy forces it — defaults to `0`/no-op,
+   never an integration step); un-timeout'd `_forwardSource` serialization (a
+   permanently-hung source fails CLOSED forever by design — documented, no
+   cancellation framework). Invariants in ADR-066.
+
+Verify: `dart format` + `flutter analyze` clean, **494 tests** green, pana
+160/160, dry-run 0 warnings, Android + iOS example builds. Version stays
+**5.0.0**. Public API delta from v4.0.0 in ADR-066's Consequences.
+
+---
+
+**Phase 22 — 5.0.0 mediation-lifecycle release gate #2 (2026-07-19)** — ✅
+implemented on branch **`post-release-audit-4.1`** (off tag `v4.0.0`; NOT
+merged/tagged/published — Faiz reviews). A second release-gate review
+(verified against current Google Android/iOS docs + the plugin's native
+source) found the 5.0-draft forwarding design had upstream-semantics and
+lifecycle errors. Fixed as ADR-065 (supersedes ADR-064's request-time model):
+
+1. **`deferMediationInit` REMOVED.** `disableMediationInitialization` is a
+   session-wide DISABLE of Google mediation (docs: "noop once initialize() or
+   the first ad request is made"; "for... an A/B test"), NOT a defer/resume —
+   conceptually invalid and revenue-harming.
+2. **`forwardConsent` runs BEFORE `MobileAds.initialize()`.** Adapters read
+   their flag DURING GMA init (AppLovin/Meta), so init is gated on forwarding.
+   Fail-closed: forward failure → SDK not initialized + loads blocked +
+   retried; init/serving recover on success. `unsafeFailOpen` initializes
+   anyway. UI non-blocking (`initialize()` returns immediately).
+3. **Forwarder source serialized across the timeout boundary.** `Future.timeout`
+   does not cancel its source; the un-timeout'd invocation is tracked so at
+   most one runs and older→newer external side effects are strictly ordered.
+4. **Stale-consent ad invalidation** (later folded into `recheckGate` by
+   ADR-066): a warm full-screen / visible banner/native loaded under old
+   consent is dropped+reloaded on a mutation; a showing full-screen ad is not
+   interrupted.
+
+Verify (at Phase 22): `flutter analyze && flutter test` → clean. Version stays
+**5.0.0**. ADR-065; docs (README/CHANGELOG/MIGRATION/MEDIATION_SETUP)
+reconciled to forward-before-init + removal.
+
+---
+
+**Phase 21 — 5.0.0 release-gate correction (2026-07-19)** — folded into
+Phase 22 above. The release-gate review found the 4.1 consent-forwarding
+barrier degraded OPEN on failure — a mediation partner could receive an ad
+request without its required privacy signal. Redesigned **fail-CLOSED by
+default** (mirrors ADR-061's request-config policy): forwarding failures now
+BLOCK mediation-capable loads (`AdBlockReason.consentNotForwarded`, new enum
+case → major), retried in the background, recovering when forwarding
+succeeds; explicit `MediationConsentFailurePolicy.unsafeFailOpen` is the only
+(unsafe) way to serve anyway. Generation-guarded. Plus adversarial proofs
+(fail-first + non-vacuity) for SSV latest-value-wins/dispose-races, cap-merge
+dedup, and async-rejection containment through the REAL public void-typed
+callbacks. ADR-064.
+
+---
+
+**Phase 21-orig — 5.0.0 release-gate correction (2026-07-19)** — ✅ implemented on
+branch **`post-release-audit-4.1`** (off tag `v4.0.0`; NOT merged/tagged/
+published — Faiz reviews). **Version bumped 4.1.0 → 5.0.0**: the release-gate
+review found the 4.1 consent-forwarding barrier degraded OPEN on failure —
+a mediation partner could receive an ad request without its required privacy
+signal. Redesigned **fail-CLOSED by default** (mirrors ADR-061's request-
+config policy): `forwardConsent`/`deferMediationInit` failures now BLOCK
+mediation-capable loads (`AdBlockReason.consentNotForwarded`, new enum case →
+major), retried in the background, recovering when forwarding succeeds; UI
+never blocked; explicit `MediationConsentFailurePolicy.unsafeFailOpen` is the only
+(unsafe) way to serve anyway. Barrier moved out of the consent chain into a
+dedicated `AdGate` gate barrier; generation-guarded so mutations re-establish
+it before newly-permitted loads and a stale forward can't satisfy a new
+generation. Plus adversarial proofs (fail-first + non-vacuity) for SSV
+latest-value-wins/dispose-races, cap-merge dedup, and async-rejection
+containment through the REAL public void-typed callbacks. ADR-064.
+Verify: `flutter analyze && flutter test` → clean, **483 tests**; pana
+160/160; dry-run 0 warnings; Android + iOS example builds ✓; coverage 84.8%.
+
+---
+
+**Phase 20 — 4.1.0 post-release audit (2026-07-19)** — folded into 5.0.0
+above. An independent adversarial re-audit (multi-agent workflow: 31
+findings, 24 confirmed, 11 survived refutation) verified the supplied
+hypotheses and hunted same-class issues. Six coherent slices, each
+fail-first (+ neuter-verified where a debug repro exists):
+
+1. Isolation: `guardedCallback` contains ASYNC callback rejections;
+   refreshed-banner paid events routed through the guard; `safeUnawaited`
+   for teardown dispose/cancel rejections.
+2. `validate()` mirrors every constructor assert (release strips asserts).
+3. Cap late-hydration MERGE guard (a store resuming past the 5s timeout no
+   longer overwrites memory-authoritative caps).
+4. Runtime SSV `RuntimeSsvController` mixin: re-apply on in-flight load
+   completion; drop the stale warm ad on update failure.
+5. Rewarded-interstitial re-validates live permission + expiry after the
+   unbounded intro.
+6. Awaited `forwardConsent` barrier (the headline): the first ad load waits
+   for consent forwarding; bounded + contained; `deferMediationInit`
+   failure now reported; docs reconciled (README `^3.0.0→^4.0.0`, the two
+   4.0 AdBlockReason cases, MEDIATION_SETUP forwardConsent path);
+   `MediationNetworkExtras` empty-name guard. ADR-063.
+
+Verify: `flutter analyze && flutter test --concurrency=2` → clean, **466
+tests**. Also green: `dart format`, `pana` **160/160**, `dart pub publish
+--dry-run` (0 warnings), example Android APK + iOS simulator builds,
+coverage **84.5%** (was 83.9%), and an iOS-simulator smoke run (iPhone 16
+Pro): all six formats `ready` through the restructured consent/SSV paths,
+native validator clean, live test banner. NOT externally verified: real
+mediation consent-forwarding end-to-end (needs partner SDKs/accounts) and an
+interactive rewarded-interstitial tap on device (the post-intro re-check is
+unit-tested + neuter-verified).
+
+## Previous phase
 **Phase 19 — 4.0.0 independent production audit + hardening (2026-07-17)** —
 ✅ implemented on branch **`production-audit-3.x`** (7 slices, committed;
 NOT merged, NOT tagged, NOT published — Faiz reviews/merges/tags when

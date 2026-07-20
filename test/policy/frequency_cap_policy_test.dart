@@ -324,7 +324,153 @@ void main() {
         );
       });
     });
+
+    test('a store that RESUMES after the hydration timeout must NOT overwrite '
+        'in-memory impressions recorded in the meantime (4.1 audit)', () {
+      fakeAsync((async) {
+        // The store's reads hang past the 5s hydration timeout, then resume
+        // with STALE persisted state carrying an OLD last-impression stamp.
+        // Between finalization and the late resume, a NEW impression is
+        // recorded in memory. The late read used to blindly overwrite
+        // _last back to the old stamp, rolling back the fresh impression ->
+        // minGap violated -> two ads back to back, the exact thing this cap
+        // prevents.
+        final store = _HangThenResumeStore(
+          // A prior-session impression two hours ago — long past the 60s gap.
+          staleLast: now
+              .subtract(const Duration(hours: 2))
+              .millisecondsSinceEpoch,
+        );
+        final caps = StoredFrequencyCapPolicy(
+          store: store,
+          slotCaps: const {},
+          globalCap: const FrequencyCap(minGap: Duration(seconds: 60)),
+          now: () => now,
+        );
+
+        // First decision triggers hydration; it times out at 5s (store hung).
+        bool? first;
+        unawaited(caps.canShow('interstitial').then((v) => first = v));
+        async.elapse(const Duration(seconds: 5));
+        async.flushMicrotasks();
+        expect(first, isTrue); // degraded open
+
+        // An involuntary impression fires and is committed to memory.
+        unawaited(caps.recordImpression('interstitial'));
+        async.flushMicrotasks();
+
+        // 1s later a second involuntary ad checks in — the 60s global minGap
+        // must block it.
+        now = now.add(const Duration(seconds: 1));
+        bool? blockedByGap;
+        unawaited(caps.canShow('interstitial').then((v) => blockedByGap = v));
+        async.flushMicrotasks();
+        expect(blockedByGap, isFalse, reason: 'memory holds the impression');
+
+        // NOW the hung store resumes with the OLD prior-session stamp. The
+        // late hydrate must not roll _last back to it.
+        store.resume();
+        async.flushMicrotasks();
+
+        bool? afterResume;
+        unawaited(caps.canShow('interstitial').then((v) => afterResume = v));
+        async.flushMicrotasks();
+        expect(
+          afterResume,
+          isFalse,
+          reason:
+              'the late store read must not roll back the in-memory '
+              'impression — memory is authoritative once hydration finalized',
+        );
+      });
+    });
+
+    test('a late persisted timestamp that EQUALS an in-memory one is merged '
+        'ONCE — never double-counted against maxPerHour (release gate)', () {
+      fakeAsync((async) {
+        // The in-memory impression and the late persisted read share the exact
+        // same millisecond (the same impression, persisted then re-read after
+        // the hydration timeout). A merge that concatenated instead of unioning
+        // would count it TWICE and trip maxPerHour a beat early.
+        final sharedTs = now.millisecondsSinceEpoch;
+        final store = _HangThenResumeStore(staleLast: sharedTs);
+        final caps = StoredFrequencyCapPolicy(
+          store: store,
+          slotCaps: {'interstitial': const FrequencyCap(maxPerHour: 2)},
+          globalCap: const FrequencyCap(),
+          now: () => now,
+        );
+
+        unawaited(caps.canShow('interstitial'));
+        async.elapse(const Duration(seconds: 5)); // hydration times out
+        async.flushMicrotasks();
+
+        // Record exactly ONE impression, at sharedTs (now unchanged).
+        unawaited(caps.recordImpression('interstitial'));
+        async.flushMicrotasks();
+
+        // The hung store resumes; its persisted history [sharedTs] equals the
+        // in-memory stamp.
+        store.resume();
+        async.flushMicrotasks();
+
+        bool? allowed;
+        unawaited(caps.canShow('interstitial').then((v) => allowed = v));
+        async.flushMicrotasks();
+        expect(
+          allowed,
+          isTrue,
+          reason:
+              'one impression present in BOTH memory and the late read is one '
+              'impression (1 < maxPerHour 2); a double-count would block it',
+        );
+      });
+    });
   });
+}
+
+/// Reads hang until [resume]; then answer with a stale prior-session
+/// last-impression stamp — models a `SharedPreferencesAsync` read that
+/// resolves only after the bounded hydration already gave up.
+class _HangThenResumeStore implements KeyValueStore {
+  _HangThenResumeStore({required this.staleLast});
+
+  final int staleLast;
+  final List<Completer<void>> _gates = [];
+  bool _resumed = false;
+
+  void resume() {
+    _resumed = true;
+    for (final gate in _gates) {
+      gate.complete();
+    }
+    _gates.clear();
+  }
+
+  Future<void> _gate() {
+    if (_resumed) return Future<void>.value();
+    final completer = Completer<void>();
+    _gates.add(completer);
+    return completer.future;
+  }
+
+  @override
+  Future<int?> getInt(String key) async {
+    await _gate();
+    return staleLast;
+  }
+
+  @override
+  Future<List<int>> getHistory(String key) async {
+    await _gate();
+    return [staleLast];
+  }
+
+  @override
+  Future<void> setInt(String key, int value) async {}
+
+  @override
+  Future<void> setHistory(String key, List<int> values) async {}
 }
 
 /// Delegates reads instantly but parks every WRITE until released — models

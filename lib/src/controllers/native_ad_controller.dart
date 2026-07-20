@@ -98,6 +98,12 @@ class NativeAdController implements AdController {
   Timer? _timer;
   int _attempts = 0;
   int _gateAttempts = 0;
+
+  /// The consent generation the mounted ad was REQUESTED under. When
+  /// [AdGate.consentGeneration] advances past it, the ad carries a stale
+  /// consent/forwarding state and `recheckGate` drops-and-reloads it — the
+  /// already-loaded counterpart of the mid-load check in [load]. Internal.
+  int _loadedGeneration = 0;
   bool _disposed = false;
 
   @override
@@ -143,6 +149,7 @@ class NativeAdController implements AdController {
         return;
       }
 
+      final requestGeneration = _gate.consentGeneration;
       // Watchdog: a load callback that never arrives (the plugin has no
       // timeout of its own) fails this attempt instead of pinning the slot at
       // AdLoading; a late handle is disposed, never installed (I-C).
@@ -161,7 +168,16 @@ class NativeAdController implements AdController {
         slot: slotName,
       );
       if (_disposed) {
-        unawaited(handle.dispose());
+        safeUnawaited(handle.dispose(), debugName: 'handle');
+        return;
+      }
+      if (_gate.consentGeneration != requestGeneration) {
+        // Consent mutated while this native ad was in flight — it carries the
+        // OLD consent/forwarding. Drop it unshown and reload through the
+        // re-forwarded gate (release gate #2).
+        safeUnawaited(handle.dispose(), debugName: 'handle');
+        _state.value = const AdIdle();
+        unawaited(load());
         return;
       }
       _handle = handle;
@@ -170,6 +186,7 @@ class NativeAdController implements AdController {
       _attempts = 0;
       _gateAttempts = 0;
       _lastBlockReason = null;
+      _loadedGeneration = requestGeneration;
       _state.value = const AdLoaded();
     } catch (e) {
       // See BannerAdController.load: catch everything, not just AdFlowError —
@@ -203,6 +220,15 @@ class NativeAdController implements AdController {
     if (_disposed) return;
     final state = _state.value;
     if (state is AdLoaded) {
+      // A mounted ad requested under a now-stale consent generation renders and
+      // measures under the OLD consent/forwarding — drop it and reload through
+      // the fresh gate before checking mere permission (release gate #2). The
+      // already-loaded counterpart of the mid-load check in load(). reload()
+      // no-ops while a load is already in flight.
+      if (_loadedGeneration != _gate.consentGeneration) {
+        await reload();
+        return;
+      }
       final blocked = await _gate.loadBlockReason(slotName);
       if (_disposed || blocked == null) return;
       // Indeterminate is not "revoked": a transient collaborator hiccup must
@@ -281,13 +307,13 @@ class NativeAdController implements AdController {
   }
 
   void _dropHandle() {
-    unawaited(_paidSub?.cancel());
-    unawaited(_eventSub?.cancel());
+    safeUnawaited(_paidSub?.cancel(), debugName: 'subscription');
+    safeUnawaited(_eventSub?.cancel(), debugName: 'subscription');
     _paidSub = null;
     _eventSub = null;
     final handle = _handle;
     _handle = null;
-    if (handle != null) unawaited(handle.dispose());
+    if (handle != null) safeUnawaited(handle.dispose(), debugName: 'handle');
   }
 
   @override

@@ -181,6 +181,38 @@ enum RequestConfigFailurePolicy {
   failClosed,
 }
 
+/// What happens to **mediation-capable** ad serving when the consent
+/// forwarding barrier ([AdFlow.initialize]'s `forwardConsent`) could not be
+/// completed — the forwarder failed or timed out (release gate).
+///
+/// This only takes effect when the publisher has OPTED IN by supplying
+/// `forwardConsent`. It never blocks app UI — only whether an ad REQUEST
+/// (which any configured mediation adapter may fill) goes out, and whether
+/// the Google Mobile Ads SDK is INITIALIZED, before the required per-network
+/// privacy signal is in place. (Mediation adapters read their privacy flags
+/// while the GMA SDK initializes — verified against Google's Android/iOS
+/// docs — so ad_flow runs `forwardConsent` BEFORE `MobileAds.initialize()`.)
+enum MediationConsentFailurePolicy {
+  /// The default. Do NOT let mediation adapters initialize or a
+  /// mediation-capable ad request go out before consent has been forwarded:
+  /// `forwardConsent` runs before the GMA SDK is initialized, and if it fails
+  /// the SDK is not initialized and loads are blocked
+  /// ([AdBlockReason.consentNotForwarded]) while the forwarder is retried in
+  /// the background — everything recovers the moment forwarding succeeds.
+  /// Quietly initializing adapters or requesting anyway is the exact policy
+  /// risk this exists to prevent.
+  failClosed,
+
+  /// **Revenue-first and unmistakably unsafe.** Initialize the GMA SDK and
+  /// serve ads even if consent was never forwarded. A partner SDK may then
+  /// initialize (and be requested) without its required GDPR / US-state / age
+  /// signal. Only choose this if every mediation network you use reads the IAB
+  /// TCF/GPP strings itself (so `forwardConsent` is a belt-and-suspenders
+  /// convenience, not a requirement). The `unsafe` prefix is deliberate — it
+  /// makes this impossible to select by accident or reach for without noticing.
+  unsafeFailOpen,
+}
+
 /// How a banner slot is sized.
 enum BannerKind {
   /// Anchored adaptive (the recommended, revenue-optimized default).
@@ -541,7 +573,7 @@ class AdFlowConfig {
     this.tagForUnderAgeOfConsent,
     this.tagForChildDirectedTreatment,
     this.requestConfigPolicy = RequestConfigFailurePolicy.auto,
-    this.deferMediationInit = false,
+    this.mediationConsentPolicy = MediationConsentFailurePolicy.failClosed,
   });
 
   /// Validates the configuration, throwing an
@@ -575,6 +607,17 @@ class AdFlowConfig {
 
     void checkCap(FrequencyCap cap, String name) {
       check(cap.minGap >= Duration.zero, '$name.minGap is negative.');
+      // Mirror the constructor asserts: they are STRIPPED in release builds
+      // (`assert(...)` is a no-op there), so validate() is the only guard a
+      // shipped app actually runs (4.1 audit).
+      check(
+        cap.maxPerSession == null || cap.maxPerSession! >= 0,
+        '$name.maxPerSession must be >= 0.',
+      );
+      check(
+        cap.maxPerHour == null || cap.maxPerHour! >= 0,
+        '$name.maxPerHour must be >= 0.',
+      );
     }
 
     void checkAge(Duration? age, String name) {
@@ -598,6 +641,10 @@ class AdFlowConfig {
       checkUnitId(interstitial.adUnitId, 'interstitial');
       checkCap(interstitial.cap, 'interstitial.cap');
       checkAge(interstitial.maxAdAge, 'interstitial.maxAdAge');
+      check(
+        interstitial.minActionsBetween >= 0,
+        'interstitial.minActionsBetween must be >= 0.',
+      );
     }
     final rewarded = this.rewarded;
     if (rewarded != null) {
@@ -612,7 +659,13 @@ class AdFlowConfig {
       checkAge(rewardedInterstitial.maxAdAge, 'rewardedInterstitial.maxAdAge');
     }
     final nativeAd = this.nativeAd;
-    if (nativeAd != null) checkUnitId(nativeAd.adUnitId, 'nativeAd');
+    if (nativeAd != null) {
+      checkUnitId(nativeAd.adUnitId, 'nativeAd');
+      check(
+        (nativeAd.templateKind != null) ^ (nativeAd.factoryId != null),
+        'nativeAd must set exactly one of templateKind or factoryId.',
+      );
+    }
     final appOpen = this.appOpen;
     if (appOpen != null) {
       checkUnitId(appOpen.adUnitId, 'appOpen');
@@ -629,6 +682,12 @@ class AdFlowConfig {
     check(
       retry.loadTimeout == null || retry.loadTimeout! > Duration.zero,
       'retry.loadTimeout must be positive (or null to disable).',
+    );
+    // Mirror RetryConfig's constructor asserts (stripped in release).
+    check(retry.maxAttempts >= 0, 'retry.maxAttempts must be >= 0.');
+    check(
+      retry.jitterFactor >= 0 && retry.jitterFactor <= 1,
+      'retry.jitterFactor must be within [0, 1].',
     );
     for (final id in testDeviceIds) {
       check(id.trim().isNotEmpty, 'testDeviceIds contains an empty string.');
@@ -706,19 +765,14 @@ class AdFlowConfig {
   /// applied — see [RequestConfigFailurePolicy]. Default: [RequestConfigFailurePolicy.auto].
   final RequestConfigFailurePolicy requestConfigPolicy;
 
-  /// Defer mediation adapter initialization out of SDK init (default false).
-  ///
-  /// When true, ad_flow calls the plugin's `disableMediationInitialization`
-  /// BEFORE `MobileAds.initialize()`: mediation adapters then initialize
-  /// lazily at the first ad request for their network instead of during SDK
-  /// init. Use it when a partner SDK needs privacy flags set before it spins
-  /// up (e.g. Meta's Limited Data Use, AppLovin's US-state flag) and those
-  /// flags depend on the UMP consent outcome — forward them in
-  /// `AdFlow.onConsentChanged`, and the first ad request (which already
-  /// waits for consent, invariant 1) initializes the adapters afterwards.
-  /// Google notes deferral "may negatively impact mediation performance" —
-  /// leave it off unless you need this ordering. See doc/MEDIATION_SETUP.md.
-  final bool deferMediationInit;
+  /// What happens to mediation-capable serving when consent forwarding
+  /// (`forwardConsent`) could not be completed — see
+  /// [MediationConsentFailurePolicy]. Default:
+  /// [MediationConsentFailurePolicy.failClosed] (do not initialize the GMA SDK
+  /// or serve a mediation request without the forwarded privacy signal;
+  /// retry). Only takes effect when the publisher supplies `forwardConsent`;
+  /// non-adopters are unaffected.
+  final MediationConsentFailurePolicy mediationConsentPolicy;
 
   /// Whether this configuration carries fields whose silent loss is a policy
   /// or invalid-traffic risk: child-directed / under-age tags, a maximum

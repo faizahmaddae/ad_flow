@@ -118,8 +118,40 @@ class StoredFrequencyCapPolicy implements FrequencyCapPolicy {
   Future<void> _hydrateSlot(String slot) async {
     final history = await _store.getHistory(_historyKey(slot));
     final last = await _store.getInt(_lastKey(slot));
+    if (_hydrationDone) {
+      // This read RESUMED after the bounded hydration already finalized (a
+      // store that hung past _hydrationTimeout, then answered). Memory is now
+      // authoritative and may already hold impressions recorded this session,
+      // so this stale read must NEVER overwrite it — that used to roll a
+      // fresh impression's last-stamp back to an old persisted one, letting
+      // two full-screen ads fire back to back (4.1 audit). MERGE instead:
+      // union the persisted history and keep the MORE RECENT last-stamp, so a
+      // merely-slow store still recovers cross-session capping without ever
+      // undoing an in-session decision.
+      _mergeHydrated(slot, history, last);
+      return;
+    }
     _history[slot] = List.of(history);
     if (last != null) _last[slot] = last;
+  }
+
+  /// Folds a late/stale persisted read into authoritative memory without ever
+  /// rolling it back (see [_hydrateSlot]).
+  void _mergeHydrated(String slot, List<int> history, int? last) {
+    final now = _now().millisecondsSinceEpoch;
+    final cutoff = now - _historyWindow.inMilliseconds;
+    final merged = <int>{
+      ...?_history[slot],
+      ...history,
+    }.where((ts) => ts > cutoff && !_isFuture(ts, now)).toList()..sort();
+    _history[slot] = merged;
+    final candidates = <int>[
+      ?_last[slot],
+      ?last,
+    ].where((ts) => !_isFuture(ts, now));
+    if (candidates.isNotEmpty) {
+      _last[slot] = candidates.reduce((a, b) => a > b ? a : b);
+    }
   }
 
   @override

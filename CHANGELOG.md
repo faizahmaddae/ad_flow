@@ -1,3 +1,107 @@
+## 5.0.0
+
+A post-release audit of 4.0.0 (independent adversarial verification, 25
+confirmed findings) plus two release-gate corrections to the mediation
+consent lifecycle. The major is driven by mediation-privacy correctness:
+consent forwarding now runs **before `MobileAds.initialize()`** and fails
+CLOSED, a new `AdBlockReason` case, and the removal of the conceptually
+invalid `deferMediationInit`.
+
+### BREAKING
+
+- **`AdFlowConfig.deferMediationInit` REMOVED** (was in 4.0.0). It called the
+  plugin's `disableMediationInitialization`, which — verified against
+  Google's Android/iOS docs and the plugin source — is a *session-wide
+  disable* of Google mediation (an A/B-testing tool: "noop once initialize()
+  or the first ad request is made"), **not** a defer/resume. It could not
+  achieve "set the partner flag, then let adapters come up," and disabling
+  Google mediation is revenue-harming. Use `forwardConsent` instead — it now
+  runs before init (below).
+- **`AdSdk.disableMediationInitialization()` REMOVED** from the seam interface
+  (was in 4.0.0). It backed `deferMediationInit` and has no correct use (see
+  above). Affects only code that implements or subclasses `AdSdk` directly (a
+  custom seam, or a test double not built on the shipped `FakeAdSdk`) — remove
+  the override. Apps using the package normally never touch `AdSdk`.
+- **`forwardConsent` runs BEFORE `MobileAds.initialize()`.** Mediation
+  adapters initialize *during* `MobileAds.initialize()`, and AppLovin/Meta
+  read their privacy flag at that point (Google: set it "before you
+  initialize the Google Mobile Ads SDK"). So ad_flow gathers consent, runs
+  `forwardConsent`, and only then initializes the GMA SDK. Fail-CLOSED by
+  default: a failed/timed-out forward means the SDK is **not initialized**
+  and loads are BLOCKED (`AdBlockReason.consentNotForwarded`), retried in the
+  background; init + serving recover when forwarding succeeds.
+  `unsafeFailOpen` initializes/serves anyway. UI is never blocked —
+  `initialize()` returns immediately; only `whenReady`/loads wait.
+  Non-adopters keep parallel init.
+- **`AdBlockReason` gained `consentNotForwarded`** — exhaustive switches over
+  `AdBlockReason` need the new case (or a wildcard). Non-adopters of
+  `forwardConsent` never see it.
+
+### Added
+
+- **`forwardConsent`** on `AdFlow.initialize` — the fail-closed,
+  before-initialize consent-forwarding barrier for mediation networks that do
+  not read the IAB TCF string themselves (Unity MetaData, AppLovin US-state,
+  Meta LDU). Its callback is **serialized** — never invoked concurrently, even
+  across the internal 15s wait bound (`Future.timeout` does not cancel its
+  source), and a newer consent generation's forward never applies its
+  partner-SDK side effect before an older one's completes. Generation-guarded.
+- **`AdFlowConfig.mediationConsentPolicy`** + `MediationConsentFailurePolicy`
+  (`failClosed` default, `unsafeFailOpen` = explicit unsafe opt-out).
+
+### Fixed (correctness / reward integrity / reliability)
+
+- **Frequency-cap late-hydration overwrite.** `_hydrate` bounds itself with a
+  5s timeout but does not cancel the underlying store reads; a store that hung
+  past the timeout then resumed would overwrite the (by then authoritative)
+  in-memory caps with stale persisted state — rolling back a fresh impression
+  and allowing two full-screen ads back to back. A late read now MERGES
+  (union history, keep the more-recent last-stamp) and never rolls memory
+  back.
+- **Runtime SSV in-flight race + fail-drop.** `setServerSideVerification`
+  called while a load was in flight reported success but the installed ad
+  carried the previous payload; it now re-applies the override to the ad the
+  moment it installs. An attach failure on a warm ad now DROPS that ad (and
+  warms a fresh one with the new override) instead of leaving it showable with
+  stale verification.
+- **Rewarded-interstitial: re-validate after the intro.** The mandatory intro
+  is unbounded; a Remove-Ads purchase or the ad aging past `maxAdAge` during
+  it was ignored and the ad showed anyway. `show()` now re-checks live
+  permission and expiry after the intro, rolling back rather than showing.
+- **Async callback + refreshed-banner isolation.** `guardedCallback` now
+  contains an ASYNC callback's later rejection (an `onConsentChanged`/
+  `onPaidEvent` async closure's Future no longer escapes as an unhandled zone
+  error). The refreshed-banner paid-event subscription, which bypassed the
+  guard, now routes through it. New `safeUnawaited` contains a rejecting
+  handle `dispose()`/subscription `cancel()` during teardown.
+- **`validate()` mirrors every constructor assert** (release builds strip
+  asserts): `FrequencyCap.maxPerSession`/`maxPerHour >= 0`,
+  `RetryConfig.maxAttempts >= 0` / `jitterFactor in [0,1]`,
+  `InterstitialConfig.minActionsBetween >= 0`, `NativeConfig` exactly-one.
+- **Forwarder serialization across the timeout boundary.** `Future.timeout`
+  does not cancel its source, so a forwarder that outran the 15s wait could
+  be invoked again by a retry while the first invocation was still running —
+  and an older consent operation could apply its partner-SDK side effect
+  after a newer one. The un-timeout'd source is now tracked: at most one
+  `forwardConsent` runs at a time, strictly ordered.
+- **Stale-consent ad invalidation.** After a consent/privacy mutation a warm
+  full-screen ad or visible banner/native (requested under the old consent)
+  is dropped and reloaded under the fresh gate; a full-screen ad on screen is
+  not interrupted. Handled by the existing `AdController.recheckGate()` (which
+  already runs after every consent mutation) via an internal consent-generation
+  stamp — no new public method, no new integration step.
+- **`MediationNetworkExtras`** asserts against an empty class name (a silent
+  reflection no-op at request time).
+
+### Docs
+
+- README install constraint corrected `^3.0.0 → ^5.0.0`; the `AdBlockReason`
+  cases (`requestConfigNotApplied`, `internalError`, `consentNotForwarded`)
+  added to the enumeration; a "What's new" section covers the newer surfaces.
+- `doc/MEDIATION_SETUP.md` documents `forwardConsent` as the recommended
+  fail-closed path, `mediationConsentPolicy`, and a concrete
+  `MediationNetworkExtras` example.
+
 ## 4.0.0
 
 A production-hardening major from an independent adversarial audit of

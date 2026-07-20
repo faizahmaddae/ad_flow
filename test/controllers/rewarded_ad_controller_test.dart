@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/controllers/rewarded_ad_controller.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
@@ -195,6 +196,170 @@ void main() {
             'verification payload did not attach',
       );
       c.dispose();
+    });
+
+    test('an attach failure DROPS the stale warm ad so it cannot be shown '
+        'with the wrong verification (4.1 audit)', () async {
+      final c = controller();
+      await c.load();
+      final stale = sdk.rewardeds.single;
+      stale.ssvUpdateError = StateError('channel down');
+
+      await expectLater(
+        c.setServerSideVerification(
+          const ServerSideVerification(userId: 'user-42'),
+        ),
+        throwsA(isA<StateError>()),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        stale.disposed,
+        isTrue,
+        reason:
+            'the ad whose SSV could not be updated must not remain showable '
+            'carrying the OLD verification payload',
+      );
+      // A fresh ad is warmed to replace it, carrying the new override.
+      expect(sdk.rewardeds.length, greaterThan(1));
+      expect(sdk.rewardedSsvs.last?.userId, 'user-42');
+      c.dispose();
+    });
+
+    test('set during an IN-FLIGHT load: the installed ad carries the new ssv, '
+        'not the stale value the load dispatched with (4.1 audit)', () async {
+      final c = controller();
+      // Park the load in flight (the handle is not installed yet, so
+      // setServerSideVerification finds no warm ad to update directly).
+      sdk.loadHold = Completer<void>();
+      final loading = c.load();
+      await Future<void>.delayed(Duration.zero);
+      expect(c.isReady, isFalse);
+
+      // The app learns the userId (login) while the ad is still loading.
+      await c.setServerSideVerification(
+        const ServerSideVerification(userId: 'late-login'),
+      );
+
+      // The load lands.
+      sdk.loadHold!.complete();
+      sdk.loadHold = null;
+      await loading;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(c.isReady, isTrue);
+      expect(
+        sdk.rewardeds.single.ssvUpdates.map((s) => s.userId),
+        contains('late-login'),
+        reason:
+            'the ad installed by a load that was in flight when '
+            'setServerSideVerification ran must be re-attached the latest '
+            'ssv, or it silently carries the pre-update payload',
+      );
+      c.dispose();
+    });
+
+    test('LATEST-VALUE-WINS across rapid updates on a warm ad, and on the '
+        'next load (release gate)', () async {
+      final c = controller();
+      await c.load();
+      // Two rapid updates; the LAST must be the effective one everywhere.
+      await c.setServerSideVerification(
+        const ServerSideVerification(userId: 'first'),
+      );
+      await c.setServerSideVerification(
+        const ServerSideVerification(userId: 'second'),
+      );
+      expect(
+        sdk.rewardeds.single.ssvUpdates.last.userId,
+        'second',
+        reason: 'the warm ad carries the latest payload',
+      );
+
+      // The next load must dispatch with 'second', not 'first'.
+      await c.show(onReward: (_) {});
+      sdk.rewardeds.single.simulateDismissed();
+      await Future<void>.delayed(Duration.zero);
+      expect(sdk.rewardedSsvs.last?.userId, 'second');
+      c.dispose();
+    });
+
+    test(
+      'LATEST-VALUE-WINS when TWO updates happen during ONE in-flight load '
+      '— the install re-attaches the last, not the first (release gate)',
+      () async {
+        final c = controller();
+        sdk.loadHold = Completer<void>();
+        final loading = c.load();
+        await Future<void>.delayed(Duration.zero);
+        expect(c.isReady, isFalse);
+
+        // Two rapid updates while the load is parked in flight.
+        await c.setServerSideVerification(
+          const ServerSideVerification(userId: 'v1'),
+        );
+        await c.setServerSideVerification(
+          const ServerSideVerification(userId: 'v2'),
+        );
+
+        sdk.loadHold!.complete();
+        sdk.loadHold = null;
+        await loading;
+        await Future<void>.delayed(Duration.zero);
+
+        expect(c.isReady, isTrue);
+        expect(
+          sdk.rewardeds.single.ssvUpdates.last.userId,
+          'v2',
+          reason:
+              'onLoaded must re-attach the LATEST override, never a stale one',
+        );
+        c.dispose();
+      },
+    );
+
+    test('DISPOSE during an in-flight update does not crash and installs '
+        'nothing on the dead controller (release gate)', () async {
+      final c = controller();
+      await c.load();
+      sdk.rewardeds.single.ssvUpdateHold = Completer<void>();
+
+      final update = c.setServerSideVerification(
+        const ServerSideVerification(userId: 'racing'),
+      );
+      await Future<void>.delayed(Duration.zero); // attach parked in flight
+
+      c.dispose(); // hosting screen popped mid-attach
+      sdk.rewardeds.single.ssvUpdateHold!.complete();
+
+      // The update future resolves (or reports) without throwing into the
+      // zone; nothing is installed on the disposed controller.
+      await update
+          .timeout(const Duration(seconds: 1), onTimeout: () {})
+          .catchError((Object _) {});
+      expect(c.state.value, isA<AdLoaded>()); // last state before dispose froze
+    });
+
+    test('DISPOSE during an in-flight LOAD with a reapply pending never '
+        'attaches to a disposed ad (release gate)', () async {
+      final c = controller();
+      sdk.loadHold = Completer<void>();
+      final loading = c.load();
+      await Future<void>.delayed(Duration.zero);
+
+      // Update while loading → reapply pending on install.
+      await c.setServerSideVerification(
+        const ServerSideVerification(userId: 'late'),
+      );
+      c.dispose(); // dispose BEFORE the load lands
+
+      sdk.loadHold!.complete();
+      sdk.loadHold = null;
+      await loading.catchError((Object _) {});
+      await Future<void>.delayed(Duration.zero);
+      // The handle from a load that completed after dispose is released, and
+      // no SSV is attached to it (the controller bailed on its _disposed guard).
+      expect(sdk.rewardeds.isEmpty || sdk.rewardeds.single.disposed, isTrue);
     });
   });
 }

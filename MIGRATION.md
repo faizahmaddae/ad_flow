@@ -1,3 +1,43 @@
+# Upgrading 4.0.x → 5.0.0
+
+Most apps compile and behave unchanged. Check these:
+
+1. **`deferMediationInit` REMOVED.** If you set `AdFlowConfig(
+   deferMediationInit: true)`, delete it — it will not compile. It disabled
+   Google mediation for the session (not what its name implied) and could not
+   set partner flags before adapter init. Replace it with `forwardConsent`
+   (below), which now runs before `MobileAds.initialize()`. The seam method it
+   called, **`AdSdk.disableMediationInitialization()`, is also REMOVED** — only
+   relevant if you implement `AdSdk` directly (a custom seam or a hand-rolled
+   test double, not the shipped `FakeAdSdk`); delete the override.
+2. **Enum switch (source-breaking).** `AdBlockReason` gained
+   `consentNotForwarded`. If you `switch` exhaustively over `AdBlockReason`
+   (no wildcard), add the case. Wildcard/`default` — nothing to do.
+3. **Only if you use `forwardConsent`:** it now runs **before**
+   `MobileAds.initialize()` and fails **closed** by default. A failed/timed-out
+   forward means the GMA SDK is not initialized and mediation-capable loads
+   block (`AdBlockReason.consentNotForwarded`), retried in the background — so
+   a partner never initializes/requests without its GDPR/US-state/age flag.
+   Your UI is unaffected (`AdFlow.initialize(...)` returns immediately; only
+   `whenReady`/loads wait). If, and only if, every network you use reads the
+   IAB TCF/GPP string itself, opt into
+   `mediationConsentPolicy: MediationConsentFailurePolicy.unsafeFailOpen` (revenue-
+   first, unsafe). **Non-adopters of `forwardConsent` are unaffected.**
+
+Optional adoption (non-breaking):
+
+- **Mediation consent forwarding:** if you use mediation partners that need
+  their privacy signal before their adapter initializes or before the request
+  (AppLovin/Meta at init, Unity at request), pass
+  `forwardConsent: () async { ... }` to `AdFlow.initialize` — it runs before
+  init, fail-closed, and re-establishes on consent changes. See
+  `doc/MEDIATION_SETUP.md` §4.
+- Behavior fixes (cap late-hydration/merge, SSV in-flight/fail-drop/
+  latest-wins, rewarded-interstitial post-intro re-check, async-callback
+  isolation, stale-consent ad invalidation) require no code changes.
+
+---
+
 # Upgrading 3.x → 4.0.0
 
 4.0 is a hardening major; most apps compile unchanged. Check these:
@@ -24,14 +64,13 @@
    and retry. Pass `loadTimeout: null` for 3.x behavior (not recommended).
 6. **`AdGate` constructor** (only if you build one directly, e.g. in tests):
    `configReady:` future → `settleRequestConfig:` bounded callback.
-7. **Custom `AdSdk` implementations** must add
-   `disableMediationInitialization()`.
 
-New (additive): per-slot `AdRequestOptions request` on every format config,
-`MediationNetworkExtras`, `AdFlow.onConsentChanged`,
-`AdFlowConfig.deferMediationInit`, `RetryConfig.loadTimeout`. If you use
-mediation, re-read `doc/MEDIATION_SETUP.md` — the consent-forwarding
-section changed from "automatic" to the honest per-network contract.
+New in 4.0 (additive): per-slot `AdRequestOptions request` on every format
+config, `MediationNetworkExtras`, `AdFlow.onConsentChanged`,
+`RetryConfig.loadTimeout`. (4.0 also added `AdFlowConfig.deferMediationInit`,
+**removed again in 5.0** — see the top section.) If you use mediation,
+re-read `doc/MEDIATION_SETUP.md` — the consent-forwarding section changed
+from "automatic" to the honest per-network contract.
 
 ---
 

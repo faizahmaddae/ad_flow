@@ -111,6 +111,13 @@ class BannerAdController implements AdController {
   int _gateAttempts = 0;
   int? _width;
   int? _loadedWidth;
+
+  /// The consent generation the mounted banner was REQUESTED under. When
+  /// [AdGate.consentGeneration] advances past it, the ad renders/measures under
+  /// stale consent/forwarding and `recheckGate` drops-and-reloads it — the
+  /// already-loaded counterpart of the mid-load check in [load] / [_refresh].
+  /// Internal.
+  int _loadedGeneration = 0;
   bool _refreshing = false;
   bool _disposed = false;
 
@@ -233,6 +240,10 @@ class BannerAdController implements AdController {
       // and reconcile after the load completes rather than mislabelling the
       // ad.
       final requestWidth = _width;
+      // The consent generation this request is dispatched under (release gate
+      // #2): a mutation landing while the request is in flight makes the ad
+      // stale-consent, so it is dropped-and-reloaded on completion below.
+      final requestGeneration = _gate.consentGeneration;
 
       final BannerSizeSpec size;
       switch (_config.kind) {
@@ -274,7 +285,16 @@ class BannerAdController implements AdController {
         slot: slotName,
       );
       if (_disposed) {
-        unawaited(handle.dispose());
+        safeUnawaited(handle.dispose(), debugName: 'handle');
+        return;
+      }
+      if (_gate.consentGeneration != requestGeneration) {
+        // Consent mutated while this banner was in flight — it was requested
+        // (and its mediation signal forwarded) under the OLD consent. Drop it
+        // unshown and reload through the re-forwarded gate, so it never
+        // renders a stale-consent impression (release gate #2).
+        safeUnawaited(handle.dispose(), debugName: 'handle');
+        await _reloadAtCurrentWidth();
         return;
       }
       _handle = handle;
@@ -284,6 +304,7 @@ class BannerAdController implements AdController {
       _gateAttempts = 0;
       _lastBlockReason = null;
       _loadedWidth = requestWidth;
+      _loadedGeneration = requestGeneration;
       _state.value = const AdLoaded();
       _scheduleRefresh();
       // The layout width changed while this request was in flight (the user
@@ -306,6 +327,19 @@ class BannerAdController implements AdController {
     if (_disposed) return;
     final state = _state.value;
     if (state is AdLoaded) {
+      // A mounted banner requested under a now-stale consent generation
+      // renders and measures under the OLD consent/forwarding — drop it and
+      // re-request at the current width through the fresh gate before checking
+      // mere permission (release gate #2). The already-loaded counterpart of
+      // the mid-load check in load() / _refresh(). A load OR background refresh
+      // in flight is left alone: it stamps its own generation and
+      // drops-and-reloads itself on completion, so it never installs a
+      // stale-consent ad either.
+      if (_loadedGeneration != _gate.consentGeneration) {
+        if (_state.value is AdLoading || _refreshing) return;
+        await _reloadAtCurrentWidth();
+        return;
+      }
       final blocked = await _gate.loadBlockReason(slotName);
       if (_disposed || blocked == null) return;
       // Indeterminate is not "revoked": a transient collaborator hiccup must
@@ -380,6 +414,7 @@ class BannerAdController implements AdController {
       }
       if (_disposed) return;
       final requestWidth = _width;
+      final requestGeneration = _gate.consentGeneration;
       final size = _sizeSpec();
       if (size == null) return; // adaptive with no width — cannot refresh
       // Watchdog: a hung replacement load lands in the catch below (keep the
@@ -404,7 +439,16 @@ class BannerAdController implements AdController {
         // Installing the replacement now would stomp the newer state and leak
         // whatever it overwrote — release it and let the current owner of the
         // slot carry on (2026-07 audit).
-        unawaited(handle.dispose());
+        safeUnawaited(handle.dispose(), debugName: 'handle');
+        return;
+      }
+      if (_gate.consentGeneration != requestGeneration) {
+        // Consent mutated while this replacement was loading — it carries the
+        // OLD consent/forwarding. Don't swap it in; drop the current ad and
+        // reload fresh through the re-forwarded gate (release gate #2).
+        safeUnawaited(handle.dispose(), debugName: 'handle');
+        _refreshing = false;
+        await _reloadAtCurrentWidth();
         return;
       }
       // The replacement is here: swap atomically, THEN release the old ad.
@@ -412,14 +456,18 @@ class BannerAdController implements AdController {
       final oldPaidSub = _paidSub;
       final oldEventSub = _eventSub;
       _handle = handle;
-      _paidSub = handle.paidEvents.listen(
-        (event) => _onPaid?.call(event.taggedWithSlot(slotName)),
-      );
+      // Isolate the paid-event callback exactly like the initial load path —
+      // the refresh swap used a raw `_onPaid?.call(...)`, so a throwing (or
+      // async-rejecting) app `onPaidEvent` on a REFRESHED banner escaped as
+      // an unhandled zone error while the same hook was contained on the
+      // first load (4.1 audit).
+      _paidSub = handle.paidEvents.listen(_dispatchPaid);
       _eventSub = handle.events.listen(_onViewEvent);
       _loadedWidth = requestWidth;
-      unawaited(oldPaidSub?.cancel());
-      unawaited(oldEventSub?.cancel());
-      if (old != null) unawaited(old.dispose());
+      _loadedGeneration = requestGeneration;
+      safeUnawaited(oldPaidSub?.cancel(), debugName: 'subscription');
+      safeUnawaited(oldEventSub?.cancel(), debugName: 'subscription');
+      if (old != null) safeUnawaited(old.dispose(), debugName: 'handle');
       // `AdLoaded == AdLoaded`, so writing the state again would NOT notify —
       // the widget would keep rendering the old, now-disposed handle. Bump the
       // revision instead; AdFlowBanner listens to both.
@@ -541,13 +589,13 @@ class BannerAdController implements AdController {
   }
 
   void _dropHandle() {
-    unawaited(_paidSub?.cancel());
-    unawaited(_eventSub?.cancel());
+    safeUnawaited(_paidSub?.cancel(), debugName: 'subscription');
+    safeUnawaited(_eventSub?.cancel(), debugName: 'subscription');
     _paidSub = null;
     _eventSub = null;
     final handle = _handle;
     _handle = null;
-    if (handle != null) unawaited(handle.dispose());
+    if (handle != null) safeUnawaited(handle.dispose(), debugName: 'handle');
   }
 
   @override

@@ -106,6 +106,14 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   int _gateAttempts = 0;
   bool _enteredCoordinator = false;
 
+  /// The consent generation the warm ad was REQUESTED under (release gate #2).
+  /// A consent mutation bumps `AdGate.consentGeneration`; when it no longer
+  /// matches, the warm ad carries a stale consent/forwarding state and is
+  /// dropped-and-reloaded — on load completion (the mid-load window) and on
+  /// `recheckGate` (the already-warm case). One internal mechanism, no public
+  /// surface.
+  int _loadedGeneration = 0;
+
   /// The ad reached the screen (AdShowedEvent) but has not been dismissed yet,
   /// so its impression is not recorded yet (ADR-040).
   bool _impressionPending = false;
@@ -225,6 +233,13 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         return;
       }
 
+      // Capture the consent generation this request is dispatched under, to
+      // detect a consent mutation that lands WHILE the request is in flight
+      // (release gate #2 — the mid-load window): the gate already passed, so
+      // it is dropped-and-reloaded on completion below rather than by
+      // recheckGate (which handles only the already-warm case).
+      final requestGeneration = _gate.consentGeneration;
+
       // Watchdog: the plugin has no load timeout of its own — a callback that
       // never arrives must fail this attempt (and dispose its late handle if
       // one ever shows up) instead of pinning the slot at AdLoading (I-C).
@@ -235,7 +250,17 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         slot: slot,
       );
       if (_disposed) {
-        unawaited(handle.dispose());
+        safeUnawaited(handle.dispose(), debugName: 'handle');
+        return;
+      }
+      if (_gate.consentGeneration != requestGeneration) {
+        // Consent mutated while this ad was in flight — it was requested (and
+        // its mediation privacy signal forwarded) under the OLD consent. Drop
+        // it unshown and reload through the re-forwarded gate, so it never
+        // records a stale-consent impression.
+        safeUnawaited(handle.dispose(), debugName: 'handle');
+        _state.value = const AdIdle();
+        unawaited(load());
         return;
       }
       _handle = handle;
@@ -245,6 +270,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       _gateAttempts = 0;
       _lastBlockReason = null;
       _loadedAt = _now();
+      _loadedGeneration = requestGeneration;
       _state.value = const AdLoaded();
       _scheduleExpiry();
       onLoaded();
@@ -267,6 +293,16 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     if (_disposed) return;
     final state = _state.value;
     if (state is AdLoaded) {
+      // A warm ad requested under a now-stale consent generation
+      // (consent/privacy changed but ads are still permitted, so the
+      // permission check below would pass) must be dropped and reloaded under
+      // the fresh gate, or it would show a stale-consent impression (release
+      // gate #2). This is the already-warm counterpart of the mid-load check
+      // in load(); one internal mechanism.
+      if (_loadedGeneration != _gate.consentGeneration) {
+        discardCurrentAd();
+        return;
+      }
       // Cheap current checks only (enabled + live canRequestAds) — the warm
       // ad already passed the full load gate; this asks "is it STILL
       // permitted?" (Remove-Ads bought, consent withdrawn, graph disposed).
@@ -398,6 +434,29 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       // app on the intro and the screen is popped): dispose() already
       // released the claim and dropped the handle — do not show.
       if (_disposed) return false;
+      // RE-VALIDATE after the unbounded confirm hook (4.1 audit). The checks
+      // above ran BEFORE the intro, which the user may sit on for minutes:
+      // Remove-Ads can be bought and the warm ad can age past maxAdAge in
+      // that window. Re-run the cheap live checks (no network/config join —
+      // showBlockReason is the same subset the show path already trusts) and
+      // re-check expiry; a stale or no-longer-permitted ad is rolled back
+      // rather than shown. internalError is a transient hiccup — proceed
+      // (mirrors recheckGate), never waste an accepted intro on a blip.
+      if (confirm != null) {
+        final after = await _gate.showBlockReason(slot);
+        if (_disposed) return false;
+        if (after != null && after != AdBlockReason.internalError) {
+          noteBlocked(after);
+          return rejectAndRollBack();
+        }
+        if (isExpired) {
+          noteBlocked(AdBlockReason.expired);
+          // Roll back the claim/state, THEN discard the stale ad + reload.
+          await rejectAndRollBack();
+          discardCurrentAd();
+          return false;
+        }
+      }
     } catch (_) {
       // Degrade to "don't show", never to "wedged forever".
       return rejectAndRollBack();
@@ -551,13 +610,13 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   }
 
   void _dropHandle() {
-    unawaited(_contentSub?.cancel());
-    unawaited(_paidSub?.cancel());
+    safeUnawaited(_contentSub?.cancel(), debugName: 'subscription');
+    safeUnawaited(_paidSub?.cancel(), debugName: 'subscription');
     _contentSub = null;
     _paidSub = null;
     final handle = _handle;
     _handle = null;
-    if (handle != null) unawaited(handle.dispose());
+    if (handle != null) safeUnawaited(handle.dispose(), debugName: 'handle');
   }
 
   @override

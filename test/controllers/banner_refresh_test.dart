@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:ad_flow/ad_flow.dart';
 import 'package:ad_flow/ad_flow_testing.dart';
 import 'package:fake_async/fake_async.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// How the CLIENT-SIDE banner refresh behaves (ADR-041).
@@ -26,7 +27,10 @@ void main() {
     sdk.dispose();
   });
 
-  BannerAdController controller({BannerConfig? config}) => BannerAdController(
+  BannerAdController controller({
+    BannerConfig? config,
+    void Function(AdPaidEvent)? onPaid,
+  }) => BannerAdController(
     sdk: sdk,
     gate: AdGate(canRequestAds: sdk.canRequestAds, isEnabled: () => true),
     config:
@@ -34,6 +38,7 @@ void main() {
         const BannerConfig(adUnitId: PlatformAdUnitId(android: 'unit-b')),
     adUnitId: 'unit-b',
     retry: RetryPolicy(const RetryConfig(), random: () => 0.5),
+    onPaid: onPaid,
   );
 
   test('DEFAULT: no client-side refresh timer runs at all', () {
@@ -52,6 +57,51 @@ void main() {
             'AdMob already auto-refreshes this ad unit from the console. A '
             'client timer on top is a second, unsynchronised refresh loop — up '
             'to 2x the requests for one placement.',
+      );
+      c.dispose();
+    });
+  });
+
+  test('a throwing onPaid on a REFRESHED banner is isolated, not an '
+      'unhandled zone error (4.1 audit)', () {
+    final reported = <FlutterErrorDetails>[];
+    final previousOnError = FlutterError.onError;
+    FlutterError.onError = reported.add;
+    addTearDown(() => FlutterError.onError = previousOnError);
+
+    fakeAsync((async) {
+      final c = controller(
+        config: const BannerConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-b'),
+          minRefresh: Duration(seconds: 60),
+        ),
+        onPaid: (_) => throw StateError('analytics bug'),
+      );
+      c.load(width: 320);
+      async.flushMicrotasks();
+
+      async.elapse(const Duration(seconds: 60));
+      async.flushMicrotasks();
+      expect(sdk.banners, hasLength(2)); // refreshed
+      final refreshed = sdk.banners.last;
+
+      // The refreshed handle's paid-event subscription used a RAW closure
+      // that bypassed guardedCallback — a throwing onPaid here escaped as an
+      // unhandled zone error (fakeAsync would surface it and fail the test).
+      refreshed.simulatePaid(
+        const AdPaidEvent(
+          adUnitId: 'unit-b',
+          valueMicros: 1000,
+          currencyCode: 'USD',
+          precision: AdRevenuePrecision.estimated,
+        ),
+      );
+      async.flushMicrotasks();
+
+      expect(
+        reported,
+        isNotEmpty,
+        reason: 'the throw must be reported, not escape the zone',
       );
       c.dispose();
     });

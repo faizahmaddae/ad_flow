@@ -35,10 +35,6 @@ class GmaAdSdk implements AdSdk {
   }
 
   @override
-  Future<void> disableMediationInitialization() =>
-      gma.MobileAds.instance.disableMediationInitialization();
-
-  @override
   Future<InterstitialHandle> loadInterstitial(
     String adUnitId,
     AdRequestOptions options,

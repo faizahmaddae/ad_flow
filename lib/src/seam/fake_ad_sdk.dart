@@ -241,19 +241,6 @@ class FakeAdSdk implements AdSdk {
     return handle;
   }
 
-  /// Number of [disableMediationInitialization] calls.
-  int disableMediationInitializationCalls = 0;
-
-  /// Whether [disableMediationInitialization] was called before the first
-  /// [initialize] — the only ordering in which the real plugin honours it.
-  bool? mediationInitDisabledBeforeInitialize;
-
-  @override
-  Future<void> disableMediationInitialization() async {
-    disableMediationInitializationCalls++;
-    mediationInitDisabledBeforeInitialize ??= initializeCalls == 0;
-  }
-
   @override
   Future<void> initialize() async {
     initializeCalls++;
@@ -506,8 +493,15 @@ class FakeFullScreenAdHandle
   /// If set, [updateServerSideVerification] throws this.
   Object? ssvUpdateError;
 
+  /// If set, [updateServerSideVerification] awaits this before recording —
+  /// leave it incomplete to hold an attach in flight (e.g. to dispose the
+  /// controller mid-attach and prove no crash / no stale install).
+  Completer<void>? ssvUpdateHold;
+
   @override
   Future<void> updateServerSideVerification(ServerSideVerification ssv) async {
+    final hold = ssvUpdateHold;
+    if (hold != null) await hold.future;
     final error = ssvUpdateError;
     if (error != null) throw error;
     ssvUpdates.add(ssv);

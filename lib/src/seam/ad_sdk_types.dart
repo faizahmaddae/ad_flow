@@ -96,11 +96,18 @@ class AdRequestOptions {
 /// what remains the integrator's responsibility.
 class MediationNetworkExtras {
   /// Creates extras for one network.
+  ///
+  /// The platform side instantiates [androidClassName] / [iosClassName] by
+  /// REFLECTION, so a typo or empty name is a silent no-op at request time
+  /// (the extras never reach the network). The asserts catch the empty case
+  /// in debug; keep the names in sync with your `gma_mediation_<network>`
+  /// adapter package — see doc/MEDIATION_SETUP.md.
   const MediationNetworkExtras({
     required this.androidClassName,
     required this.iosClassName,
     this.extras = const {},
-  });
+  }) : assert(androidClassName != '', 'androidClassName must not be empty'),
+       assert(iosClassName != '', 'iosClassName must not be empty');
 
   /// Fully-qualified Android class implementing `FlutterMediationExtras`.
   final String androidClassName;

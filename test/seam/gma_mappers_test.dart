@@ -48,6 +48,18 @@ void main() {
       expect(mapped.getExtras(), {'placement': 'home', 'muted': true});
     });
 
+    test('MediationNetworkExtras asserts against an empty class name (a '
+        'reflection no-op) (4.1)', () {
+      expect(
+        () => MediationNetworkExtras(androidClassName: '', iosClassName: 'X'),
+        throwsA(isA<AssertionError>()),
+      );
+      expect(
+        () => MediationNetworkExtras(androidClassName: 'X', iosClassName: ''),
+        throwsA(isA<AssertionError>()),
+      );
+    });
+
     test('no mediationExtras → null through to the plugin', () {
       expect(toGmaAdRequest(const AdRequestOptions()).mediationExtras, isNull);
       expect(
