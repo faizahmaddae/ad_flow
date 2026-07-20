@@ -739,6 +739,7 @@ class AdFlowConfig {
   factory AdFlowConfig.test({
     FrequencyCap? globalFrequencyCap,
     RetryConfig? retry,
+    AppOpenTriggerMode appOpenTriggerMode = AppOpenTriggerMode.resumeOnly,
   }) => AdFlowConfig(
     banner: const BannerConfig(adUnitId: TestAdUnitIds.banner),
     interstitial: const InterstitialConfig(
@@ -752,7 +753,10 @@ class AdFlowConfig {
       adUnitId: TestAdUnitIds.native,
       templateKind: NativeTemplateKind.medium,
     ),
-    appOpen: const AppOpenConfig(adUnitId: TestAdUnitIds.appOpen),
+    appOpen: AppOpenConfig(
+      adUnitId: TestAdUnitIds.appOpen,
+      triggerMode: appOpenTriggerMode,
+    ),
     globalFrequencyCap:
         globalFrequencyCap ??
         const FrequencyCap(maxPerSession: 100, minGap: Duration(seconds: 15)),

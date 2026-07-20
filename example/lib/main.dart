@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:ad_flow/ad_flow.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -57,6 +59,11 @@ Future<void> main() async {
   runApp(ExampleApp(ads: ads));
 }
 
+/// SIMPLE mode's app-open config is `resumeOnly` (the default). This example
+/// opts into `launchAndResume` so it can also demonstrate the cold-launch
+/// opportunity below. Both helpers request it via `AdFlowConfig.test`.
+const _appOpenTriggerMode = AppOpenTriggerMode.launchAndResume;
+
 /// SIMPLE mode — the minimal drop-in. UMP drives the whole consent flow (and
 /// iOS ATT if you set the console IDFA message); no client-side priming.
 ///
@@ -68,7 +75,7 @@ Future<AdFlow> _initSimple() {
   return AdFlow.initialize(
     // Google sample ads everywhere. Replace with your production config:
     //   AdFlowConfig(banner: BannerConfig(adUnitId: PlatformAdUnitId(...)), ...)
-    AdFlowConfig.test(),
+    AdFlowConfig.test(appOpenTriggerMode: _appOpenTriggerMode),
     rewardedIntroPresenter: (content) async {
       final context = navigatorKey.currentContext;
       if (context == null || !context.mounted) return false;
@@ -90,7 +97,7 @@ Future<AdFlow> _initSimple() {
 ///   never see it).
 Future<AdFlow> _initWithExplainer() {
   return AdFlow.initialize(
-    AdFlowConfig.test(),
+    AdFlowConfig.test(appOpenTriggerMode: _appOpenTriggerMode),
     rewardedIntroPresenter: (content) async {
       final context = navigatorKey.currentContext;
       if (context == null || !context.mounted) return false;
@@ -122,7 +129,73 @@ class ExampleApp extends StatelessWidget {
       theme: ThemeData(colorSchemeSeed: Colors.indigo),
       // Rendered IMMEDIATELY — no FutureBuilder<AdFlow> gate. Consent, ATT and
       // the explainer screens push over this via navigatorKey as they resolve.
-      home: HomeScreen(ads: ads),
+      // StartupScreen is a real loading screen: it does its startup work, takes
+      // the one-shot cold-launch app-open opportunity, then reveals HomeScreen.
+      home: StartupScreen(ads: ads),
+    );
+  }
+}
+
+/// A real loading/startup screen — the correct place to take the one-shot
+/// cold-launch app-open opportunity (5.1).
+///
+/// It renders its own UI immediately (never a blank/blocked first frame), does
+/// the app's genuine startup work, then — right before entering main content —
+/// calls [AppOpenAdManager.showAtLaunchIfReady]. That call NEVER waits for a
+/// load: if an ad is not already warm at this instant (the usual case at a true
+/// cold launch, since consent + the first load have not finished yet) it
+/// returns false immediately and we proceed. So this screen exists to do work,
+/// not to wait for an ad.
+class StartupScreen extends StatefulWidget {
+  const StartupScreen({required this.ads, super.key});
+
+  final AdFlow ads;
+
+  @override
+  State<StartupScreen> createState() => _StartupScreenState();
+}
+
+class _StartupScreenState extends State<StartupScreen> {
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_startup());
+  }
+
+  Future<void> _startup() async {
+    // Your genuine startup work goes here (restore state, remote config, warm
+    // caches…). This example has none, so it only waits for the first frame to
+    // paint — a real thing you'd do before an app-open ad, and NOT an
+    // artificial delay. Do not busy-wait for an ad here.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+
+    // Immediately before entering main content: take the cold-launch
+    // opportunity. Shows an already-ready ad (and awaits its dismissal); if
+    // none is ready it returns false at once. One-shot per process launch.
+    await widget.ads.appOpenOrNull?.showAtLaunchIfReady();
+    if (!mounted) return;
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(builder: (_) => HomeScreen(ads: widget.ads)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FlutterLogo(size: 72),
+            SizedBox(height: 24),
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Loading…'),
+          ],
+        ),
+      ),
     );
   }
 }
