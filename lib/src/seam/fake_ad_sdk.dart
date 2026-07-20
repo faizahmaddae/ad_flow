@@ -122,6 +122,12 @@ class FakeAdSdk implements AdSdk {
   /// could not be attached (4.0 audit; `AdFlowErrorKind.ssv`).
   Object? ssvAttachError;
 
+  /// Called with each newly-created full-screen handle, right after it is
+  /// added to its list, before [loadRewarded] et al. return. Lets a test
+  /// configure the not-yet-visible handle — e.g. arm its [FakeFullScreenAdHandle.ssvUpdateHold]
+  /// to hold the runtime-SSV re-attach that finalizes a load in flight.
+  void Function(FakeFullScreenAdHandle handle)? onFullScreenHandleCreated;
+
   /// If set, [requestConsentInfoUpdate] throws this.
   AdFlowError? consentUpdateError;
 
@@ -238,6 +244,7 @@ class FakeAdSdk implements AdSdk {
     fullScreenRequests.add(options);
     final handle = FakeFullScreenAdHandle(adUnitId);
     into.add(handle);
+    onFullScreenHandleCreated?.call(handle);
     return handle;
   }
 
