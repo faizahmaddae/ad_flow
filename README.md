@@ -323,12 +323,14 @@ await ads.rewarded.setServerSideVerification(
 
 The update applies to the already-loaded ad AND every future load, and
 **throws** if attaching fails — when you grant high-value rewards, you want to
-know your verification payload did not make it.
+know your verification payload did not make it. The ad is never ready or
+showable until the latest payload has settled (5.1), so a `show()` right after
+`setServerSideVerification` can never race ahead of it with the old value.
 
-Preloaded full-screen ads also **expire** (Google documents ~1 hour): ad_flow
-timestamps every load, proactively replaces a warm ad that goes stale
-(`maxAdAge`, default 55 minutes for interstitial/rewarded formats, 4 hours for
-app-open) and never shows an expired one.
+Preloaded ads also **expire** (Google documents ~1 hour): ad_flow timestamps
+every load, proactively replaces a stale ad and never shows an expired one.
+`maxAdAge` defaults to 55 minutes for the full-screen formats **and native ads**
+(5.1), and 4 hours for app-open; set it `null` on a format to disable.
 
 A rewarded ad is one the user **asked for**, so the global frequency cap never
 blocks it (ADR-039) — a user who taps "watch an ad for 100 coins" must never be
@@ -362,15 +364,45 @@ needs no native code. For fully custom layouts register a platform
 `NativeAdFactory` (see the [official guide](https://developers.google.com/admob/flutter/native/platforms))
 and use `NativeConfig(factoryId: 'yourFactoryId')`.
 
+Native ads **expire** too (`NativeConfig.maxAdAge`, default 55 min; 5.1): a
+long-lived screen never renders stale inventory — the widget briefly shows its
+placeholder while a fresh ad loads, then swaps it in.
+
 ### App open
 
-Nothing to call. The `AppOpenAdManager` (started by `initialize`) shows a
-preloaded ad when the app returns to the foreground — never on cold launch,
-never over another full-screen ad, never past the 4-hour expiry (stale ads
-are discarded and proactively replaced). App-open ads show on the first
-genuine warm return of a session; a cold launch emits no foreground event, so
-there is nothing to show on one (`AppOpenConfig.showOnColdStart` was removed
-in 3.0 for the same reason — it never could do anything).
+App-open ads serve two legitimate moments — a genuine **warm return** and a
+**cold launch** — chosen per config with `AppOpenConfig.triggerMode` (5.1):
+
+| Mode | Warm return | Cold launch |
+| --- | --- | --- |
+| `resumeOnly` *(default — v5 behaviour)* | shows | — |
+| `launchOnly` | — | shows |
+| `launchAndResume` | shows | shows |
+
+**Warm return** needs nothing to call: the `AppOpenAdManager` (started by
+`initialize`) shows a preloaded ad when the app foregrounds — never over another
+full-screen ad, never past the 4-hour expiry (stale ads are discarded and
+proactively replaced), never behind a banner/native click. It shows on the
+first genuine warm return of a session.
+
+**Cold launch is explicit**, because a cold launch emits no foreground event to
+hook (`AppOpenConfig.showOnColdStart` was removed in 3.0 for that reason). Call
+`showAtLaunchIfReady()` from your real loading screen, right before entering main
+content, when `triggerMode` is `launchOnly` or `launchAndResume`:
+
+```dart
+// In your loading/startup screen, AFTER your startup work, BEFORE main content:
+await ads.appOpen.showAtLaunchIfReady();
+```
+
+It shows an **already-ready** ad and **never waits** for the network, UMP, SDK
+init, or a load — if nothing is warm yet (the usual case at a true cold launch,
+since consent and the first load have not finished) it returns `false`
+immediately and you proceed. It is **one-shot per process launch** (surviving a
+re-`initialize`), so a `false` result can never turn into a surprise app-open
+after the user is already in main content. Never busy-wait for an ad here — that
+would reintroduce a splash hang; do your real startup work and take the ad only
+if it happens to be ready. See `example/lib/main.dart`'s `StartupScreen`.
 
 > **Policy note:** Google prohibits app-open ads in "Designed for Families"
 > apps. If your app is in the Families program, leave the `appOpen` slot
@@ -522,7 +554,7 @@ ads.interstitial.lastBlockReason; // AdBlockReason? — per-slot snapshot
 `AdBlockReason` is one of `adsDisabled` (Remove-Ads on), `consentNotGranted`
 (the user declined, or consent hasn't succeeded yet — e.g. offline),
 `frequencyCapped`, `otherAdShowing`, `notReady` (nothing warm yet),
-`userActionPacing`, `expired` (a stale app-open ad), `introSkipped` (the user
+`userActionPacing`, `expired` (a stale ad past its `maxAdAge`), `introSkipped` (the user
 skipped the rewarded intro), `requestConfigNotApplied` (request configuration
 not yet applied under a fail-closed policy — recovers when the retried apply
 succeeds, 4.0), `internalError` (a collaborator/gate fault — blocks new
@@ -566,6 +598,13 @@ default):
 - **Stale-consent invalidation** — after a consent/privacy change, an ad
   already loaded under the old consent is dropped and reloaded under the fresh
   one (a full-screen ad on screen is not interrupted).
+
+**5.1 (additive, no breaking changes):** App Open **trigger modes**
+(`AppOpenConfig.triggerMode`) + an explicit one-shot cold-launch path
+(`ads.appOpen.showAtLaunchIfReady()`); **native ad expiry**
+(`NativeConfig.maxAdAge`, default 55 min); and a **runtime-SSV readiness fix** —
+a rewarded ad is never showable until the latest SSV payload has settled. See
+the [App open](#app-open) and [rewarded](#rewarded) sections above.
 
 ## 7. Testing your integration
 

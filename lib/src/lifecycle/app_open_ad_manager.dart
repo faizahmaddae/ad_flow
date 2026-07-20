@@ -85,7 +85,8 @@ class AppOpenAdManager {
   /// no_global_state_test allow-list and ADR-067). Shared across [AdFlow]
   /// reinitialization so a second `initialize()` cannot hand out a second
   /// launch show. Never reset in production; tests inject their own.
-  static final LaunchOpportunity _processLaunchOpportunity = LaunchOpportunity();
+  static final LaunchOpportunity _processLaunchOpportunity =
+      LaunchOpportunity();
 
   final AppOpenAdController _controller;
   final AdSdk _sdk;

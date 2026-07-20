@@ -1,4 +1,48 @@
-## 5.0.0
+## 5.1.0
+
+A focused reliability + App Open UX pass. Additive and backward-compatible —
+no breaking changes; existing call sites keep working, and the App Open default
+is unchanged.
+
+### NEW
+
+- **App Open trigger modes.** `AppOpenConfig.triggerMode` selects
+  `AppOpenTriggerMode.{launchOnly, resumeOnly, launchAndResume}`. Default is
+  `resumeOnly` — the exact v5 behaviour.
+- **Explicit cold-launch opportunity.** `AppOpenAdManager.showAtLaunchIfReady()`
+  (reachable as `ads.appOpen.showAtLaunchIfReady()`), for `launchOnly` /
+  `launchAndResume`. Call it from your real loading screen right before entering
+  main content. It shows an **already-ready** eligible ad and **never waits** for
+  network, UMP, SDK init, or a load — returns `false` immediately otherwise. It
+  is **one-shot per process launch** (surviving `AdFlow` reinitialization), so a
+  `false` result can never become a surprise App Open once the user is in main
+  content. Cold launch is **not** faked from a lifecycle event. All existing
+  consent / coordinator / cap / expiry / click-return / blocking-view /
+  Remove-Ads rules stay authoritative.
+- **`NativeConfig.maxAdAge`** (nullable; default 55 min, matching the
+  full-screen formats; `null` disables). Native ads now expire and safely
+  reload, so a long-lived screen never renders stale inventory (Google documents
+  native ads as expiring after ~1 hour).
+- **`AdFlowConfig.test(appOpenTriggerMode: …)`** so the example / tests can opt
+  into the launch path.
+
+### FIXED
+
+- **Runtime SSV readiness race.** A rewarded / rewarded-interstitial ad could
+  become externally ready and showable carrying a **stale** (or missing)
+  server-side-verification payload: the ad published `AdLoaded` before an
+  in-flight override finished re-attaching, so a state listener or an immediate
+  `show()` used the previous payload; concurrent updates could also complete out
+  of order. Now the loaded handle is **finalized (the override settled) BEFORE
+  `AdLoaded` is published**, a re-attach failure fails the load closed, and every
+  update is generation-serialized so the latest value wins regardless of native
+  completion order.
+- **Uncontained `AppStateEventNotifier.startListening()` rejection** in the seam
+  is now contained (was an unhandled zone error on a misconfigured host).
+- **`enableAds()` / `disableAds()` after `AdFlow.dispose()`** are now inert
+  no-ops (they threw a "used after disposed" error before) — consistent with
+  every other post-dispose call.
+
 
 A post-release audit of 4.0.0 (independent adversarial verification, 25
 confirmed findings) plus two release-gate corrections to the mediation

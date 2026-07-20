@@ -57,89 +57,94 @@ void main() {
 
   Future<void> settle() => Future<void>.delayed(Duration.zero);
 
-  test('an ad is NOT showable until an in-flight-load SSV re-attach settles '
-      '(set while load held → complete load → show while attach held)', () async {
-    final attachHold = Completer<void>();
-    final c = controller();
-    sdk.loadHold = Completer<void>();
-    // Arm the re-attach hold on the handle the load will install.
-    sdk.onFullScreenHandleCreated = (h) => h.ssvUpdateHold = attachHold;
+  test(
+    'an ad is NOT showable until an in-flight-load SSV re-attach settles '
+    '(set while load held → complete load → show while attach held)',
+    () async {
+      final attachHold = Completer<void>();
+      final c = controller();
+      sdk.loadHold = Completer<void>();
+      // Arm the re-attach hold on the handle the load will install.
+      sdk.onFullScreenHandleCreated = (h) => h.ssvUpdateHold = attachHold;
 
-    final loading = c.load();
-    await settle();
-    expect(c.isReady, isFalse);
+      unawaited(c.load());
+      await settle();
+      expect(c.isReady, isFalse);
 
-    // The app learns the userId (login) while the ad is still loading.
-    await c.setServerSideVerification(
-      const ServerSideVerification(userId: 'u1'),
-    );
+      // The app learns the userId (login) while the ad is still loading.
+      await c.setServerSideVerification(
+        const ServerSideVerification(userId: 'u1'),
+      );
 
-    // The load lands; finalization re-attaches the override — but that attach
-    // is HELD, so the ad is not yet settled.
-    sdk.loadHold!.complete();
-    sdk.loadHold = null;
-    await settle();
+      // The load lands; finalization re-attaches the override — but that attach
+      // is HELD, so the ad is not yet settled.
+      sdk.loadHold!.complete();
+      sdk.loadHold = null;
+      await settle();
 
-    expect(
-      c.isReady,
-      isFalse,
-      reason:
-          'the ad carries the pre-update SSV payload until the re-attach '
-          'settles — it must not be showable',
-    );
-    final shown = await c.show(onReward: (_) {});
-    expect(shown, isFalse);
-    expect(sdk.rewardeds.single.showCalls, 0);
+      expect(
+        c.isReady,
+        isFalse,
+        reason:
+            'the ad carries the pre-update SSV payload until the re-attach '
+            'settles — it must not be showable',
+      );
+      final shown = await c.show(onReward: (_) {});
+      expect(shown, isFalse);
+      expect(sdk.rewardeds.single.showCalls, 0);
 
-    // Release the attach → settled → showable.
-    attachHold.complete();
-    await settle();
-    expect(c.isReady, isTrue);
-    c.dispose();
-  });
+      // Release the attach → settled → showable.
+      attachHold.complete();
+      await settle();
+      expect(c.isReady, isTrue);
+      c.dispose();
+    },
+  );
 
-  test('AdLoaded is not published to listeners until the SSV re-attach settles '
-      '(a show() from an AdLoaded listener never uses the stale payload)',
-      () async {
-    final attachHold = Completer<void>();
-    final c = controller();
-    sdk.loadHold = Completer<void>();
-    sdk.onFullScreenHandleCreated = (h) => h.ssvUpdateHold = attachHold;
+  test(
+    'AdLoaded is not published to listeners until the SSV re-attach settles '
+    '(a show() from an AdLoaded listener never uses the stale payload)',
+    () async {
+      final attachHold = Completer<void>();
+      final c = controller();
+      sdk.loadHold = Completer<void>();
+      sdk.onFullScreenHandleCreated = (h) => h.ssvUpdateHold = attachHold;
 
-    final loading = c.load();
-    await settle();
-    await c.setServerSideVerification(
-      const ServerSideVerification(userId: 'u2'),
-    );
+      final loading = c.load();
+      await settle();
+      await c.setServerSideVerification(
+        const ServerSideVerification(userId: 'u2'),
+      );
 
-    var loadedFired = false;
-    c.state.addListener(() {
-      if (c.state.value is AdLoaded) loadedFired = true;
-    });
+      var loadedFired = false;
+      c.state.addListener(() {
+        if (c.state.value is AdLoaded) loadedFired = true;
+      });
 
-    sdk.loadHold!.complete();
-    sdk.loadHold = null;
-    await settle();
+      sdk.loadHold!.complete();
+      sdk.loadHold = null;
+      await settle();
 
-    expect(
-      loadedFired,
-      isFalse,
-      reason:
-          'a state listener must not observe AdLoaded while the required SSV '
-          'is still settling — otherwise show()-on-loaded shows the stale ad',
-    );
-    expect(c.state.value, isA<AdLoading>());
+      expect(
+        loadedFired,
+        isFalse,
+        reason:
+            'a state listener must not observe AdLoaded while the required SSV '
+            'is still settling — otherwise show()-on-loaded shows the stale ad',
+      );
+      expect(c.state.value, isA<AdLoading>());
 
-    attachHold.complete();
-    await settle();
-    expect(loadedFired, isTrue);
-    expect(
-      sdk.rewardeds.single.ssvUpdates.map((s) => s.userId),
-      contains('u2'),
-    );
-    await loading;
-    c.dispose();
-  });
+      attachHold.complete();
+      await settle();
+      expect(loadedFired, isTrue);
+      expect(
+        sdk.rewardeds.single.ssvUpdates.map((s) => s.userId),
+        contains('u2'),
+      );
+      await loading;
+      c.dispose();
+    },
+  );
 
   test('a superseded SSV update that FAILS late (reverse-order completion) '
       'does not clobber the latest-verified ad', () async {
@@ -191,8 +196,8 @@ void main() {
     final c = controller();
     sdk.loadHold = Completer<void>();
     // The re-attach on the finalized handle will fail.
-    sdk.onFullScreenHandleCreated =
-        (h) => h.ssvUpdateError = StateError('attach failed');
+    sdk.onFullScreenHandleCreated = (h) =>
+        h.ssvUpdateError = StateError('attach failed');
 
     final loading = c.load();
     await settle();
@@ -221,32 +226,35 @@ void main() {
     c.dispose();
   });
 
-  test('DISPOSE during load finalization installs nothing and does not crash',
-      () async {
-    final attachHold = Completer<void>();
-    final c = controller();
-    sdk.loadHold = Completer<void>();
-    sdk.onFullScreenHandleCreated = (h) => h.ssvUpdateHold = attachHold;
+  test(
+    'DISPOSE during load finalization installs nothing and does not crash',
+    () async {
+      final attachHold = Completer<void>();
+      final c = controller();
+      sdk.loadHold = Completer<void>();
+      sdk.onFullScreenHandleCreated = (h) => h.ssvUpdateHold = attachHold;
 
-    final loading = c.load();
-    await settle();
-    await c.setServerSideVerification(
-      const ServerSideVerification(userId: 'u'),
-    );
+      final loading = c.load();
+      await settle();
+      await c.setServerSideVerification(
+        const ServerSideVerification(userId: 'u'),
+      );
 
-    sdk.loadHold!.complete();
-    sdk.loadHold = null;
-    await settle(); // finalization now parked on attachHold
+      sdk.loadHold!.complete();
+      sdk.loadHold = null;
+      await settle(); // finalization now parked on attachHold
 
-    c.dispose(); // hosting screen popped mid-finalization
-    attachHold.complete();
-    await loading.catchError((Object _) {});
-    await settle();
+      c.dispose(); // hosting screen popped mid-finalization
+      attachHold.complete();
+      await loading.catchError((Object _) {});
+      await settle();
 
-    expect(
-      c.state.value,
-      isNot(isA<AdLoaded>()),
-      reason: 'a load that finalized after dispose must never publish AdLoaded',
-    );
-  });
+      expect(
+        c.state.value,
+        isNot(isA<AdLoaded>()),
+        reason:
+            'a load that finalized after dispose must never publish AdLoaded',
+      );
+    },
+  );
 }
