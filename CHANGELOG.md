@@ -1,3 +1,65 @@
+## 5.1.2
+
+A focused, production-focused **reliability** patch. Backward-compatible — no
+migration, and every existing call site compiles unchanged. The only surface
+change is one additive, internal-facing getter (`AdGate.isEnabled`, a
+synchronous mirror of the injected Remove-Ads/alive predicate); no types,
+methods, enums or defaults were removed or changed.
+
+### FIXED
+
+- **No ad request is ever sent while Mobile Ads initialization is still in
+  flight** — not even for a fail-open / vacuous request configuration. The
+  request-config gate previously honoured the fail-open
+  `RequestConfigFailurePolicy` (the `auto` default for a non-policy-sensitive
+  config) even while the real `MobileAds.initialize()` was still running, so a
+  first-frame banner or native slot on a weak network / mediation cold-start
+  could dispatch an ad request before the SDK had initialized. Fail-open now
+  takes effect **only after init has genuinely completed** (a config that was
+  attempted and failed for real); while init is in flight the slot blocks with
+  `AdBlockReason.requestConfigNotApplied`. Startup stays fully non-blocking
+  (`AdFlow.initialize()` returns immediately, the first frame never waits), and
+  the ADR-028 init→`updateRequestConfiguration` ordering is preserved. When init
+  completes late, request configuration is applied promptly and blocked slots
+  recover automatically — no app code, and no long cooldown. If init never
+  completes, the UI stays usable and slots settle into an honest blocked state
+  rather than sending requests or staying `AdLoading` forever.
+- **The `disableAds()` in-flight-load race is closed for every format** (banner,
+  native, interstitial, rewarded, rewarded interstitial, app open). A load that
+  had already passed the gate but not yet received its SDK handle when
+  `disableAds()` (Remove-Ads) fired could still publish the late handle as
+  `AdLoaded` / keep it warm, because `recheckGate()` cannot drop an `AdLoading`
+  controller. Each controller now re-reads the cheap, current permission
+  synchronously — in the same turn it would publish `AdLoaded` — and, if ads
+  were disabled while the request was in flight, disposes the returned handle,
+  never installs it, and reports `AdBlocked(AdBlockReason.adsDisabled)`.
+  `enableAds()` re-warms automatically. The existing consent-generation
+  invalidation is untouched, and — because the re-check is a pure synchronous
+  bool — a transient `internalError` can never wrongly drop a good loaded ad.
+
+### DOCUMENTATION
+
+- **Server-Side Verification (SSV) guidance is now operationally correct.** The
+  README rewarded section and the `ServerSideVerification` / `OnUserEarnedReward`
+  dartdoc now spell out that `onReward` is a client-side completion signal (not
+  cryptographic proof), that attaching `userId`/`customData` does not prove your
+  backend verified anything, and what a valuable-reward backend must do: verify
+  Google's callback `signature` and `key_id`, validate the user / ad unit /
+  reward / custom data, and process `transaction_id` idempotently. It documents
+  the two valid fulfillment strategies (grant-then-reconcile vs. wait-for-verified
+  callback), warns against double-granting from both client and server, and links
+  Google's official Flutter SSV guide.
+
+### KNOWN LIMITATIONS
+
+- The upstream `google_mobile_ads` 9.0.0 App Open **failed-load** cleanup
+  asymmetry (a failed `AppOpenAd` load is not auto-disposed by the plugin, and
+  its failure callback carries no ad reference the seam could dispose) still
+  exists, verified against the installed source. It is a low-severity,
+  process-bounded plugin-side leak that ad_flow cannot safely fix from outside
+  the seam; the honest note is retained (ADR-048 / RESEARCH.md §3). No fragile
+  internal-import/reflection workaround was added.
+
 ## 5.1.1
 
 A focused ad-surface **layout** bug-fix, prompted by real emulator screenshots.

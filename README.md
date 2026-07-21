@@ -49,7 +49,7 @@ Set up the ad_flow Flutter package (AdMob) in my project. Do it idiomatically �
    • If you find any: show me what it is, then REPLACE it with ad_flow equivalents and remove the
      old implementation (and the direct google_mobile_ads dependency if nothing else uses it).
    • If none: do a clean fresh integration.
-3. Add ad_flow: ^5.1.1 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
+3. Add ad_flow: ^5.1.2 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
    Android minSdk 24 / compileSdk 36). Platform setup: Android APPLICATION_ID meta-data, iOS
    GADApplicationIdentifier + NSUserTrackingUsageDescription. Remind me to publish & verify app-ads.txt.
 4. Ask me which formats I want and for my ad unit IDs (or use AdFlowConfig.test() for now).
@@ -68,7 +68,7 @@ Upgrade my project's ad_flow to the latest release. Be careful — older majors 
 
 1. FIRST read ad_flow's MIGRATION.md plus the current README and public API
    (package:ad_flow/ad_flow.dart). Use only symbols that exist there.
-2. Bump ad_flow to ^5.1.1 and meet its min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
+2. Bump ad_flow to ^5.1.2 and meet its min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
    Android minSdk 24 / compileSdk 36; adopt the iOS UISceneDelegate lifecycle if I have a custom AppDelegate).
 3. Find EVERY older ad_flow usage (legacy AdFlow.instance/initializeWithExplainer/EasyBannerAd, old
    managers/widgets, a broad google_mobile_ads re-export). List them, then migrate each per MIGRATION.md.
@@ -90,7 +90,7 @@ consent form even if they denied ATT; native ads now expire after ~55 min by def
 
 ```yaml
 dependencies:
-  ad_flow: ^5.1.1
+  ad_flow: ^5.1.2
 ```
 
 Requirements (from `google_mobile_ads` 9.x): Flutter ≥ 3.38.1, Dart ≥ 3.10,
@@ -349,6 +349,40 @@ The update applies to the already-loaded ad AND every future load, and
 know your verification payload did not make it. The ad is never ready or
 showable until the latest payload has settled (5.1), so a `show()` right after
 `setServerSideVerification` can never race ahead of it with the old value.
+
+#### Verifying rewards server-side (SSV)
+
+`onReward` is a **client-side UX/completion signal, not cryptographic proof** —
+it means the SDK reported the user finished the ad, nothing more. Likewise,
+attaching `userId`/`customData` (whether via `RewardedConfig.ssv` or
+`setServerSideVerification`) only hands the payload to the SDK; a successful
+attach does **not** prove your backend ever received or verified a callback.
+
+For any reward the user could exploit — currency, entitlements, unlocks — make
+your **server** the authority. When Google calls your SSV endpoint, your backend
+must:
+
+1. **Verify the callback's `signature` and `key_id`** against Google's public
+   verification keys — reject anything that doesn't validate.
+2. **Validate the contents** match what you expect: the `user_id`, the ad unit,
+   the reward `type`/`amount`, and your `custom_data`.
+3. **Process `transaction_id` idempotently**, so a replayed or duplicated
+   callback can never double-credit the user.
+
+Then pick **one** fulfillment strategy and grant the reward from exactly one
+place:
+
+- **Grant on the client, reconcile after** — credit immediately in `onReward`
+  for responsiveness, then revoke/adjust if your server-verified callback
+  disagrees. Fine for low-value, low-abuse rewards.
+- **Wait for the verified callback** — grant nothing on the client; your backend
+  credits the account only after it validates Google's callback. Use this for
+  server-authoritative or high-value economies.
+
+Do **not** grant the same reward from both the client and the server — that
+double-credits. One authority per reward. See Google's
+[Server-Side Verification guide](https://developers.google.com/admob/flutter/ssv)
+for the callback format, parameters and key rotation.
 
 Preloaded ads also **expire** (Google documents ~1 hour): ad_flow timestamps
 every load, proactively replaces a stale ad and never shows an expired one.

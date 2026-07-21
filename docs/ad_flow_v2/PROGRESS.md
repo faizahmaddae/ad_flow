@@ -1,6 +1,80 @@
 # PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
+**Phase 27 — 5.1.2 production reliability patch (2026-07-21)** — ✅ implemented
+on branch **`reliability-5.1.2`** (off `main` at 5.1.1 `991b650`; NOT pushed /
+tagged / merged / published — Faiz reviews). A focused, backward-compatible
+patch: no redesign, no migration. ADR-071. Three findings, each confirmed from
+the current code and fixed with fail-first tests:
+
+1. **Never load before Mobile Ads init settles (Area 1).**
+   `AdFlow._settleRequestConfig()` returned fail-open (`!failClosed`) even while
+   the real `MobileAds.initialize()` was still in flight — so a first-frame
+   banner/native under the DEFAULT (`auto` → fail-open for a non-policy-sensitive
+   config) could dispatch a request before the SDK initialized. Fix: block
+   (`requestConfigNotApplied`) whenever `_initInFlight != null && !_initDone`,
+   regardless of policy; fail-open now applies only AFTER init genuinely
+   completes. Init-not-yet-started (forwardConsent adopter) is deliberately not
+   "in flight" (load flows to the forwarding gate that drives forwarding — no
+   adopter regression). Prompt recovery: the actual-init-completion hook kicks a
+   config attempt directly (bypassing the failure re-arm cooldown), and a
+   successful apply calls `_recheckAll()`. Non-blocking init + ADR-028 ordering
+   preserved; a never-completing init settles slots into `AdBlocked`, never
+   `AdLoading`, never a request.
+2. **`disableAds()` in-flight-load race (Area 2).** `recheckGate()` can't drop an
+   `AdLoading` controller, so a `disableAds()` landing mid-load published the
+   late handle as `AdLoaded` / kept it warm. Fix: new synchronous
+   `AdGate.isEnabled` getter (mirrors `AdGate.consentGeneration`); banner, native
+   and the shared full-screen base (covers interstitial/rewarded/RI/app-open —
+   none overrides `load()`) re-read `!_gate.isEnabled` synchronously in the same
+   turn they'd publish `AdLoaded`, and on a disable dispose the handle, never
+   install it, report `AdBlocked(adsDisabled)`; `enableAds()` re-warms. Pure bool
+   read → a transient `internalError` can't wrongly drop good inventory;
+   consent-generation invalidation untouched.
+3. **Operationally-correct SSV docs (Area 3).** README rewarded section +
+   `ServerSideVerification`/`OnUserEarnedReward`/config `ssv` dartdoc now explain
+   `onReward` is client-side (not proof), attaching ≠ backend verification, the
+   backend duties (verify `signature`/`key_id`, validate user/ad-unit/reward/
+   customData, idempotent `transaction_id`), the two fulfillment strategies, the
+   no-double-grant warning, and link Google's Flutter SSV guide.
+4. **App Open failed-load leak (Area 4).** Re-verified against the installed
+   `google_mobile_ads` 9.0.0 source — still exists exactly as ADR-048 /
+   RESEARCH §3 claim (the `AppOpenAd` failed branch omits `dispose()`, callback
+   carries no ad ref). Low-severity, process-bounded, unfixable from the seam.
+   Note retained; no workaround, no patch expansion.
+
+Files: `lib/src/policy/ad_gate.dart` (+`isEnabled`),
+`lib/src/controllers/{banner,native}_ad_controller.dart`,
+`lib/src/controllers/full_screen_ad_controller_base.dart`,
+`lib/src/facade/ad_flow.dart` (`_settleRequestConfig`, init-completion hook,
+`_applyRequestConfigOnce` → `_recheckAll`),
+`lib/src/seam/ad_sdk_types.dart` + `lib/src/config/ad_flow_config.dart` +
+`lib/src/controllers/rewarded{,_interstitial}_ad_controller.dart` (SSV dartdoc),
+`README.md` (SSV section + `^5.1.2` pins), `CHANGELOG.md`, `pubspec.yaml`
+(→ 5.1.2), DECISIONS (ADR-071). New tests:
+`test/facade/request_config_policy_test.dart` (+1),
+`test/facade/inflight_disable_race_test.dart` (new, +2),
+`test/controllers/inflight_permission_recheck_test.dart` (new, +2). All four
+behavioural tests confirmed fail-first against the unmodified code.
+
+**Public API delta:** `+AdGate.isEnabled` (additive getter on the already-public
+DI class; non-breaking, mirrors `AdGate.consentGeneration`). No removals, no
+signature/enum/default changes, no migration. `AdController` interface unchanged.
+
+## How to verify (Phase 27)
+`dart format --set-exit-if-changed .` && `flutter analyze` (clean) &&
+`flutter test` → **542 tests** green (537 baseline + 5). Also run before merge:
+`dart pub publish --dry-run`, `pana`, `cd example && flutter build apk --debug`
+and `flutter build ios --simulator --debug`. Pure-Dart lifecycle patch — no
+device-only behaviour changed; the two races and the init-settle gate are
+fakeAsync/await-deterministic. NOT re-verified on real hardware this session.
+
+## Open items for Faiz (5.1.2)
+- Review + merge `reliability-5.1.2`; tag `v5.1.2` when ready (tag auto-publishes).
+- Optional: still-open upstream App Open failed-load leak (ADR-048) can be filed
+  against `google_mobile_ads`; re-check on the next plugin bump.
+
+## Previous phase
 **Phase 26 — 5.1.1 view-ad layout bug-fix (2026-07-20)** — ✅ **SHIPPED &
 PUBLISHED (2026-07-21).** Merged, tagged, on pub.dev. A focused, backward-
 compatible layout fix prompted by real emulator screenshots. No API change, no
