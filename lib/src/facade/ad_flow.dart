@@ -347,6 +347,14 @@ class AdFlow {
   /// facade owns the default gateway (info update dispatched synchronously at
   /// startup) and there is no client-driven ATT adopter. See [_settleConsent].
   final bool _consentFastPathEligible;
+
+  /// Set true when the cached-consent fast path is actually ACCEPTED (a load was
+  /// permitted under cached consent while this launch's flow was still running),
+  /// so [_runConsent]'s completion can reconcile that inventory: on a downgrade
+  /// it invalidates the consent generation BEFORE re-checking, catching a load
+  /// still in flight (which `recheckGate` cannot touch while `AdLoading`) and a
+  /// show waiting at an async boundary (5.2.2 addendum to ADR-072).
+  bool _consentFastPathServed = false;
   final FullScreenAdCoordinator _coordinator;
   final RetryPolicy _retry;
   late final StoredFrequencyCapPolicy _caps;
@@ -897,7 +905,16 @@ class AdFlow {
       // false) falls through and waits for the flow to settle.
       if (_consentFastPathEligible) {
         try {
-          if (await _sdk.canRequestAds()) return;
+          if (await _sdk.canRequestAds()) {
+            // Fast path ACCEPTED. Publish the live cached answer — `canRequestAds`
+            // is the documented reactive consent value, so it must reflect that
+            // we are serving now (the flow later reconciles it to its final
+            // value). And record that inventory may now be requested under
+            // cached consent, so a later downgrade invalidates it ([_runConsent]).
+            _consentFastPathServed = true;
+            if (!_disposed) _canRequestAdsNotifier.value = true;
+            return;
+          }
         } catch (_) {
           // Indeterminate — do not fast-path; join the full flow instead.
         }
@@ -940,11 +957,20 @@ class AdFlow {
         // _afterConsentMutation, and a downgrade here is handled just below.
         if (_mediationConsentRequired) _invalidateConsentForwarding();
         _dispatchConsentChanged();
-        // Reconcile the fast path (ADR-072): if a returning user was served on
-        // cached consent but THIS launch's flow concluded ads may NOT be
-        // requested (e.g. consent lapsed and a now-required form was declined),
-        // drop the inventory that loaded — each controller's live canRequestAds
-        // check does the drop. A no-op when nothing loaded early.
+        // Reconcile the fast path (ADR-072 / 5.2.2). If a returning user was
+        // served on cached consent but THIS launch's flow concluded ads may NOT
+        // be requested (consent lapsed and a now-required form was declined),
+        // the inventory it loaded — or is still loading, or preparing to show —
+        // is stale-consent and must go. For a non-forwarder nothing else bumped
+        // the generation, so bump it HERE, before _recheckAll: an already-loaded
+        // ad is dropped by recheckGate's live check, but a load still in flight
+        // (recheckGate no-ops on AdLoading) and a show waiting at an async
+        // boundary are caught ONLY by the generation — the completing load's
+        // own generation check and the final show-dispatch guard both reject a
+        // now-stale generation. A no-op when the fast path was never accepted.
+        final servedOnCachedConsent = _consentFastPathServed;
+        _consentFastPathServed = false;
+        if (!open && servedOnCachedConsent) _consentGeneration++;
         if (!open && _consentFastPathEligible) _recheckAll();
       }
       return open;
