@@ -1,6 +1,7 @@
 import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/config/ad_platform.dart';
 import 'package:ad_flow/src/controllers/banner_ad_controller.dart';
+import 'package:ad_flow/src/core/ad_block_reason.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/core/ad_load_state.dart';
 import 'package:ad_flow/src/policy/ad_gate.dart';
@@ -54,14 +55,14 @@ void main() {
       host(AdFlowBanner(controller: c, ownsController: true)),
     );
 
-    // First frame: placeholder reserved BEFORE any load. Anchored adaptive
-    // banners have no pure-width height formula (Google docs: 50–90dp,
-    // capped at 15% of device height), so the widget reserves the
-    // device-height-aware estimate rather than the controller's 50dp
-    // floor (review finding #8) — on the default 800x600 test surface,
-    // 15% of 600 is exactly the 90dp ceiling.
+    // First frame: placeholder reserved BEFORE any load. A large anchored
+    // adaptive banner has no pure-width height formula (Google docs: 50–150dp),
+    // so the widget reserves the documented 50dp FLOOR — not a speculative
+    // upper estimate — and the loaded ad then grows the box to its exact
+    // dimensions (5.1.1). The old 15%-of-device-height / 50–90dp estimate is
+    // gone.
     final placeholder = tester.getSize(find.byType(AdFlowBanner));
-    expect(placeholder.height, 90);
+    expect(placeholder.height, 50);
 
     await tester.pumpAndSettle();
 
@@ -78,29 +79,119 @@ void main() {
   });
 
   testWidgets(
-    'adaptive placeholder height scales with device height, clamped to '
-    'Google\'s documented 50-90dp bounds (review finding #8)',
+    'large anchored adaptive reserves the documented 50dp FLOOR before load, '
+    'independent of device height (no 15%/50–90dp estimate — 5.1.1)',
     (tester) async {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       tester.view.devicePixelRatio = 1.0;
-
-      // A short viewport: 15% of height is below the documented floor.
-      tester.view.physicalSize = const Size(400, 200);
-      final c1 = controller();
-      await tester.pumpWidget(
-        host(AdFlowBanner(controller: c1, ownsController: true)),
+      // The old behaviour scaled with device height; a tall viewport used to
+      // push this to the 90dp ceiling. It must now be a flat 50dp floor.
+      tester.view.physicalSize = const Size(400, 4000);
+      sdk.alwaysLoadError = const AdFlowError(
+        AdFlowErrorKind.loadFailed,
+        'never loads',
       );
+      final c = controller(); // anchoredAdaptive by default
+      await tester.pumpWidget(
+        host(AdFlowBanner(controller: c, ownsController: true)),
+      );
+      await tester.pump();
+      expect(
+        tester.getSize(find.byType(AdFlowBanner)).height,
+        50,
+        reason: 'anchored adaptive pre-load reservation is the 50dp floor',
+      );
+      await tester.pumpWidget(host(const SizedBox()));
+    },
+  );
+
+  testWidgets(
+    'a loaded anchored adaptive banner larger than the 50dp floor uses its '
+    'EXACT resolved height (60/90/100/150…), not the placeholder',
+    (tester) async {
+      sdk.bannerSize = const AdDimensions(width: 320, height: 100);
+      final c = controller();
+      await tester.pumpWidget(
+        host(AdFlowBanner(controller: c, ownsController: true)),
+      );
+      // Pre-load: the 50dp floor.
       expect(tester.getSize(find.byType(AdFlowBanner)).height, 50);
+      await tester.pumpAndSettle();
+      // Loaded: the exact live dimensions, well above the floor.
+      expect(tester.getSize(find.byType(AdFlowBanner)).height, 100);
+      await tester.pumpWidget(host(const SizedBox()));
+    },
+  );
+
+  testWidgets(
+    'inline adaptive reserves ZERO before load (its real height is unknown '
+    'until onAdLoaded) — but an explicit placeholderHeight still reserves',
+    (tester) async {
+      sdk.alwaysLoadError = const AdFlowError(
+        AdFlowErrorKind.loadFailed,
+        'never loads',
+      );
+      final c = controller(
+        config: const BannerConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-b'),
+          kind: BannerKind.inlineAdaptive,
+          maxInlineHeight: 200,
+        ),
+      );
+      await tester.pumpWidget(
+        host(AdFlowBanner(controller: c, ownsController: true)),
+      );
+      await tester.pump();
+      expect(
+        tester.getSize(find.byType(AdFlowBanner)).height,
+        0,
+        reason: 'inline adaptive default pre-load reservation is zero',
+      );
       await tester.pumpWidget(host(const SizedBox()));
 
-      // A mid-height viewport: 15% falls between the floor and ceiling.
-      tester.view.physicalSize = const Size(400, 400);
-      final c2 = controller();
-      await tester.pumpWidget(
-        host(AdFlowBanner(controller: c2, ownsController: true)),
+      // An explicit publisher-chosen height is still honoured for inline.
+      final c2 = controller(
+        config: const BannerConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-b'),
+          kind: BannerKind.inlineAdaptive,
+          maxInlineHeight: 200,
+        ),
       );
-      expect(tester.getSize(find.byType(AdFlowBanner)).height, 60);
+      await tester.pumpWidget(
+        host(
+          AdFlowBanner(
+            controller: c2,
+            ownsController: true,
+            placeholderHeight: 120,
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.getSize(find.byType(AdFlowBanner)).height, 120);
+      await tester.pumpWidget(host(const SizedBox()));
+    },
+  );
+
+  testWidgets(
+    'placeholderHeight: 0 opts into fully-collapsed pre-load behaviour',
+    (tester) async {
+      sdk.alwaysLoadError = const AdFlowError(
+        AdFlowErrorKind.loadFailed,
+        'never loads',
+      );
+      final c = controller(); // anchored — would otherwise reserve 50
+      await tester.pumpWidget(
+        host(
+          AdFlowBanner(
+            controller: c,
+            ownsController: true,
+            placeholderHeight: 0,
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.getSize(find.byType(AdFlowBanner)).height, 0);
       await tester.pumpWidget(host(const SizedBox()));
     },
   );
@@ -519,5 +610,150 @@ void main() {
 
     expect(find.byKey(ObjectKey(firstHandle)), findsNothing);
     expect(find.byKey(ObjectKey(sdk.banners.last)), findsOneWidget);
+  });
+
+  group('Remove-Ads collapses the banner to a zero footprint (5.1.1)', () {
+    Future<AdFlow> initBannerAdFlow() async {
+      final ads = await AdFlow.initialize(
+        const AdFlowConfig(
+          banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
+        ),
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+      );
+      await ads.whenReady;
+      return ads;
+    }
+
+    testWidgets(
+      'a loaded banner collapses to height 0 IMMEDIATELY on disableAds(), '
+      'drops its handle, and reloads on enableAds()',
+      (tester) async {
+        sdk.bannerSize = const AdDimensions(width: 360, height: 60);
+        final ads = await initBannerAdFlow();
+        addTearDown(ads.dispose);
+
+        await tester.pumpWidget(host(AdFlowBanner(adFlow: ads)));
+        await tester.pumpAndSettle();
+        expect(sdk.banners, hasLength(1));
+        expect(tester.getSize(find.byType(AdFlowBanner)).height, 60);
+        final firstHandle = sdk.banners.single;
+
+        // Collapse must be SYNCHRONOUS — a single frame, driven by the
+        // adsEnabled notifier, NOT waiting for the async recheckGate() that
+        // later drops the handle.
+        ads.disableAds();
+        await tester.pump();
+        expect(
+          tester.getSize(find.byType(AdFlowBanner)).height,
+          0,
+          reason: 'collapse must not wait for the async controller recheck',
+        );
+
+        // The handle is still dropped/disposed correctly by recheckGate.
+        await tester.pumpAndSettle();
+        expect(firstHandle.disposed, isTrue);
+
+        // Re-enable → a valid load/render path again, exactly one new request.
+        ads.enableAds();
+        await tester.pumpAndSettle();
+        expect(
+          sdk.banners,
+          hasLength(2),
+          reason: 'exactly one reload on re-enable, not a request storm',
+        );
+        expect(sdk.banners.last.disposed, isFalse);
+        expect(tester.getSize(find.byType(AdFlowBanner)).height, 60);
+
+        await tester.pumpWidget(host(const SizedBox()));
+      },
+    );
+
+    testWidgets(
+      'rebuilds and adsEnabled toggles never create duplicate banner requests',
+      (tester) async {
+        final ads = await initBannerAdFlow();
+        addTearDown(ads.dispose);
+
+        await tester.pumpWidget(host(AdFlowBanner(adFlow: ads)));
+        await tester.pumpAndSettle();
+        expect(sdk.bannerSpecs, hasLength(1));
+
+        // Plain rebuilds with the same AdFlow must not re-request.
+        for (var i = 0; i < 5; i++) {
+          await tester.pumpWidget(host(AdFlowBanner(adFlow: ads)));
+          await tester.pump();
+        }
+        expect(sdk.bannerSpecs, hasLength(1));
+
+        // Disable then re-enable → exactly ONE additional request (the reload).
+        ads.disableAds();
+        await tester.pumpAndSettle();
+        ads.enableAds();
+        await tester.pumpAndSettle();
+        expect(sdk.bannerSpecs, hasLength(2));
+
+        // More rebuilds while enabled — still no extra request.
+        await tester.pumpWidget(host(AdFlowBanner(adFlow: ads)));
+        await tester.pumpAndSettle();
+        expect(sdk.bannerSpecs, hasLength(2));
+
+        await tester.pumpWidget(host(const SizedBox()));
+      },
+    );
+
+    testWidgets(
+      'adsDisabled overrides a non-zero placeholderHeight (advanced controller '
+      'mode) → AdBlocked(adsDisabled) forces zero footprint',
+      (tester) async {
+        var enabled = true;
+        final c = BannerAdController(
+          sdk: sdk,
+          gate: AdGate(
+            canRequestAds: sdk.canRequestAds,
+            isEnabled: () => enabled,
+          ),
+          config: const BannerConfig(
+            adUnitId: PlatformAdUnitId(android: 'unit-b'),
+          ),
+          adUnitId: 'unit-b',
+          retry: RetryPolicy(const RetryConfig(), random: () => 0.5),
+        );
+        sdk.alwaysLoadError = const AdFlowError(
+          AdFlowErrorKind.loadFailed,
+          'never loads',
+        );
+
+        await tester.pumpWidget(
+          host(
+            AdFlowBanner(
+              controller: c,
+              ownsController: true,
+              placeholderHeight: 200,
+            ),
+          ),
+        );
+        await tester.pump();
+        // While enabled and unloaded, the explicit placeholder is honoured.
+        expect(tester.getSize(find.byType(AdFlowBanner)).height, 200);
+
+        // Disable and re-check: the controller lands on AdBlocked(adsDisabled),
+        // and the widget must collapse regardless of placeholderHeight.
+        enabled = false;
+        await c.recheckGate();
+        await tester.pump();
+        expect(c.state.value, isA<AdBlocked>());
+        expect((c.state.value as AdBlocked).reason, AdBlockReason.adsDisabled);
+        expect(
+          tester.getSize(find.byType(AdFlowBanner)).height,
+          0,
+          reason:
+              'adsDisabled must override placeholderHeight — zero footprint',
+        );
+
+        await tester.pumpWidget(host(const SizedBox()));
+      },
+    );
   });
 }

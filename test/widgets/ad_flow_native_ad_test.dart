@@ -1,8 +1,11 @@
 import 'package:ad_flow/src/config/ad_flow_config.dart';
+import 'package:ad_flow/src/config/ad_platform.dart';
 import 'package:ad_flow/src/controllers/native_ad_controller.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
+import 'package:ad_flow/src/facade/ad_flow.dart';
 import 'package:ad_flow/src/policy/ad_gate.dart';
 import 'package:ad_flow/src/policy/full_screen_ad_coordinator.dart';
+import 'package:ad_flow/src/policy/key_value_store.dart';
 import 'package:ad_flow/src/seam/ad_sdk_types.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
 import 'package:ad_flow/src/widgets/ad_flow_native_ad.dart';
@@ -124,4 +127,51 @@ void main() {
       await tester.pumpWidget(host(const SizedBox()));
     },
   );
+
+  testWidgets('Remove-Ads collapses the native ad to height 0 IMMEDIATELY on '
+      'disableAds() (drops its handle) and recovers on enableAds() (5.1.1)', (
+    tester,
+  ) async {
+    final ads = await AdFlow.initialize(
+      const AdFlowConfig(
+        nativeAd: NativeConfig(
+          adUnitId: PlatformAdUnitId(android: 'n-a'),
+          templateKind: NativeTemplateKind.medium,
+        ),
+      ),
+      sdk: sdk,
+      store: InMemoryKeyValueStore(),
+      platform: AdPlatform.android,
+    );
+    addTearDown(ads.dispose);
+    await ads.whenReady;
+
+    await tester.pumpWidget(host(AdFlowNativeAd(adFlow: ads)));
+    await tester.pumpAndSettle();
+    expect(sdk.natives, hasLength(1));
+    expect(tester.getSize(find.byType(AdFlowNativeAd)).height, 320);
+    final firstHandle = sdk.natives.single;
+
+    // Synchronous collapse via the adsEnabled notifier (one frame).
+    ads.disableAds();
+    await tester.pump();
+    expect(
+      tester.getSize(find.byType(AdFlowNativeAd)).height,
+      0,
+      reason: 'collapse must not wait for the async controller recheck',
+    );
+
+    // recheckGate drops the handle.
+    await tester.pumpAndSettle();
+    expect(firstHandle.disposed, isTrue);
+
+    // Recover on re-enable — a fresh load and full-height render.
+    ads.enableAds();
+    await tester.pumpAndSettle();
+    expect(sdk.natives, hasLength(2));
+    expect(sdk.natives.last.disposed, isFalse);
+    expect(tester.getSize(find.byType(AdFlowNativeAd)).height, 320);
+
+    await tester.pumpWidget(host(const SizedBox()));
+  });
 }

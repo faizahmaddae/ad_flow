@@ -267,26 +267,42 @@ class _HomeScreenState extends State<HomeScreen> {
           _StateTile(
             title: 'App open',
             subtitle:
-                'Background the app, then return ONCE — it shows on that first '
-                'warm return (never on a cold launch).',
+                'launchAndResume: shows on the first warm return, and at cold '
+                'launch via the startup screen when an ad is already ready.',
             state: ads.appOpenController.state,
           ),
-          const SizedBox(height: 8),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Column(
-                children: [
-                  const Text('Native (medium template)'),
-                  const SizedBox(height: 8),
-                  // Widget-first (3.0): the widget creates AND owns its
-                  // controller internally, so the classic footgun — minting
-                  // a fresh controller inside build(), restarting the load
-                  // (and blanking the ad) on every setState — cannot happen.
-                  AdFlowNativeAd(adFlow: ads),
-                ],
-              ),
-            ),
+          // Remove-Ads hides the WHOLE decorated Card — title, padding and
+          // border — not just the ad inside it. A parent decoration wrapped
+          // around a child that collapses to zero stays visible otherwise (an
+          // empty bordered card), which is exactly the residual-surface bug
+          // this release fixes. The leading spacer is inside the conditional so
+          // it disappears with the card.
+          ValueListenableBuilder(
+            valueListenable: ads.adsEnabled,
+            builder: (context, enabled, _) => !enabled
+                ? const SizedBox.shrink()
+                : Column(
+                    children: [
+                      const SizedBox(height: 8),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Column(
+                            children: [
+                              const Text('Native (medium template)'),
+                              const SizedBox(height: 8),
+                              // Widget-first (3.0): the widget creates AND owns
+                              // its controller internally, so the classic
+                              // footgun — minting a fresh controller inside
+                              // build(), restarting the load (and blanking the
+                              // ad) on every setState — cannot happen.
+                              AdFlowNativeAd(adFlow: ads),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
           ),
           const SizedBox(height: 8),
           ValueListenableBuilder(
@@ -306,7 +322,18 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       // Reserved height from the first frame — no layout shift. Widget-first
       // (3.0): AdFlowBanner creates and owns its controller.
-      bottomNavigationBar: SafeArea(child: AdFlowBanner(adFlow: ads)),
+      //
+      // Remove-Ads must remove the COMPLETE bottom ad surface. Returning
+      // SizedBox.shrink() BEFORE constructing SafeArea is the point: if the
+      // banner merely collapsed to zero height INSIDE a retained SafeArea, the
+      // safe-area inset would still reserve a strip of empty space at the
+      // bottom. The parent surface has to go too.
+      bottomNavigationBar: ValueListenableBuilder(
+        valueListenable: ads.adsEnabled,
+        builder: (context, enabled, _) => !enabled
+            ? const SizedBox.shrink()
+            : SafeArea(child: AdFlowBanner(adFlow: ads)),
+      ),
     );
   }
 }
