@@ -18,8 +18,9 @@ ad_flow? Read [MIGRATION](MIGRATION.md).
 
 - **Consent first, always.** No ad loads before the UMP gate opens
   (GDPR/EEA form, ATT coordination, privacy-options entry point).
-- **Policy-aware defaults.** App open only on warm starts with the 4-hour
-  expiry; interstitials frequency-capped and action-paced; the rewarded
+- **Policy-aware defaults.** App open on warm returns by default (with opt-in
+  `launchOnly` / `launchAndResume` trigger modes) and the 4-hour expiry;
+  interstitials frequency-capped and action-paced; the rewarded
   interstitial intro/skip screen is mandatory by construction; banners
   reserve their height so layouts never shift, and collapse to a zero
   footprint when ads are disabled (Remove-Ads).
@@ -49,7 +50,7 @@ Set up the ad_flow Flutter package (AdMob) in my project. Do it idiomatically �
    • If you find any: show me what it is, then REPLACE it with ad_flow equivalents and remove the
      old implementation (and the direct google_mobile_ads dependency if nothing else uses it).
    • If none: do a clean fresh integration.
-3. Add ad_flow: ^5.2.0 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
+3. Add ad_flow: ^5.2.1 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
    Android minSdk 24 / compileSdk 36). Platform setup: Android APPLICATION_ID meta-data, iOS
    GADApplicationIdentifier + NSUserTrackingUsageDescription. Remind me to publish & verify app-ads.txt.
 4. Ask me which formats I want and for my ad unit IDs (or use AdFlowConfig.test() for now).
@@ -68,7 +69,7 @@ Upgrade my project's ad_flow to the latest release. Be careful — older majors 
 
 1. FIRST read ad_flow's MIGRATION.md plus the current README and public API
    (package:ad_flow/ad_flow.dart). Use only symbols that exist there.
-2. Bump ad_flow to ^5.2.0 and meet its min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
+2. Bump ad_flow to ^5.2.1 and meet its min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
    Android minSdk 24 / compileSdk 36; adopt the iOS UISceneDelegate lifecycle if I have a custom AppDelegate).
 3. Find EVERY older ad_flow usage (legacy AdFlow.instance/initializeWithExplainer/EasyBannerAd, old
    managers/widgets, a broad google_mobile_ads re-export). List them, then migrate each per MIGRATION.md.
@@ -90,7 +91,7 @@ consent form even if they denied ATT; native ads now expire after ~55 min by def
 
 ```yaml
 dependencies:
-  ad_flow: ^5.2.0
+  ad_flow: ^5.2.1
 ```
 
 Requirements (from `google_mobile_ads` 9.x): Flutter ≥ 3.38.1, Dart ≥ 3.10,

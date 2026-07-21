@@ -1,3 +1,50 @@
+## 5.2.1
+
+A focused **reliability** patch. **No public API changes, no default changes, no
+migration** — both fixes are entirely internal, and every existing call site
+compiles unchanged.
+
+### FIXED
+
+- **Cached-consent startup fast path.** A returning user whose *previous* session
+  already made `canRequestAds()` true no longer loses ad serving while *this*
+  launch's consent-info update is slow. Per Google's UMP guidance, once this
+  launch's `requestConsentInfoUpdate()` has been dispatched, a valid cached
+  consent lets first-frame banners/natives and full-screen preloads serve
+  immediately, instead of waiting out the update (up to the 30s timeout) on slow
+  or intermittent connections. The full flow still runs and publishes its final
+  result; if it downgrades (consent lapsed and a now-required form was declined)
+  the inventory that loaded is dropped. All ordering guarantees are preserved:
+  `requestConsentInfoUpdate()` still runs every launch and no ad requests before
+  it is dispatched; a first-install user (cached `false`) stays blocked until
+  settled; ATT ordering and required ATT decisions are honored (the fast path is
+  disabled when a client-driven ATT primer is configured); `forwardConsent`
+  stays fail-closed and forward-before-init (the fast path is disabled for
+  forwarding adopters, whose loads are gated on the barrier regardless);
+  request-configuration-before-load is unchanged; and there are no duplicate
+  consent flows or load storms.
+- **Final full-screen dispatch guard.** `showEngine()` now re-verifies the cheap
+  synchronous facts — ads still enabled, the loaded ad's consent generation
+  still current, not expired, not disposed — immediately before the irreversible
+  `handle.show()`. A `disableAds()` or consent mutation that landed during a
+  prior `await` (the show-permission or frequency-cap check), or an expiry that
+  crossed during a slow cap-store hydration, is deliberately skipped by
+  `recheckGate()` while the controller is `AdShowing` — so the previously
+  captured handle could be dispatched despite being revoked or stale. Now a
+  revoked ad is dropped (not left warm under `adsDisabled`), and a stale/expired
+  one is discarded and reloaded, rather than shown. Interstitial, rewarded,
+  rewarded interstitial and app open are all covered; coordinator balance,
+  exactly-once `show()`, reward semantics and the rewarded-interstitial intro are
+  unchanged.
+
+### DOCS
+
+- Corrected three stale claims: the README and `AppOpenHandle` dartdoc said app
+  open was "warm-start only" (5.1+ has `launchOnly` / `resumeOnly` /
+  `launchAndResume` trigger modes); and the runtime-SSV helper doc implied
+  load-time SSV attach is silently best-effort, when in fact an unattachable
+  *configured* SSV fails the load closed.
+
 ## 5.2.0
 
 A focused **reliability** release: two lifecycle fixes that close windows where
