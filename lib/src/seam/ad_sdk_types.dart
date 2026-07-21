@@ -310,14 +310,27 @@ class AdPaidEvent {
 
 /// Server-side verification options for (rewarded) ads with high-value
 /// rewards — echoed back in AdMob's server-to-server reward callback.
+///
+/// Attaching these only hands the payload to the SDK; a successful attach does
+/// **not** prove your backend received or verified any callback. For a valuable
+/// economy the SERVER must be the authority: when Google calls your SSV
+/// endpoint, verify the callback's `signature` and `key_id` against Google's
+/// keys, validate the `user_id` / ad unit / reward `type`/`amount` /
+/// `custom_data`, and process `transaction_id` idempotently (no replay /
+/// double-credit). Grant the reward from ONE place — either optimistically on
+/// the client (`onReward`) and reconcile after server validation, or only from
+/// the verified callback — never both. See
+/// <https://developers.google.com/admob/flutter/ssv>.
 class ServerSideVerification {
   /// Creates SSV options.
   const ServerSideVerification({this.userId, this.customData});
 
-  /// The user to credit in the SSV callback.
+  /// The user to credit in the SSV callback. Attaching it does not prove the
+  /// backend validated anything — your endpoint must still verify the callback.
   final String? userId;
 
-  /// Opaque data echoed back in the SSV callback.
+  /// Opaque data echoed back in the SSV callback for your backend to validate
+  /// (e.g. which mission/placement). Not proof of anything on its own.
   final String? customData;
 }
 
@@ -341,6 +354,12 @@ class RewardEarned {
 }
 
 /// Callback invoked when the user earns a reward.
+///
+/// This is a **client-side UX/completion signal, not cryptographic proof** — it
+/// means the SDK reported the user finished the ad. For a valuable reward,
+/// treat it as optimistic and let your server-side verification endpoint be the
+/// authority (see [ServerSideVerification]); grant the reward from one place
+/// only, never from both the client and the verified callback.
 typedef OnUserEarnedReward = void Function(RewardEarned reward);
 
 /// Events emitted by a full-screen ad handle between `show()` and disposal.

@@ -71,6 +71,96 @@ void main() {
     });
   });
 
+  group('forwarding starts init AFTER the first config check (5.2.0)', () {
+    test('a vacuous/fail-open placement sends NO request while the real init '
+        'future is still in flight — even after the forwarding-path init wait '
+        'would time out — then recovers when init completes', () {
+      fakeAsync((async) {
+        sdk.initializeHold = Completer<void>(); // native init never returns…
+        final forwarded = Completer<void>();
+        var forwardRan = false;
+        AdFlow? ads;
+        unawaited(
+          AdFlow.initialize(
+            bannerConfig, // vacuous → the auto policy is fail-OPEN
+            sdk: sdk,
+            store: InMemoryKeyValueStore(),
+            platform: AdPlatform.android,
+            forwardConsent: () {
+              forwardRan = true;
+              return forwarded.future;
+            },
+          ).then((f) => ads = f),
+        );
+        async.flushMicrotasks();
+
+        // First frame: mount + load while forwarding is still in flight, so the
+        // request-config check runs with SDK init NOT yet started (the adopter
+        // defers init behind forwarding). This is the window the hypothesis is
+        // about.
+        final banner = ads!.banner();
+        unawaited(banner.load(width: 320));
+        async.flushMicrotasks();
+        expect(
+          sdk.initializeCalls,
+          0,
+          reason: 'init is deferred until forwarding succeeds',
+        );
+
+        // Forwarding succeeds — which STARTS Mobile Ads init (still held).
+        forwarded.complete();
+        async.flushMicrotasks();
+        expect(forwardRan, isTrue);
+        expect(
+          sdk.initializeCalls,
+          1,
+          reason: 'forward-before-init started SDK init exactly once',
+        );
+
+        // Advance well past the init timeout while init stays held. The OLD
+        // code let _settleConsentForwarding proceed on its pipeline-wait
+        // timeout and — the config gate having already passed earlier — the
+        // load fired an ad request while init was still in flight.
+        async.elapse(const Duration(seconds: 35));
+        async.flushMicrotasks();
+
+        expect(
+          sdk.loadLog,
+          isEmpty,
+          reason:
+              'no ad request may go out while the real MobileAds init '
+              'future is still in flight, even after the forwarding-path init '
+              'wait times out',
+        );
+        expect(
+          sdk.requestConfigs,
+          isEmpty,
+          reason: 'config is not applied while init is held (ADR-028)',
+        );
+        expect(banner.state.value, isNot(isA<AdLoading>()));
+        expect(banner.state.value, isA<AdBlocked>());
+        expect(banner.lastBlockReason, AdBlockReason.requestConfigNotApplied);
+
+        // Init finally lands: request configuration is applied and the slot
+        // recovers on its own — exactly one load.
+        sdk.initializeHold!.complete();
+        sdk.initializeHold = null;
+        async.elapse(const Duration(seconds: 2));
+        async.flushMicrotasks();
+
+        expect(sdk.requestConfigs, hasLength(1));
+        expect(
+          sdk.bannerSpecs,
+          hasLength(1),
+          reason: 'the placement recovers and loads exactly once, no storm',
+        );
+        expect(banner.state.value, isA<AdLoaded>());
+        banner.dispose();
+        ads!.dispose();
+      });
+    });
+  });
+
   group('FAIL-CLOSED by default: forwarding failure blocks, then recovers', () {
     test('a HUNG forwarder BLOCKS (consentNotForwarded) past the bound — it '
         'must NOT quietly degrade open and send an unsignalled request', () {

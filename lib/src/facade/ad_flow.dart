@@ -410,7 +410,22 @@ class AdFlow {
     } else if (_configRetryArmed) {
       await _runConfigAttempt();
     }
-    return _requestConfigApplied || !_configFailurePolicyIsClosed;
+    if (_requestConfigApplied) return true;
+    // Fail-open must NOT mean "serve while Mobile Ads init is still running"
+    // (5.1.2). A request dispatched now would race the native init — an
+    // untagged/untest-flagged first request, or worse the ADR-028
+    // platform-thread deadlock window. While the REAL initialize() future is in
+    // flight, block regardless of RequestConfigFailurePolicy; the load
+    // re-checks on its short gate backoff and recovers the moment init
+    // completes and config applies (see the init-completion hook in
+    // _initializeAndConfigure). Only once init has genuinely completed — so
+    // config was ATTEMPTED and failed for real, not merely deferred — does the
+    // fail-open policy take effect. Init not yet STARTED (a forwardConsent
+    // adopter defers init behind forwarding) is not "in flight": let the policy
+    // decide so the load flows on to the forwarding gate, which is what drives
+    // forwarding to run.
+    if (_initInFlight != null && !_initDone) return false;
+    return !_configFailurePolicyIsClosed;
   }
 
   /// Runs one bounded apply attempt, published on [_configAttemptInFlight]
@@ -461,6 +476,12 @@ class AdFlow {
           .updateRequestConfiguration(_config.toRequestConfig())
           .timeout(_initTimeout);
       _requestConfigApplied = true;
+      // Config is in place — possibly LATE (init completed after the first
+      // frame, so loads were blocked on requestConfigNotApplied). Promptly
+      // re-drive every controller now, so a blocked slot recovers at once
+      // instead of waiting out its gate-recheck backoff (mirrors enableAds();
+      // an AdLoading controller's recheck is a harmless no-op). (5.1.2)
+      if (!_disposed) _recheckAll();
     } catch (error, stack) {
       // Contained and REPORTED — a silent config loss is the failure mode
       // this machinery exists to remove.
@@ -649,21 +670,19 @@ class AdFlow {
     }
     if (!(_consentForwarded || !_mediationConsentFailClosed)) return false;
     // Proceeding. For an adopter the GMA SDK's init is GATED on forwarding
-    // (forward-before-init), so — unlike a non-adopter — the config gate
-    // earlier in loadBlockReason cannot be relied upon to have waited for
-    // init. Ensure init is kicked and completed before this load fires an ad
-    // request, or a request could reach an uninitialized SDK / adapters.
+    // (forward-before-init), so it only STARTS here — after the
+    // `_settleRequestConfig` check earlier in loadBlockReason already ran, with
+    // init not yet in flight. Ensure init is kicked; the gate then RE-SETTLES
+    // request configuration after this barrier (see AdGate.loadBlockReason), and
+    // that re-check is the single authority on "init done + config applied
+    // before any request" — it blocks (requestConfigNotApplied), bounded, while
+    // the real init future is in flight, and recovers when init completes
+    // (5.2.0). This barrier no longer waits on `_initPipeline` itself: the old
+    // wait proceeded on its own timeout even while init was still in flight, so
+    // a vacuous/fail-open placement could fire a request post-timeout,
+    // pre-init.
     if (!_initStarted) {
       unawaited(_startInit()); // fail-open reaching here before _start did
-    }
-    final pipeline = _initPipeline;
-    if (pipeline != null) {
-      try {
-        await pipeline.timeout(_initTimeout);
-      } catch (_) {
-        // Init merely slow — the completion hook finishes config; proceed.
-      }
-      if (_disposed) return false;
     }
     return true;
   }
@@ -1001,9 +1020,15 @@ class AdFlow {
       unawaited(
         tracked.whenComplete(() {
           _initDone = true;
-          if (!_disposed && !_requestConfigApplied) {
-            unawaited(_settleRequestConfig());
-          }
+          if (_disposed || _requestConfigApplied) return;
+          // Init actually completed: apply request configuration NOW. Earlier
+          // attempts returned "not applied" only because init was in flight
+          // (ADR-028) — a defer, not a failure to rate-limit — so bypass the
+          // retry-arm cooldown and kick an attempt directly. A blocked slot
+          // then recovers promptly (the apply calls _recheckAll on success). If
+          // an attempt is already in flight it is awaiting this same init future
+          // and will apply config itself. (5.1.2)
+          if (_configAttemptInFlight == null) unawaited(_runConfigAttempt());
         }),
       );
       try {

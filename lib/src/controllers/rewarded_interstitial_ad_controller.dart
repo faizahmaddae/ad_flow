@@ -77,6 +77,10 @@ class RewardedInterstitialAdController extends FullScreenAdControllerBase
   /// a user who accepted the intro could still be refused by a check that
   /// only ran afterwards ("no ad, no reward, no explanation"), and a warm
   /// return during the intro could stack an app-open ad over it.
+  ///
+  /// [onReward] is a client-side completion signal, not proof — for a valuable
+  /// reward, verify Google's SSV callback on your server and grant from one
+  /// place only (see [OnUserEarnedReward] / [ServerSideVerification]).
   @override
   Future<bool> show({OnUserEarnedReward? onReward}) async {
     // Re-entrant show while the sequence (intro or ad) is on screen: the

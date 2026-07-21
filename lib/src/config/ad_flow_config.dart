@@ -368,7 +368,8 @@ class RewardedConfig {
   /// user-initiated one.
   final FrequencyCap cap;
 
-  /// Server-side verification for high-value rewards.
+  /// Server-side verification for high-value rewards. Attaching it does not
+  /// prove your backend verified anything — see [ServerSideVerification].
   final ServerSideVerification? ssv;
 
   /// How long a preloaded ad stays showable before it is proactively
@@ -408,7 +409,8 @@ class RewardedInterstitialConfig {
   /// Copy for the mandatory intro/skip screen shown before the ad.
   final RewardIntroContent intro;
 
-  /// Server-side verification for high-value rewards.
+  /// Server-side verification for high-value rewards. Attaching it does not
+  /// prove your backend verified anything — see [ServerSideVerification].
   final ServerSideVerification? ssv;
 
   /// How long a preloaded ad stays showable before it is proactively
