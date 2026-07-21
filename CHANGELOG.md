@@ -1,29 +1,38 @@
-## 5.1.2
+## 5.2.0
 
-A focused, production-focused **reliability** patch. Backward-compatible — no
-migration, and every existing call site compiles unchanged. The only surface
-change is one additive, internal-facing getter (`AdGate.isEnabled`, a
-synchronous mirror of the injected Remove-Ads/alive predicate); no types,
+A focused **reliability** release: two lifecycle fixes that close windows where
+an ad request could go out before the SDK was ready, plus operationally-correct
+SSV documentation. **Backward-compatible — no migration**, and every existing
+call site compiles unchanged. This is a minor (not a patch) only because it adds
+**one** small public symbol: an additive, internal-facing getter
+`AdGate.isEnabled` (a synchronous mirror of the injected Remove-Ads/alive
+predicate, parallel to the existing `AdGate.consentGeneration`). No types,
 methods, enums or defaults were removed or changed.
 
 ### FIXED
 
 - **No ad request is ever sent while Mobile Ads initialization is still in
-  flight** — not even for a fail-open / vacuous request configuration. The
-  request-config gate previously honoured the fail-open
-  `RequestConfigFailurePolicy` (the `auto` default for a non-policy-sensitive
-  config) even while the real `MobileAds.initialize()` was still running, so a
-  first-frame banner or native slot on a weak network / mediation cold-start
-  could dispatch an ad request before the SDK had initialized. Fail-open now
-  takes effect **only after init has genuinely completed** (a config that was
-  attempted and failed for real); while init is in flight the slot blocks with
-  `AdBlockReason.requestConfigNotApplied`. Startup stays fully non-blocking
-  (`AdFlow.initialize()` returns immediately, the first frame never waits), and
-  the ADR-028 init→`updateRequestConfiguration` ordering is preserved. When init
-  completes late, request configuration is applied promptly and blocked slots
-  recover automatically — no app code, and no long cooldown. If init never
-  completes, the UI stays usable and slots settle into an honest blocked state
-  rather than sending requests or staying `AdLoading` forever.
+  flight** — not even for a fail-open / vacuous request configuration, and not
+  on the mediation `forwardConsent` path. The request-config gate previously
+  honoured the fail-open `RequestConfigFailurePolicy` (the `auto` default for a
+  non-policy-sensitive config) even while the real `MobileAds.initialize()` was
+  still running, so a first-frame banner or native slot on a weak network /
+  mediation cold-start could dispatch an ad request before the SDK had
+  initialized. Fail-open now takes effect **only after init has genuinely
+  completed** (a config that was attempted and failed for real); while init is
+  in flight the slot blocks with `AdBlockReason.requestConfigNotApplied`. For a
+  `forwardConsent` adopter — where the SDK's init only *starts* after forwarding
+  succeeds, i.e. after the first config check already ran — the gate now
+  **re-settles request configuration after the forwarding barrier**, so a load
+  can no longer slip through on the forwarding-path init-wait timeout while init
+  is still in flight. Startup stays fully non-blocking (`AdFlow.initialize()`
+  returns immediately, the first frame never waits), gate waits stay bounded,
+  and the ADR-028 init→`updateRequestConfiguration` ordering (and
+  forward-before-init) are preserved. When init completes late, request
+  configuration is applied promptly and blocked slots recover automatically — no
+  app code, no long cooldown, no duplicate config calls or load storms. If init
+  never completes, the UI stays usable and slots settle into an honest blocked
+  state rather than sending requests or staying `AdLoading` forever.
 - **The `disableAds()` in-flight-load race is closed for every format** (banner,
   native, interstitial, rewarded, rewarded interstitial, app open). A load that
   had already passed the gate but not yet received its SDK handle when

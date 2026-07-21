@@ -1,11 +1,15 @@
 # PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
-**Phase 27 — 5.1.2 production reliability patch (2026-07-21)** — ✅ implemented
-on branch **`reliability-5.1.2`** (off `main` at 5.1.1 `991b650`; NOT pushed /
-tagged / merged / published — Faiz reviews). A focused, backward-compatible
-patch: no redesign, no migration. ADR-071. Three findings, each confirmed from
-the current code and fixed with fail-first tests:
+**Phase 27 — 5.2.0 production reliability release (2026-07-21)** — ✅ implemented
+on branch **`reliability-5.1.2`** (off current `origin/main` tip
+**`13cf675`** "docs(progress): mark 5.1.1 shipped and published" — verified via
+`git fetch`, merge-base = `origin/main`, no rebase needed; the branch NAME still
+reads `5.1.2` but the release is **5.2.0**; NOT pushed / tagged / merged /
+published — Faiz reviews). A focused, backward-compatible minor: no redesign, no
+migration; the ONLY public-API addition is one getter (`AdGate.isEnabled`),
+which is why this is a MINOR (5.2.0), not a patch. ADR-071. Findings, each
+confirmed from the current code and fixed with fail-first tests:
 
 1. **Never load before Mobile Ads init settles (Area 1).**
    `AdFlow._settleRequestConfig()` returned fail-open (`!failClosed`) even while
@@ -20,7 +24,15 @@ the current code and fixed with fail-first tests:
    config attempt directly (bypassing the failure re-arm cooldown), and a
    successful apply calls `_recheckAll()`. Non-blocking init + ADR-028 ordering
    preserved; a never-completing init settles slots into `AdBlocked`, never
-   `AdLoading`, never a request.
+   `AdLoading`, never a request. **Forwarding follow-up (release gate):** for a
+   `forwardConsent` adopter, SDK init only STARTS after forwarding succeeds —
+   after the first config check ran — and `_settleConsentForwarding` proceeded on
+   its `_initPipeline.timeout` even with init still in flight, so a vacuous/
+   fail-open placement fired a request post-timeout, pre-init. Fix:
+   `_settleConsentForwarding` no longer waits on the pipeline (only kicks init);
+   `AdGate.loadBlockReason` RE-SETTLES request config AFTER the forwarding barrier
+   (bounded; `requestConfigNotApplied` on false; no duplicate config dispatch;
+   forward-before-init preserved).
 2. **`disableAds()` in-flight-load race (Area 2).** `recheckGate()` can't drop an
    `AdLoading` controller, so a `disableAds()` landing mid-load published the
    late handle as `AdLoaded` / kept it warm. Fix: new synchronous
@@ -43,34 +55,39 @@ the current code and fixed with fail-first tests:
    carries no ad ref). Low-severity, process-bounded, unfixable from the seam.
    Note retained; no workaround, no patch expansion.
 
-Files: `lib/src/policy/ad_gate.dart` (+`isEnabled`),
-`lib/src/controllers/{banner,native}_ad_controller.dart`,
+Files: `lib/src/policy/ad_gate.dart` (+`isEnabled`, post-forwarding config
+re-settle), `lib/src/controllers/{banner,native}_ad_controller.dart`,
 `lib/src/controllers/full_screen_ad_controller_base.dart`,
 `lib/src/facade/ad_flow.dart` (`_settleRequestConfig`, init-completion hook,
-`_applyRequestConfigOnce` → `_recheckAll`),
+`_applyRequestConfigOnce` → `_recheckAll`, `_settleConsentForwarding` pipeline
+wait removed),
 `lib/src/seam/ad_sdk_types.dart` + `lib/src/config/ad_flow_config.dart` +
 `lib/src/controllers/rewarded{,_interstitial}_ad_controller.dart` (SSV dartdoc),
-`README.md` (SSV section + `^5.1.2` pins), `CHANGELOG.md`, `pubspec.yaml`
-(→ 5.1.2), DECISIONS (ADR-071). New tests:
+`README.md` (SSV section + `^5.2.0` pins), `CHANGELOG.md`, `pubspec.yaml`
+(→ 5.2.0), DECISIONS (ADR-071). New tests:
 `test/facade/request_config_policy_test.dart` (+1),
+`test/facade/consent_forwarding_test.dart` (+1, the forwarding follow-up),
 `test/facade/inflight_disable_race_test.dart` (new, +2),
-`test/controllers/inflight_permission_recheck_test.dart` (new, +2). All four
+`test/controllers/inflight_permission_recheck_test.dart` (new, +2). All five
 behavioural tests confirmed fail-first against the unmodified code.
 
 **Public API delta:** `+AdGate.isEnabled` (additive getter on the already-public
 DI class; non-breaking, mirrors `AdGate.consentGeneration`). No removals, no
 signature/enum/default changes, no migration. `AdController` interface unchanged.
+Because `AdGate` is exported, this additive symbol makes the release a MINOR
+(**5.2.0**), not a patch — `@internal` was NOT used to pretend otherwise.
 
 ## How to verify (Phase 27)
 `dart format --set-exit-if-changed .` && `flutter analyze` (clean) &&
-`flutter test` → **542 tests** green (537 baseline + 5). Also run before merge:
+`flutter test` → **543 tests** green (537 baseline + 6). Also run before merge:
 `dart pub publish --dry-run`, `pana`, `cd example && flutter build apk --debug`
-and `flutter build ios --simulator --debug`. Pure-Dart lifecycle patch — no
-device-only behaviour changed; the two races and the init-settle gate are
-fakeAsync/await-deterministic. NOT re-verified on real hardware this session.
+and `flutter build ios --simulator --debug`. Pure-Dart lifecycle release — no
+device-only behaviour changed; the races and the init-settle/forwarding gates
+are fakeAsync/await-deterministic. NOT re-verified on real hardware this session.
 
-## Open items for Faiz (5.1.2)
-- Review + merge `reliability-5.1.2`; tag `v5.1.2` when ready (tag auto-publishes).
+## Open items for Faiz (5.2.0)
+- Review + merge `reliability-5.1.2` (branch name); tag `v5.2.0` when ready (tag
+  auto-publishes).
 - Optional: still-open upstream App Open failed-load leak (ADR-048) can be filed
   against `google_mobile_ads`; re-check on the next plugin bump.
 
