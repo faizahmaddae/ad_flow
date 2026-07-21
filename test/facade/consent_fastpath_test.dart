@@ -81,6 +81,84 @@ void main() {
     });
   });
 
+  test('cached-true -> final-false DOWNGRADE while the SDK load is in flight: '
+      'the late handle is disposed, never published as AdLoaded, and the slot '
+      'settles into an honest blocked state (canRequestAds tracks true->false)', () {
+    fakeAsync((async) {
+      sdk.canRequestAdsResult = true; // cached consent from a previous session
+      sdk.consentUpdateHold = Completer<void>(); // this launch's update: SLOW
+      sdk.loadHold = Completer<void>(); // hold the SDK ad load in flight
+      // When the update finally completes, consent has lapsed / been declined:
+      // the flow will conclude canRequestAds() == false.
+      sdk.onConsentInfoUpdate = () => sdk.canRequestAdsResult = false;
+      AdFlow? ads;
+      unawaited(
+        AdFlow.initialize(
+          bannerConfig,
+          sdk: sdk,
+          store: InMemoryKeyValueStore(),
+          platform: AdPlatform.android,
+        ).then((f) => ads = f),
+      );
+      async.flushMicrotasks();
+
+      final banner = ads!.banner();
+      unawaited(banner.load(width: 320));
+      async.flushMicrotasks();
+
+      // The fast path served on cached consent: the load passed the gate and is
+      // now in flight at the held SDK load (bannerSpecs is recorded only AFTER
+      // the hold releases), and the live reactive answer reflects the accepted
+      // fast path.
+      expect(banner.state.value, isA<AdLoading>());
+      expect(
+        ads!.canRequestAds.value,
+        isTrue,
+        reason: 'the live reactive answer must reflect the accepted fast path',
+      );
+
+      // The slow update completes and DOWNGRADES consent to false.
+      sdk.consentUpdateHold!.complete();
+      async.flushMicrotasks();
+      expect(
+        ads!.canRequestAds.value,
+        isFalse,
+        reason: 'the final flow reconciles the reactive answer to false',
+      );
+
+      // The SDK finally returns the handle requested under the (now-stale)
+      // cached consent.
+      sdk.loadHold!.complete();
+      async.flushMicrotasks();
+
+      expect(
+        banner.state.value,
+        isNot(isA<AdLoaded>()),
+        reason:
+            'a handle requested under cached consent the flow then DENIED '
+            'must never be published as AdLoaded',
+      );
+      expect(banner.handle, isNull);
+      expect(
+        sdk.banners.single.disposed,
+        isTrue,
+        reason: 'the stale handle must be disposed',
+      );
+      expect(
+        banner.state.value,
+        const AdBlocked(AdBlockReason.consentNotGranted),
+        reason: 'the slot settles into an honest blocked state',
+      );
+      expect(
+        sdk.bannerSpecs,
+        hasLength(1),
+        reason: 'no duplicate request / retry storm',
+      );
+      banner.dispose();
+      ads!.dispose();
+    });
+  });
+
   test('a first-install user with cached canRequestAds()==false does NOT load '
       'early — it waits for the flow to settle', () {
     fakeAsync((async) {

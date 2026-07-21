@@ -1,3 +1,34 @@
+## 5.2.2
+
+A focused **reliability** patch that completes the 5.2.1 cached-consent fast
+path. **No public API changes, no default changes, no migration** — the change
+is internal, and every existing call site compiles unchanged.
+
+### FIXED
+
+- **Cached-consent downgrade now invalidates inventory in flight.** When the
+  fast path served a returning user on cached consent and *this* launch's flow
+  then concluded ads may **not** be requested (consent lapsed and a now-required
+  form was declined), 5.2.1 dropped an *already-loaded* ad but could still
+  install an ad whose SDK load was **in flight** at the moment of the downgrade
+  (and could let a full-screen show already waiting at an async pre-show check
+  dispatch), because `recheckGate()` does nothing while a controller is
+  `AdLoading`/`AdShowing` and — for a non-forwarding app — nothing bumped the
+  consent generation. The downgrade now invalidates the consent generation
+  before re-checking, so the completing load's own generation check and the
+  final show-dispatch guard both reject the stale handle: it is disposed, never
+  published as `AdLoaded`, no impression/show occurs, and the slot settles into
+  an honest blocked state — with no duplicate request or retry storm, and
+  balanced coordinator state. Cached-false blocking, ATT exclusion,
+  `forwardConsent` fail-closed, and request-config-before-load are all
+  unchanged.
+- **`AdFlow.canRequestAds` reflects the accepted fast path.** The documented
+  live reactive consent value now publishes `true` the moment the cached-consent
+  fast path is accepted (it previously stayed `false` until the slow flow
+  finished, despite ads already serving), and the full flow later reconciles it
+  to its real final value (`false` on a downgrade). `whenReady` semantics are
+  unchanged.
+
 ## 5.2.1
 
 A focused **reliability** patch. **No public API changes, no default changes, no
