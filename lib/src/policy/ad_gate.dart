@@ -140,6 +140,20 @@ class AdGate {
       if (!(await _settleConsentForwarding?.call() ?? true)) {
         return AdBlockReason.consentNotForwarded;
       }
+      // Re-settle request configuration AFTER the forwarding barrier (5.2.0).
+      // For a `forwardConsent` adopter the Ads SDK's init only STARTS once
+      // forwarding succeeds — i.e. AFTER the first `_settleRequestConfig` above
+      // ran (with init not yet in flight, so a fail-open config let it pass).
+      // No request may go out while that real init future is in flight, so
+      // re-run the (bounded) config settle now that init may have been kicked:
+      // it blocks with `requestConfigNotApplied` until init completes and config
+      // applies, then the slot recovers on its backoff. For a non-adopter this
+      // is a cheap no-op (config was already applied / decided at the first
+      // check). It does NOT re-dispatch a duplicate config call — the settle
+      // joins the in-flight/applied state.
+      if (!(await _settleRequestConfig?.call() ?? true)) {
+        return AdBlockReason.requestConfigNotApplied;
+      }
       return null;
     } catch (error, stack) {
       _reportGateError(error, stack);

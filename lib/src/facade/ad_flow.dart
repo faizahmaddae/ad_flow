@@ -670,21 +670,19 @@ class AdFlow {
     }
     if (!(_consentForwarded || !_mediationConsentFailClosed)) return false;
     // Proceeding. For an adopter the GMA SDK's init is GATED on forwarding
-    // (forward-before-init), so — unlike a non-adopter — the config gate
-    // earlier in loadBlockReason cannot be relied upon to have waited for
-    // init. Ensure init is kicked and completed before this load fires an ad
-    // request, or a request could reach an uninitialized SDK / adapters.
+    // (forward-before-init), so it only STARTS here — after the
+    // `_settleRequestConfig` check earlier in loadBlockReason already ran, with
+    // init not yet in flight. Ensure init is kicked; the gate then RE-SETTLES
+    // request configuration after this barrier (see AdGate.loadBlockReason), and
+    // that re-check is the single authority on "init done + config applied
+    // before any request" — it blocks (requestConfigNotApplied), bounded, while
+    // the real init future is in flight, and recovers when init completes
+    // (5.2.0). This barrier no longer waits on `_initPipeline` itself: the old
+    // wait proceeded on its own timeout even while init was still in flight, so
+    // a vacuous/fail-open placement could fire a request post-timeout,
+    // pre-init.
     if (!_initStarted) {
       unawaited(_startInit()); // fail-open reaching here before _start did
-    }
-    final pipeline = _initPipeline;
-    if (pipeline != null) {
-      try {
-        await pipeline.timeout(_initTimeout);
-      } catch (_) {
-        // Init merely slow — the completion hook finishes config; proceed.
-      }
-      if (_disposed) return false;
     }
     return true;
   }
