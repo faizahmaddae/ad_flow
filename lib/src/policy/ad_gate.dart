@@ -47,6 +47,21 @@ class AdGate {
   final Future<void> Function()? _settleConsent;
   final int Function()? _consentGeneration;
 
+  /// The cheap, synchronous "are ads currently enabled?" answer (the injected
+  /// [isEnabled] predicate: Remove-Ads off AND the owning graph still alive).
+  ///
+  /// A controller reads this in the SAME synchronous turn it publishes
+  /// `AdLoaded`, to close the `disableAds()` in-flight-load race: a disable (or
+  /// graph dispose) landing while a request is in flight cannot be caught by
+  /// `recheckGate`, which no-ops on an `AdLoading` controller (no handle yet),
+  /// so the controller instead re-checks this immediately before installing the
+  /// freshly-loaded handle and drops it if ads are no longer enabled. A pure
+  /// bool — it never throws, so (unlike the fallible consent read) it can never
+  /// yield a transient `internalError` that would wrongly drop good inventory.
+  /// Mirrors [consentGeneration]: a getter over an injected callback, not a new
+  /// subsystem (5.1.2).
+  bool get isEnabled => _isEnabled();
+
   /// A monotonically-increasing counter bumped on every consent MUTATION.
   ///
   /// A controller captures this right after its load passes the gate and

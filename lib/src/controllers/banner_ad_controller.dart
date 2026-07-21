@@ -297,6 +297,22 @@ class BannerAdController implements AdController {
         await _reloadAtCurrentWidth();
         return;
       }
+      if (!_gate.isEnabled) {
+        // disableAds() / graph-dispose landed WHILE this banner was in flight:
+        // the gate passed at request time, but ads are no longer enabled.
+        // recheckGate cannot drop an AdLoading controller (no handle yet), so
+        // drop the freshly-loaded handle HERE — synchronously, in the same turn
+        // as the AdLoaded write below — before it is ever published or
+        // installed (5.1.2 in-flight-load race). enableAds() re-warms via the
+        // gate recheck. A pure bool read: no transient internalError can wrongly
+        // drop good inventory (the consent-staleness path is the generation
+        // check above).
+        safeUnawaited(handle.dispose(), debugName: 'handle');
+        _noteBlocked(AdBlockReason.adsDisabled);
+        _state.value = const AdBlocked(AdBlockReason.adsDisabled);
+        _scheduleGateRecheck();
+        return;
+      }
       _handle = handle;
       _paidSub = handle.paidEvents.listen(_dispatchPaid);
       _eventSub = handle.events.listen(_onViewEvent);

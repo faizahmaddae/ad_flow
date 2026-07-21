@@ -341,6 +341,22 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         unawaited(load());
         return;
       }
+      if (!_gate.isEnabled) {
+        // disableAds() / graph-dispose landed WHILE this ad was in flight: the
+        // gate passed at request time, but ads are no longer enabled.
+        // recheckGate cannot drop an AdLoading controller, so drop the
+        // finalized-but-unpublished handle HERE — synchronously, in the same
+        // turn as the AdLoaded write below — so no warm full-screen inventory is
+        // ever retained (or externally reported ready) under Remove-Ads (5.1.2
+        // in-flight-load race). enableAds() re-warms via the gate recheck. A
+        // pure bool read: no transient internalError can wrongly drop good
+        // inventory (consent-staleness is the generation checks above).
+        _dropHandle();
+        noteBlocked(AdBlockReason.adsDisabled);
+        _state.value = const AdBlocked(AdBlockReason.adsDisabled);
+        _scheduleGateRecheck();
+        return;
+      }
       _attempts = 0;
       _gateAttempts = 0;
       _lastBlockReason = null;
