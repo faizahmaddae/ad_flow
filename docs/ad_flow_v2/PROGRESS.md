@@ -1,15 +1,30 @@
 # PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
-**Phase 27 — 5.2.0 production reliability release (2026-07-21)** — ✅ implemented
-on branch **`reliability-5.1.2`** (off current `origin/main` tip
-**`13cf675`** "docs(progress): mark 5.1.1 shipped and published" — verified via
-`git fetch`, merge-base = `origin/main`, no rebase needed; the branch NAME still
-reads `5.1.2` but the release is **5.2.0**; NOT pushed / tagged / merged /
-published — Faiz reviews). A focused, backward-compatible minor: no redesign, no
-migration; the ONLY public-API addition is one getter (`AdGate.isEnabled`),
-which is why this is a MINOR (5.2.0), not a patch. ADR-071. Findings, each
-confirmed from the current code and fixed with fail-first tests:
+**Phase 27 — 5.2.0 production reliability release (2026-07-21)** — ✅ **SHIPPED &
+PUBLISHED (2026-07-21).** Merged, tagged, on pub.dev. A focused, backward-
+compatible minor: no redesign, no migration; the ONLY public-API addition is one
+getter (`AdGate.isEnabled`), which is why this is a MINOR (5.2.0), not a patch.
+ADR-071.
+
+**Release record.** PR [#12](https://github.com/faizahmaddae/ad_flow/pull/12)
+squash-merged to `main` (admin bypass of the 1-review requirement only — no
+reviewer available, all CI green, `enforce_admins` off) at
+2026-07-21T12:44:33Z → squash commit **`26370ba`** (single clean commit atop
+`13cf675`; `13cf675` unchanged). Annotated tag **`v5.2.0`** (object `6303172`)
+→ `26370ba`. Published to pub.dev via the tag-triggered OIDC workflow (run
+29831702334, success) — **5.2.0 is live and Latest** on
+https://pub.dev/packages/ad_flow (published 2026-07-21T12:52:38Z). GitHub Release
+[v5.2.0](https://github.com/faizahmaddae/ad_flow/releases/tag/v5.2.0) published,
+Latest, non-draft/non-prerelease, target `26370ba`. Pre-merge PR CI 29830648985
+✓, post-merge main CI 29831377402 ✓, publish 29831702334 ✓. Verified: **543
+tests**, analyze clean, format clean, pana **160/160**, dry-run **0 warnings**,
+Android + iOS **simulator** example builds — NO physical-device run (not required
+for this pure-Dart lifecycle change). `v5.1.1`/`v5.1.0` tags unchanged.
+
+The work landed on branch `release/5.2.0` (renamed from `reliability-5.1.2`
+during the release phase). Findings, each confirmed from the code and fixed with
+fail-first tests:
 
 1. **Never load before Mobile Ads init settles (Area 1).**
    `AdFlow._settleRequestConfig()` returned fail-open (`!failClosed`) even while
@@ -85,9 +100,8 @@ and `flutter build ios --simulator --debug`. Pure-Dart lifecycle release — no
 device-only behaviour changed; the races and the init-settle/forwarding gates
 are fakeAsync/await-deterministic. NOT re-verified on real hardware this session.
 
-## Open items for Faiz (5.2.0)
-- Review + merge `reliability-5.1.2` (branch name); tag `v5.2.0` when ready (tag
-  auto-publishes).
+## Open items for Faiz (post-5.2.0)
+- 5.2.0 is shipped/tagged/published (see Release record above) — nothing pending.
 - Optional: still-open upstream App Open failed-load leak (ADR-048) can be filed
   against `google_mobile_ads`; re-check on the next plugin bump.
 
