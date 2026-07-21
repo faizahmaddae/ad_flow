@@ -256,4 +256,71 @@ void main() {
       });
     });
   });
+
+  group('init-settle gate (5.1.2): fail-open must not mean "serve while '
+      'MobileAds init is still running"', () {
+    test('a vacuous / fail-open config does NOT send an ad request while '
+        'MobileAds.initialize() is still in flight, then applies config and '
+        'recovers automatically once init completes', () {
+      fakeAsync((async) {
+        // Native init has been dispatched but has not called back yet.
+        sdk.initializeHold = Completer<void>();
+        AdFlow? ads;
+        unawaited(boot(vacuousConfig).then((f) => ads = f));
+        async.flushMicrotasks();
+
+        final banner = ads!.banner();
+        unawaited(banner.load(width: 320));
+        // Past the 2s config-join bound. The OLD code let the fail-open
+        // (vacuous) config gate pass here and dispatched the ad request while
+        // the real Mobile Ads init was still in flight — the exact hazard on
+        // weak networks / mediation cold-starts.
+        async.elapse(const Duration(seconds: 5));
+        async.flushMicrotasks();
+
+        expect(
+          sdk.bannerSpecs,
+          isEmpty,
+          reason:
+              'no ad request may go out while MobileAds.initialize() is still '
+              'in flight, even for a fail-open (vacuous) config',
+        );
+        expect(
+          banner.state.value,
+          isNot(isA<AdLoading>()),
+          reason:
+              'the slot must settle into an honest blocked state, not '
+              'stay AdLoading forever',
+        );
+        expect(banner.state.value, isA<AdBlocked>());
+        expect(banner.lastBlockReason, AdBlockReason.requestConfigNotApplied);
+        expect(
+          sdk.requestConfigs,
+          isEmpty,
+          reason: 'config is never applied while init is in flight (ADR-028)',
+        );
+
+        // Init finally lands: request configuration is applied and the blocked
+        // slot recovers on its own — no app code, no 5-minute cooldown.
+        sdk.initializeHold!.complete();
+        sdk.initializeHold = null;
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+
+        expect(
+          sdk.requestConfigs,
+          hasLength(1),
+          reason: 'request configuration is applied once init completes',
+        );
+        expect(
+          sdk.bannerSpecs,
+          isNotEmpty,
+          reason: 'the blocked slot recovers automatically after init',
+        );
+        expect(banner.state.value, isA<AdLoaded>());
+        banner.dispose();
+        ads!.dispose();
+      });
+    });
+  });
 }
