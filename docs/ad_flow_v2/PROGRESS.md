@@ -1,10 +1,27 @@
 # PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
-**Phase 26 — 5.1.1 view-ad layout bug-fix (2026-07-20)** — ✅ implemented on
-branch **`fix/view-ad-layout-5.1.1`** (off `main` at v5.1.0; NOT pushed/tagged/
-merged/published — Faiz reviews). A focused, backward-compatible layout fix
-prompted by real emulator screenshots. No API change, no migration. ADR-070:
+**Phase 26 — 5.1.1 view-ad layout bug-fix (2026-07-20)** — ✅ **SHIPPED &
+PUBLISHED (2026-07-21).** Merged, tagged, on pub.dev. A focused, backward-
+compatible layout fix prompted by real emulator screenshots. No API change, no
+migration. ADR-070.
+
+**Release record.** PR [#11](https://github.com/faizahmaddae/ad_flow/pull/11)
+squash-merged to `main` (admin bypass of the 1-review requirement only, all CI
+green) at 2026-07-21T02:52:35Z → squash commit **`991b650`** (single commit
+atop v5.1.0 `1dd6640`; `1dd6640` unchanged). Annotated tag **`v5.1.1`** (object
+`8306ada`) → `991b650`. Published to pub.dev via the tag-triggered OIDC workflow
+(run 29797262645, success) — **5.1.1 is live and Latest** on
+https://pub.dev/packages/ad_flow. GitHub Release
+[v5.1.1](https://github.com/faizahmaddae/ad_flow/releases/tag/v5.1.1) published,
+Latest, non-draft/non-prerelease. Pre-merge CI 29796467895 ✓, post-merge main CI
+29796986042 ✓, publish 29797262645 ✓ (only Node.js-20 deprecation annotations,
+no failures). Verified: 537 tests, analyze clean, coverage 87.3%, pana 160/160,
+dry-run 0 warnings, Android + iOS example builds, Android emulator runtime smoke
+(enabled/disabled/re-enabled) — iOS was build-verified only, not interactively
+runtime-tested.
+
+The fix, as landed (ADR-070):
 
 1. **Remove-Ads reclaims layout space.** `AdFlowBanner`/`AdFlowNativeAd` now
    collapse to a **zero footprint** while ads are disabled (was: kept reserving
