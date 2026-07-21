@@ -569,6 +569,42 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         guardedCallback(() => onReward(reward), debugName: 'onReward');
       };
     }
+    // FINAL synchronous dispatch boundary (5.2.1). Every check above ran BEFORE
+    // one or more awaits (showBlockReason, caps.canShow, and — for the rewarded
+    // interstitial — the unbounded intro). A disableAds() or consent mutation
+    // that landed during those awaits is deliberately ignored by _recheckAll
+    // while AdShowing, and the warm ad can age past maxAdAge during a slow
+    // cap-store hydration — so the previously-captured handle could otherwise be
+    // dispatched despite being revoked or stale. Re-verify only the cheap
+    // SYNCHRONOUS facts that can have gone stale (no network/consent flow, no
+    // async cap recompute), in the same turn as handle.show() below.
+    if (_disposed) return false; // dispose already rolled everything back
+    if (!_gate.isEnabled) {
+      // Ads disabled mid-show: do not dispatch, and do not leave it warm under
+      // adsDisabled (mirrors recheckGate, which could not touch AdShowing).
+      noteBlocked(AdBlockReason.adsDisabled);
+      _exitCoordinator();
+      _timer?.cancel();
+      _dropHandle();
+      if (!_disposed) _state.value = const AdBlocked(AdBlockReason.adsDisabled);
+      _scheduleGateRecheck();
+      return false;
+    }
+    if (_loadedGeneration != _gate.consentGeneration) {
+      // Consent mutated mid-show: the warm ad carries stale consent/forwarding.
+      // Roll back the claim/state, then drop + reload through the fresh gate.
+      await rejectAndRollBack();
+      discardCurrentAd();
+      return false;
+    }
+    if (isExpired) {
+      // Aged past maxAdAge mid-show (e.g. a slow cap hydration crossed expiry):
+      // discard rather than show a stale ad that may fail or not count.
+      noteBlocked(AdBlockReason.expired);
+      await rejectAndRollBack();
+      discardCurrentAd();
+      return false;
+    }
     try {
       await handle.show(onUserEarnedReward: onRewardOnce);
     } catch (e) {
