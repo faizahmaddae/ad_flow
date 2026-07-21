@@ -1,6 +1,55 @@
 # PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
+**Phase 29 — 5.2.2 fast-path downgrade reconciliation (2026-07-21)** — ✅
+implemented on branch **`fix/fastpath-downgrade-generation`** (off `origin/main`
+`c2fc8c0`; NOT pushed / tagged / merged / published — Faiz reviews). A focused
+patch completing the 5.2.1 fast path: **no public API, no default change, no
+migration**. ADR-072 addendum. One hypothesis, CONFIRMED and fixed fail-first:
+
+- **Cached-consent downgrade while inventory is IN FLIGHT.** The 5.2.1 fast path
+  serves a returning user on cached consent; if THIS launch's flow then concludes
+  `false` (consent lapsed, now-required form declined), `_runConsent` called
+  `_recheckAll` — which drops an already-`AdLoaded` ad but NO-OPS on `AdLoading`/
+  `AdShowing`, and for a non-forwarding app nothing bumped the consent
+  generation. So a fast-path load whose SDK request was still in flight installed
+  as `AdLoaded` (and a pending full-screen show could dispatch), because the
+  completion check and the final show-dispatch guard both key off the generation.
+  Fix (`ad_flow.dart` only, private): a `_consentFastPathServed` flag records
+  fast-path acceptance; on a downgrade `_runConsent` bumps `_consentGeneration`
+  BEFORE `_recheckAll` (using the generation mechanism directly, NOT
+  `_invalidateConsentForwarding`). The completing load's own generation check and
+  the show-dispatch guard then reject the stale handle — disposed, never
+  `AdLoaded`, no impression/show, honest blocked (`consentNotGranted`), no dup/
+  storm, balanced coordinator. Also: `_settleConsent` now publishes
+  `canRequestAds.value = true` when the fast path is accepted (the documented
+  LIVE reactive value previously stayed false while serving); the flow reconciles
+  it to false on downgrade. `whenReady` unchanged. First-install-false blocking,
+  ATT exclusion, forwardConsent fail-closed, config-before-load all preserved.
+
+Files: `lib/src/facade/ad_flow.dart` (fast-path notifier publish +
+`_consentFastPathServed` flag + downgrade generation bump). New test:
+`test/facade/consent_fastpath_test.dart` (+1 — facade in-flight downgrade,
+fail-first + neuter-verified: generation bump AND notifier publish each
+load-bearing). The full-screen show path is covered by the composition of this
+test (proves the downgrade bumps the generation) and the existing
+`show_dispatch_guard_test.dart` generation case (proves the guard rejects a
+bumped generation).
+
+**Public API delta:** NONE (only private members in `ad_flow.dart`). No
+removals/signature/enum/default changes, no migration — hence patch 5.2.2.
+
+## How to verify (Phase 29)
+`dart format --set-exit-if-changed .` && `flutter analyze` (clean) &&
+`flutter test` → **550 tests** green (549 + 1). `dart pub publish --dry-run`
+0 warnings. Pure-Dart lifecycle patch; fakeAsync/await-deterministic. Cite pana
+160/160 + Android/iOS builds from the unchanged 5.2.1 tree, or re-run per policy.
+
+## Open items for Faiz (5.2.2)
+- Review + merge `fix/fastpath-downgrade-generation`; release 5.2.2 when ready.
+- Optional: still-open upstream App Open failed-load leak (ADR-048).
+
+## Previous phase
 **Phase 28 — 5.2.1 post-5.2.0 reliability patch (2026-07-21)** — ✅ implemented
 on branch **`fix/consent-fastpath-showguard`** (off `origin/main` `05d1a80`; NOT
 pushed / tagged / merged / published — Faiz reviews). A focused patch: **no
