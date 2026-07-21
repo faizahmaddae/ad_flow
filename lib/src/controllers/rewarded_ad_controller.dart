@@ -50,6 +50,10 @@ class RewardedAdController extends FullScreenAdControllerBase
 
   /// Shows the warm rewarded ad; [onReward] fires (at most once) when the
   /// user earns the reward.
+  ///
+  /// [onReward] is a client-side completion signal, not proof — for a valuable
+  /// reward, verify Google's SSV callback on your server and grant from one
+  /// place only (see [OnUserEarnedReward] / [ServerSideVerification]).
   @override
   Future<bool> show({OnUserEarnedReward? onReward}) =>
       showEngine(onReward: onReward);
