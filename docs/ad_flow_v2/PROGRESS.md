@@ -1,6 +1,67 @@
 # PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
+**Phase 28 — 5.2.1 post-5.2.0 reliability patch (2026-07-21)** — ✅ implemented
+on branch **`fix/consent-fastpath-showguard`** (off `origin/main` `05d1a80`; NOT
+pushed / tagged / merged / published — Faiz reviews). A focused patch: **no
+public API, no default change, no migration**. ADR-072. Two findings, each
+confirmed adversarially from the current code and fixed fail-first:
+
+1. **Cached-consent startup fast path (Finding A — CONFIRMED).**
+   `UmpConsentGateway._run()` resolves `canRequestAds()` only after
+   `requestConsentInfoUpdate()` + the form flow, and `_settleConsent()` joined
+   the whole op — so a returning user with valid cached consent lost serving
+   until this launch's (possibly slow) update finished / hit the 30s timeout.
+   Fix (facade-only): `_settleConsent` fast-paths on the cheap live
+   `canRequestAds()` when eligible (facade owns the default gateway, no ATT
+   adopter, no forwardConsent adopter); the slow flow keeps running + publishes
+   its result; a downgrade drops early inventory; `_runConsent` completion
+   re-points forwarding (bumps the generation) ONLY for a forwarder, so a
+   non-adopter's same-answer settle doesn't spuriously reload the fast-path ad.
+   Preserves: update-dispatched-before-serve, first-install stays blocked, ATT
+   ordering, forwardConsent fail-closed + forward-before-init,
+   config-before-load, no dup flows / storms.
+2. **Final full-screen dispatch guard (Finding B — CONFIRMED).** `showEngine()`
+   awaits `showBlockReason`/`_caps.canShow` after claiming the coordinator +
+   `AdShowing`, which `_recheckAll()` skips — so a `disableAds()` / consent
+   mutation / expiry crossing during those awaits could still dispatch the
+   captured handle. Fix: a final SYNCHRONOUS guard in the same turn as
+   `handle.show()` (enabled? generation current? not expired? not disposed?) —
+   revoked → drop (`AdBlocked(adsDisabled)`, not left warm); stale/expired →
+   discard+reload. Covers interstitial/rewarded/RI/app-open. Coordinator
+   balance, exactly-once show, reward + RI-intro + internalError unchanged.
+
+**Docs bundle:** README + `AppOpenHandle` dartdoc (App Open trigger modes, not
+"warm-start only"); runtime-SSV helper doc (load-time attach fails CLOSED for a
+configured SSV, not silent best-effort).
+
+Files: `lib/src/facade/ad_flow.dart` (fast path + eligibility + reconcile),
+`lib/src/controllers/full_screen_ad_controller_base.dart` (dispatch guard),
+`lib/src/seam/ad_sdk.dart` + `lib/src/seam/gma_ad_sdk.dart` + `README.md`
+(docs), `CHANGELOG.md`, `pubspec.yaml` (→ 5.2.1), DECISIONS (ADR-072). New
+tests: `test/facade/consent_fastpath_test.dart` (new, +3),
+`test/controllers/show_dispatch_guard_test.dart` (new, +3); plus a determinism
+fix to `consent_forwarding_test.dart`'s 5.2.0 init-wait test (pre-existing
+jitter flake — now asserts durable facts). All six new behavioural tests
+confirmed fail-first against the unmodified code.
+
+**Public API delta:** NONE. `AdFlow._` (private) gained a private required
+param; the consent gateway is untouched. No removals, no signature/enum/default
+changes, no migration — hence a patch (5.2.1), not a minor.
+
+## How to verify (Phase 28)
+`dart format --set-exit-if-changed .` && `flutter analyze` (clean) &&
+`flutter test` → **549 tests** green (543 baseline + 6). Also run before merge:
+`dart pub publish --dry-run`, `pana`, `cd example && flutter build apk --debug`
+and `flutter build ios --simulator --debug`. Pure-Dart lifecycle patch — no
+device-only behaviour changed; the fast path and dispatch guard are
+fakeAsync/await-deterministic. NOT re-verified on real hardware this session.
+
+## Open items for Faiz (5.2.1)
+- Review + merge `fix/consent-fastpath-showguard`; release 5.2.1 when ready.
+- Optional: still-open upstream App Open failed-load leak (ADR-048).
+
+## Previous phase
 **Phase 27 — 5.2.0 production reliability release (2026-07-21)** — ✅ **SHIPPED &
 PUBLISHED (2026-07-21).** Merged, tagged, on pub.dev. A focused, backward-
 compatible minor: no redesign, no migration; the ONLY public-API addition is one

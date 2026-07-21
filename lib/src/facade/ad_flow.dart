@@ -43,6 +43,7 @@ class AdFlow {
     required bool ownsConsent,
     required AdPlatform platform,
     required KeyValueStore store,
+    required bool consentFastPathEligible,
     RewardedIntroPresenter? rewardedIntroPresenter,
     Future<void> Function()? consentForwarder,
   }) : _config = config,
@@ -50,6 +51,7 @@ class AdFlow {
        _consent = consentGateway,
        _ownsConsent = ownsConsent,
        _platform = platform,
+       _consentFastPathEligible = consentFastPathEligible,
        _consentForwarder = consentForwarder,
        _coordinator = FullScreenAdCoordinator(),
        _retry = RetryPolicy(config.retry) {
@@ -278,6 +280,16 @@ class AdFlow {
       ownsConsent: consent == null,
       platform: platform ?? currentAdPlatform(),
       store: store ?? SharedPrefsKeyValueStore(),
+      // The cached-consent fast path (ADR-072) is engaged only when this facade
+      // owns the DEFAULT UmpConsentGateway (so it knows the info update is
+      // dispatched synchronously at startup), no client-driven ATT primer is
+      // configured (so serving on cached consent can never precede a required
+      // ATT decision), AND there is no forwardConsent adopter (whose loads are
+      // fail-closed on the forwarding barrier regardless, so the fast path would
+      // give no benefit — only serve stale before forwarding). Anything else
+      // falls back to the full-flow wait: always correct, just not fast.
+      consentFastPathEligible:
+          consent == null && attExplainer == null && forwardConsent == null,
       rewardedIntroPresenter: rewardedIntroPresenter,
       consentForwarder: forwardConsent,
     );
@@ -330,6 +342,11 @@ class AdFlow {
   final ConsentGateway _consent;
   final bool _ownsConsent;
   final AdPlatform _platform;
+
+  /// Whether the cached-consent startup fast path may engage (ADR-072): the
+  /// facade owns the default gateway (info update dispatched synchronously at
+  /// startup) and there is no client-driven ATT adopter. See [_settleConsent].
+  final bool _consentFastPathEligible;
   final FullScreenAdCoordinator _coordinator;
   final RetryPolicy _retry;
   late final StoredFrequencyCapPolicy _caps;
@@ -867,6 +884,25 @@ class AdFlow {
 
     final inFlight = _consentInFlight;
     if (inFlight != null) {
+      // CACHED-CONSENT FAST PATH (ADR-072; Google UMP guidance). A returning
+      // user whose PREVIOUS session already made `canRequestAds()` true should
+      // not lose ad serving just because THIS launch's consent-info update is
+      // slow. When eligible ([_consentFastPathEligible]) the default gateway has
+      // already dispatched this launch's `requestConsentInfoUpdate`
+      // synchronously at startup (and no ATT decision is being bypassed), so a
+      // cached `canRequestAds() == true` means we may serve NOW — the gate's own
+      // live `canRequestAds()` read (next step) still confirms it, the slow
+      // flow keeps running and publishes its final result, and a downgrade
+      // drops stale inventory (see [_runConsent]). A first-install user (cached
+      // false) falls through and waits for the flow to settle.
+      if (_consentFastPathEligible) {
+        try {
+          if (await _sdk.canRequestAds()) return;
+        } catch (_) {
+          // Indeterminate — do not fast-path; join the full flow instead.
+        }
+        if (_disposed || _consentOpen) return;
+      }
       await inFlight;
       return;
     }
@@ -894,10 +930,22 @@ class AdFlow {
       if (!_disposed) {
         _canRequestAdsNotifier.value = open;
         // A completed consent flow (initial, or a retry that finally resolved)
-        // is a forwarding point: invalidate any prior forward so the barrier
-        // re-runs it against the fresh state, and fire the observability hook.
-        _invalidateConsentForwarding();
+        // is a forwarding point: re-point forwarding against the fresh state —
+        // but ONLY when there is a forwarder to re-point. For a non-adopter this
+        // initial/retry settle must NOT bump the consent generation: the
+        // cached-consent fast path (ADR-072) may have a load in flight, and
+        // bumping the generation as the flow settles to the SAME answer would
+        // invalidate that perfectly good ad and force a wasteful reload. A real
+        // later consent MUTATION still invalidates inventory via
+        // _afterConsentMutation, and a downgrade here is handled just below.
+        if (_mediationConsentRequired) _invalidateConsentForwarding();
         _dispatchConsentChanged();
+        // Reconcile the fast path (ADR-072): if a returning user was served on
+        // cached consent but THIS launch's flow concluded ads may NOT be
+        // requested (e.g. consent lapsed and a now-required form was declined),
+        // drop the inventory that loaded — each controller's live canRequestAds
+        // check does the drop. A no-op when nothing loaded early.
+        if (!open && _consentFastPathEligible) _recheckAll();
       }
       return open;
     });
