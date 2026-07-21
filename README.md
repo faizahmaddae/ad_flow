@@ -21,7 +21,8 @@ ad_flow? Read [MIGRATION](MIGRATION.md).
 - **Policy-aware defaults.** App open only on warm starts with the 4-hour
   expiry; interstitials frequency-capped and action-paced; the rewarded
   interstitial intro/skip screen is mandatory by construction; banners
-  reserve their height so layouts never shift.
+  reserve their height so layouts never shift, and collapse to a zero
+  footprint when ads are disabled (Remove-Ads).
 - **Revenue-minded plumbing.** Every full-screen format keeps one ad warm
   (load → show → reload on dismiss); failed loads retry with exponential
   backoff + jitter and re-arm after a cooldown; `onPaidEvent` reports
@@ -48,7 +49,7 @@ Set up the ad_flow Flutter package (AdMob) in my project. Do it idiomatically �
    • If you find any: show me what it is, then REPLACE it with ad_flow equivalents and remove the
      old implementation (and the direct google_mobile_ads dependency if nothing else uses it).
    • If none: do a clean fresh integration.
-3. Add ad_flow: ^5.1.0 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
+3. Add ad_flow: ^5.1.1 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
    Android minSdk 24 / compileSdk 36). Platform setup: Android APPLICATION_ID meta-data, iOS
    GADApplicationIdentifier + NSUserTrackingUsageDescription. Remind me to publish & verify app-ads.txt.
 4. Ask me which formats I want and for my ad unit IDs (or use AdFlowConfig.test() for now).
@@ -67,7 +68,7 @@ Upgrade my project's ad_flow to the latest release. Be careful — older majors 
 
 1. FIRST read ad_flow's MIGRATION.md plus the current README and public API
    (package:ad_flow/ad_flow.dart). Use only symbols that exist there.
-2. Bump ad_flow to ^5.1.0 and meet its min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
+2. Bump ad_flow to ^5.1.1 and meet its min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
    Android minSdk 24 / compileSdk 36; adopt the iOS UISceneDelegate lifecycle if I have a custom AppDelegate).
 3. Find EVERY older ad_flow usage (legacy AdFlow.instance/initializeWithExplainer/EasyBannerAd, old
    managers/widgets, a broad google_mobile_ads re-export). List them, then migrate each per MIGRATION.md.
@@ -89,7 +90,7 @@ consent form even if they denied ATT; native ads now expire after ~55 min by def
 
 ```yaml
 dependencies:
-  ad_flow: ^5.1.0
+  ad_flow: ^5.1.1
 ```
 
 Requirements (from `google_mobile_ads` 9.x): Flutter ≥ 3.38.1, Dart ≥ 3.10,
@@ -183,11 +184,17 @@ Future<void> main() async {
 class _HomeState extends State<Home> {
   @override
   Widget build(BuildContext context) => Scaffold(
-        bottomNavigationBar: SafeArea(
-          // Widget-first (3.0): the widget creates AND owns its controller,
-          // so the "fresh controller minted in build()" footgun (a blank ad
-          // on every setState) cannot happen.
-          child: AdFlowBanner(adFlow: ads),
+        // Remove-Ads reclaims the WHOLE bottom bar: return SizedBox.shrink()
+        // BEFORE constructing SafeArea, or its inset would still reserve an
+        // empty strip once the banner collapses to zero (5.1.1).
+        bottomNavigationBar: ValueListenableBuilder(
+          valueListenable: ads.adsEnabled,
+          builder: (context, enabled, _) => !enabled
+              ? const SizedBox.shrink()
+              // Widget-first (3.0): the widget creates AND owns its controller,
+              // so the "fresh controller minted in build()" footgun (a blank ad
+              // on every setState) cannot happen.
+              : SafeArea(child: AdFlowBanner(adFlow: ads)),
         ),
       );
 }
@@ -261,8 +268,15 @@ it swaps every **configured** slot to Google's sample IDs. Never ship it.
 
 ```dart
 Scaffold(
-  bottomNavigationBar: SafeArea(
-    child: AdFlowBanner(adFlow: ads), // creates + owns its controller (3.0)
+  // Collapse the WHOLE bar (SafeArea included) when ads are disabled, so
+  // Remove-Ads leaves no empty inset behind (5.1.1).
+  bottomNavigationBar: ValueListenableBuilder(
+    valueListenable: ads.adsEnabled,
+    builder: (context, enabled, _) => !enabled
+        ? const SizedBox.shrink()
+        : SafeArea(
+            child: AdFlowBanner(adFlow: ads), // creates + owns its controller (3.0)
+          ),
   ),
 )
 ```
@@ -283,12 +297,21 @@ AdMob already auto-refreshes banner ad units server-side from the console; set t
 rate there instead. When opted in, values under 30s are
 clamped).
 
-Adaptive banners have no pure-width height formula — Google documents
-50–90dp depending on device and width. `AdFlowBanner` reserves a
-device-height-aware estimate (15% of screen height, clamped to that
-50–90dp range) rather than a flat guess, but if you already know the real
-height for a placement (e.g. from a previous load), pass it explicitly via
-`placeholderHeight` to eliminate any residual shift entirely.
+**Pre-load placeholder height (5.1.1).** A loaded banner always uses the exact
+live SDK dimensions. Before the ad loads, `AdFlowBanner` reserves a minimal,
+deterministic height per kind:
+
+- **fixed** — the slot's exact configured height (no shift when it loads);
+- **large anchored adaptive** — the documented **50dp floor** (Google's large
+  anchored adaptive banners are 50–150dp with no pure-width formula), then the
+  ad grows the box to its exact resolved height (60/90/100/150…) once it loads;
+- **inline adaptive** — **0**, because the real height is unknown until
+  `onAdLoaded`.
+
+Pass `placeholderHeight` to reserve a publisher-chosen height for a placement
+whose size you know in advance (e.g. an inline banner). `placeholderHeight: 0`
+opts into fully collapsed pre-load behaviour — no reservation until the ad
+actually loads.
 
 ### Interstitial
 
@@ -527,10 +550,10 @@ await AdFlow.initialize(config, consentDebug: const ConsentDebugOptions(
 ## 6. Remove-Ads, kill switch, revenue, inspector
 
 ```dart
-ads.disableAds();   // user bought Remove-Ads: live/warm ads are DROPPED
-                    // (mounted banner/native widgets fall back to their
-                    // placeholder) and every future load/show is blocked
-ads.enableAds();    // re-warms inventory at once
+ads.disableAds();   // user bought Remove-Ads: live/warm ads are DROPPED,
+                    // mounted AdFlowBanner/AdFlowNativeAd COLLAPSE to a zero
+                    // footprint (5.1.1), and every future load/show is blocked
+ads.enableAds();    // re-warms inventory at once; the widgets render again
 ads.adsEnabled;     // ValueListenable<bool> — hide ad widgets reactively
 ads.canRequestAds;  // ValueListenable<bool> — LIVE consent answer (3.0):
                     // follows a late consent grant AND a withdrawal, unlike
@@ -548,6 +571,17 @@ ads.interstitial.response;   // AdResponseSummary? — which network filled the
 
 await ads.openAdInspector(); // debug overlay on a test device
 ```
+
+> **Remove-Ads and parent surfaces (5.1.1).** `AdFlowBanner` and
+> `AdFlowNativeAd` collapse themselves to a zero footprint while ads are
+> disabled — but a surface you wrap them in (a `SafeArea` bottom bar, a
+> decorated `Card`, a titled section) will still render its own padding,
+> border and inset around the now-empty child. Hide those parents too, keyed on
+> `ads.adsEnabled`, so Remove-Ads reclaims the whole area. The example
+> (`example/lib/main.dart`) does exactly this: its `bottomNavigationBar`
+> returns `SizedBox.shrink()` before constructing `SafeArea`, and the native
+> `Card` (title, padding and border) is hidden entirely when `adsEnabled` is
+> false.
 
 ### Emergency kill switch
 

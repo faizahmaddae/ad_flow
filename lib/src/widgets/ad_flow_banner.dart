@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../config/ad_flow_config.dart';
 import '../controllers/banner_ad_controller.dart';
+import '../core/ad_block_reason.dart';
 import '../core/ad_load_state.dart';
 import '../facade/ad_flow.dart';
 
@@ -60,12 +61,26 @@ class AdFlowBanner extends StatefulWidget {
   /// a self-created controller is always owned).
   final bool ownsController;
 
-  /// Height reserved before the ad loads. Defaults to the controller's
-  /// exact size for fixed banners, or a device-aware estimate for
-  /// adaptive banners (see [_AdFlowBannerState._estimatedHeight]) — pass
-  /// this explicitly for adaptive placements if you know the real height
-  /// in advance (e.g. from a previous load) to avoid any residual shift
-  /// (review finding #8).
+  /// Height reserved before the ad loads.
+  ///
+  /// When omitted, the default depends on the banner [kind]
+  /// (see [_AdFlowBannerState._placeholderHeight]):
+  /// - **fixed** — the slot's exact configured height (no shift when it loads);
+  /// - **large anchored adaptive** — the documented 50dp floor, then the exact
+  ///   loaded size once the ad arrives (loaded banners always follow the live
+  ///   `handle.dimensions`);
+  /// - **inline adaptive** — `0`, because its real height is unknown until
+  ///   `onAdLoaded`; reserving a speculative height would be wrong more often
+  ///   than right.
+  ///
+  /// Pass an explicit value to reserve a publisher-chosen height for ordinary
+  /// non-loaded states (e.g. an inline placement you know the height of in
+  /// advance). `placeholderHeight: 0` opts into fully collapsed pre-load
+  /// behavior — no reservation until the ad actually loads.
+  ///
+  /// This is **ignored while ads are disabled** ([AdFlow.disableAds]): a
+  /// Remove-Ads banner always collapses to a zero footprint, whatever value is
+  /// passed here.
   final double? placeholderHeight;
 
   @override
@@ -122,6 +137,12 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
 
   @override
   Widget build(BuildContext context) {
+    // In widget-first mode, listen to the facade's Remove-Ads notifier so the
+    // banner collapses SYNCHRONOUSLY the instant disableAds() flips it — before
+    // the asynchronous controller recheckGate() has run. In advanced
+    // controller mode there is no notifier to reach, so we fall back to the
+    // AdBlocked(adsDisabled) state the recheck lands on (below).
+    final adsEnabled = widget.adFlow?.adsEnabled;
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth.isFinite) {
@@ -143,15 +164,33 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
           }
         }
         return ListenableBuilder(
-          // Both, not just `state`: a client-side refresh swap (ADR-041) goes
-          // AdLoaded → AdLoaded, which does not notify, so a widget listening
-          // only to `state` would keep rendering the old, disposed handle.
+          // Both state and revision, not just `state`: a client-side refresh
+          // swap (ADR-041) goes AdLoaded → AdLoaded, which does not notify, so
+          // a widget listening only to `state` would keep rendering the old,
+          // disposed handle. Plus adsEnabled (widget-first mode) so Remove-Ads
+          // collapses the box on the same frame it is toggled.
+          // Listenable.merge tolerates a null entry, so adsEnabled (absent in
+          // advanced controller mode) is passed straight through.
           listenable: Listenable.merge([
             _controller.state,
             _controller.revision,
+            adsEnabled,
           ]),
           builder: (context, _) {
             final state = _controller.state.value;
+            // Remove-Ads must reclaim ALL layout space: a disabled banner has a
+            // zero footprint, overriding any explicit placeholderHeight. This
+            // is checked before the loaded/placeholder branches so it wins in
+            // every state. Two independent signals, either sufficient: the
+            // facade's adsEnabled notifier (widget-first mode — synchronous, on
+            // the very frame disableAds() is called) and the
+            // AdBlocked(adsDisabled) state the controller's recheckGate lands on
+            // (the only signal available in advanced controller mode).
+            final adsDisabled =
+                (adsEnabled != null && !adsEnabled.value) ||
+                (state is AdBlocked &&
+                    state.reason == AdBlockReason.adsDisabled);
+            if (adsDisabled) return const SizedBox.shrink();
             final handle = _controller.handle;
             if (state is AdLoaded && handle != null) {
               // The box follows `handle.dimensions`, not a one-shot size
@@ -188,7 +227,7 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
               width: constraints.maxWidth.isFinite
                   ? constraints.maxWidth
                   : null,
-              height: widget.placeholderHeight ?? _estimatedHeight(context),
+              height: widget.placeholderHeight ?? _placeholderHeight,
             );
           },
         );
@@ -196,20 +235,24 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
     );
   }
 
-  /// A better placeholder estimate than [BannerAdController.reservedHeight]
-  /// for adaptive kinds: Google documents anchored adaptive banners as
-  /// 50–90dp, capped at 15% of device height (review finding #8 — there is
-  /// no pure-width formula, so this can't be exact). Reserving the upper
-  /// end of that range — rather than the 50dp floor — means a same-size-
-  /// or-smaller real ad never pushes content below it down when it loads,
-  /// which is the direction that risks "Layout Encourages Accidental
-  /// Clicks" enforcement; the cost is some unused placeholder whitespace
-  /// on devices where the real ad lands shorter. Fixed sizes stay exact.
-  double _estimatedHeight(BuildContext context) {
-    if (_controller.kind == BannerKind.fixed) {
-      return _controller.reservedHeight;
-    }
-    final deviceHeight = MediaQuery.sizeOf(context).height;
-    return (deviceHeight * 0.15).clamp(50.0, 90.0);
-  }
+  /// The default height reserved for an ordinary (enabled, not-yet-loaded)
+  /// banner — used when no explicit [AdFlowBanner.placeholderHeight] is given.
+  ///
+  /// Deliberately simple and deterministic (no device-height guessing):
+  /// - **fixed** — the slot's exact configured height, so loading causes no
+  ///   shift at all;
+  /// - **large anchored adaptive** — the documented 50dp floor. Google's large
+  ///   anchored adaptive banners are 50–150dp; reserving the floor (not a
+  ///   speculative upper estimate) keeps the pre-load reservation minimal, and
+  ///   a loaded ad simply grows the box to its exact `handle.dimensions` (60,
+  ///   90, 100, 150…);
+  /// - **inline adaptive** — `0`, because the real height is unknown until
+  ///   `onAdLoaded` (the plugin resolves it from `getPlatformAdSize`), so any
+  ///   pre-load reservation would be a guess; pass an explicit
+  ///   `placeholderHeight` to reserve a known height instead.
+  double get _placeholderHeight => switch (_controller.kind) {
+    BannerKind.fixed => _controller.reservedHeight,
+    BannerKind.anchoredAdaptive => _controller.reservedHeight,
+    BannerKind.inlineAdaptive => 0,
+  };
 }

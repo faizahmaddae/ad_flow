@@ -1,6 +1,40 @@
 # PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
+**Phase 26 — 5.1.1 view-ad layout bug-fix (2026-07-20)** — ✅ implemented on
+branch **`fix/view-ad-layout-5.1.1`** (off `main` at v5.1.0; NOT pushed/tagged/
+merged/published — Faiz reviews). A focused, backward-compatible layout fix
+prompted by real emulator screenshots. No API change, no migration. ADR-070:
+
+1. **Remove-Ads reclaims layout space.** `AdFlowBanner`/`AdFlowNativeAd` now
+   collapse to a **zero footprint** while ads are disabled (was: kept reserving
+   placeholder height). Widget-first mode listens to `adFlow.adsEnabled` for a
+   **synchronous** collapse (no wait for the async `recheckGate`); advanced
+   controller mode collapses on `AdBlocked(adsDisabled)`. `adsDisabled`
+   overrides an explicit `placeholderHeight`. Re-enable reloads normally — one
+   reload, no dup requests / reminting / handle leaks.
+2. **Deterministic adaptive pre-load placeholder.** Removed the speculative
+   "15% device height, clamp 50–90dp" estimate. Loaded → exact
+   `handle.dimensions`. Pre-load: fixed → exact configured; large anchored
+   adaptive → documented **50dp floor** then exact loaded size; inline adaptive
+   → **0** (unknown until `onAdLoaded`). `placeholderHeight: 0` opts into fully
+   collapsed pre-load; never honoured while `adsDisabled`.
+3. **Example.** `bottomNavigationBar` returns `SizedBox.shrink()` BEFORE
+   `SafeArea` (no empty inset bar); native `Card` (title/padding/border) hidden
+   entirely; the Remove-Ads switch stays accessible; re-enable reconstructs
+   both. Corrected the stale App Open subtitle (`launchAndResume`, not "never on
+   a cold launch").
+
+Files: `lib/src/widgets/ad_flow_banner.dart`,
+`lib/src/widgets/ad_flow_native_ad.dart`,
+`lib/src/controllers/banner_ad_controller.dart` (dartdoc only),
+`example/lib/main.dart`, `test/widgets/ad_flow_banner_test.dart`,
+`test/widgets/ad_flow_native_ad_test.dart`,
+`example/test/home_screen_test.dart` (new), CHANGELOG/README/DECISIONS/pubspec
+(→ **5.1.1**). Tests fail-first + neuter-verified (9 fail against reverted
+widgets). See "How to verify" for the publish-gate results.
+
+## Previous phase
 **Phase 25 — 5.1.0 release-gate follow-up (2026-07-20)** — ✅ on branch
 **`hardening-5.1.0`** (NOT pushed/tagged/merged/published). A focused gate on
 the Phase-24 work before merge; no redesign. Findings, all fixed + fail-first:

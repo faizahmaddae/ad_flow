@@ -1,3 +1,51 @@
+## 5.1.1
+
+A focused ad-surface **layout** bug-fix, prompted by real emulator screenshots.
+Backward-compatible — no API changes, no migration; existing call sites keep
+working unchanged.
+
+### FIXED
+
+- **Remove-Ads now reclaims layout space.** After `disableAds()`, a mounted
+  `AdFlowBanner` / `AdFlowNativeAd` previously kept reserving its placeholder
+  height. Both now collapse to a **zero footprint** immediately. In widget-first
+  (`adFlow:`) mode the collapse is **synchronous** — the widgets listen to
+  `adFlow.adsEnabled`, so it happens on the frame `disableAds()` is called,
+  without waiting for the asynchronous controller re-check; advanced controller
+  mode collapses on `AdBlocked(AdBlockReason.adsDisabled)`. `adsDisabled`
+  overrides any explicit `placeholderHeight`. Re-enabling loads and renders
+  normally again, with no duplicate loads, controller reminting or request
+  storms.
+- **Correct adaptive pre-load placeholder.** `AdFlowBanner` no longer reserves a
+  speculative adaptive estimate (the old "15% of device height, clamped to
+  50–90dp"). A loaded banner always uses its exact live `handle.dimensions`. Before
+  load: **fixed** reserves its exact configured height; **large anchored
+  adaptive** reserves the documented **50dp floor** (Google documents large
+  anchored adaptive banners as 50–150dp) and then grows to the exact resolved
+  size once loaded; **inline adaptive** reserves **0** (its real height is
+  unknown until `onAdLoaded`). An explicit `placeholderHeight` is still honoured
+  for ordinary non-loaded states, and `placeholderHeight: 0` opts into fully
+  collapsed pre-load behaviour — but it is never honoured while ads are disabled.
+
+### EXAMPLE
+
+- Remove-Ads now visibly removes the **complete** ad surfaces: the
+  `bottomNavigationBar` returns `SizedBox.shrink()` before constructing
+  `SafeArea` (so no empty inset bar remains), and the native `Card` (title,
+  padding and border) is hidden entirely — demonstrating that parent decorations
+  must also be conditionally hidden, not just the ad. Corrected the stale App
+  Open tile subtitle (the example is configured with `launchAndResume`, so it no
+  longer claims "never on a cold launch").
+
+### DOCS
+
+- README: Remove-Ads collapses the ad widgets automatically; loaded banners use
+  exact SDK dimensions; anchored adaptive uses a 50dp pre-load floor then the
+  exact loaded size; inline adaptive defaults to zero before load;
+  `placeholderHeight: 0` for no pre-load reservation; parent decorations must be
+  hidden too. Removed the stale 15% / 50–90dp claim. No migration required —
+  this is a backward-compatible layout bug fix (ADR-070).
+
 ## 5.1.0
 
 A focused reliability + App Open UX pass. Additive and backward-compatible —

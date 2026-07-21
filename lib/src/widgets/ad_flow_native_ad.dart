@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../config/ad_flow_config.dart';
 import '../controllers/native_ad_controller.dart';
+import '../core/ad_block_reason.dart';
 import '../core/ad_load_state.dart';
 import '../facade/ad_flow.dart';
 
@@ -56,8 +57,11 @@ class AdFlowNativeAd extends StatefulWidget {
   /// a self-created controller is always owned).
   final bool ownsController;
 
-  /// Height reserved for the ad. Defaults to the controller's estimate
-  /// (template minimums, 100 for factory rendering).
+  /// Height reserved for the ad during ordinary loading states. Defaults to
+  /// the controller's estimate (template minimums, 100 for factory rendering).
+  ///
+  /// Ignored while ads are disabled ([AdFlow.disableAds]): a Remove-Ads native
+  /// ad always collapses to a zero footprint.
   final double? placeholderHeight;
 
   @override
@@ -110,10 +114,26 @@ class _AdFlowNativeAdState extends State<AdFlowNativeAd> {
 
   @override
   Widget build(BuildContext context) {
+    // Widget-first mode: listen to the facade's Remove-Ads notifier so the ad
+    // collapses SYNCHRONOUSLY the instant disableAds() flips it, without waiting
+    // for the asynchronous recheckGate(). Advanced controller mode has no
+    // notifier, so it relies on the AdBlocked(adsDisabled) state instead.
+    final adsEnabled = widget.adFlow?.adsEnabled;
     final height = widget.placeholderHeight ?? _controller.reservedHeight;
-    return ValueListenableBuilder(
-      valueListenable: _controller.state,
-      builder: (context, state, _) {
+    // Listenable.merge tolerates a null entry, so adsEnabled (absent in
+    // advanced controller mode) is passed straight through.
+    return ListenableBuilder(
+      listenable: Listenable.merge([_controller.state, adsEnabled]),
+      builder: (context, _) {
+        final state = _controller.state.value;
+        // Remove-Ads must reclaim ALL layout space, overriding any explicit
+        // placeholderHeight: a disabled native ad has a zero footprint. Either
+        // the facade's adsEnabled notifier (widget-first, synchronous) or the
+        // AdBlocked(adsDisabled) state (advanced controller mode) triggers it.
+        final adsDisabled =
+            (adsEnabled != null && !adsEnabled.value) ||
+            (state is AdBlocked && state.reason == AdBlockReason.adsDisabled);
+        if (adsDisabled) return const SizedBox.shrink();
         final handle = _controller.handle;
         return SizedBox(
           height: height,
