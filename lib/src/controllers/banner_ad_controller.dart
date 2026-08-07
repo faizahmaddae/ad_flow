@@ -148,9 +148,10 @@ class BannerAdController implements AdController {
 
   /// Height to reserve before the ad loads, avoiding layout shift: exact for
   /// fixed sizes. For **anchored adaptive** this is the documented **50dp
-  /// floor** — Google's large anchored adaptive banners are 50–150dp with no
-  /// pure-width formula, so a loaded ad grows the box to its exact
-  /// `handle.dimensions`. **Inline adaptive** also returns 50 here, but
+  /// floor** — the documented minimum, and the only figure that is safe to
+  /// assume client-side: the height the platform actually renders is resolved
+  /// after load and cannot be pre-computed (ADR-073). A loaded ad grows the box
+  /// to its exact `handle.dimensions`. **Inline adaptive** also returns 50 here, but
   /// [AdFlowBanner] reserves `0` for it (its real height is unknown until the
   /// ad loads) unless an explicit `placeholderHeight` is passed.
   double get reservedHeight => switch (_config.kind) {

@@ -1,6 +1,6 @@
 name: ad_flow
 description: "AdMob integration for Flutter with policy-aware defaults: banner, interstitial, rewarded, rewarded interstitial, native and app open ads with GDPR/UMP consent."
-version: 5.2.2
+version: 5.3.0
 homepage: https://github.com/faizahmaddae/ad_flow
 repository: https://github.com/faizahmaddae/ad_flow
 issue_tracker: https://github.com/faizahmaddae/ad_flow/issues

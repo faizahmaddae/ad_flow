@@ -1,3 +1,82 @@
+## 5.3.0
+
+A **banner sizing** release. Fixes issue #15: an anchored adaptive banner
+reserving far more vertical space than the ad it showed, with the app's own
+background visible around a narrow, short creative.
+
+**No breaking changes, no migration** — every existing call site compiles
+unchanged. Two behaviours change on purpose (see BEHAVIOUR CHANGES).
+
+### FIXED
+
+- **An anchored adaptive banner is now sized from what the SDK actually
+  rendered, not from what Dart asked for.** `google_mobile_ads` 9.0.0 cannot
+  round-trip the "large" bit of an anchored adaptive size: the height query
+  honours it, but the codec that sends the size back down to the platform
+  writes only `(orientation, width)` and both native decoders rebuild it with
+  `isLarge = false`. So Dart held the *large* height while the ad view the
+  creative rendered in was built at the *classic* size — on a 426x952dp phone,
+  a 67dp ad inside a 133dp box. The ~66dp remainder is unpainted by both the
+  plugin and the SDK, so the app's own surface showed through it, on every
+  anchored banner, whatever creative served. The seam now resolves the handle's
+  dimensions via `getPlatformAdSize()` for **both** adaptive kinds. Failure
+  handling is deliberately asymmetric: inline adaptive has no requested height
+  to fall back on and keeps its existing semantics, while anchored adaptive
+  falls back to the requested size and **never** fails or disposes a loadable
+  ad over a lost size query. This also roughly halves the pre-load layout shift.
+- **Test mode picked the wrong sample ad unit for adaptive banners on
+  Android.** Google publishes a different demo unit per banner format, and
+  `TestAdUnitIds.banner.android` was the **fixed-size** one — so an adaptive
+  request was answered with fixed IAB creatives (320x50, 320x100, 468x60) that
+  cannot fill an adaptive slot. The iOS entry was already the adaptive unit, so
+  the pair was inconsistent and the defect was Android-only. Sample units are
+  now per-format and selected by `BannerKind`, per placement.
+
+- **A banner slot with no usable width no longer requests an ad.** The load
+  was gated on the layout width being *finite*, which admits **zero**. A
+  zero-width placement (a collapsed panel, a mid-animation container) still
+  resolves to a valid adaptive ad size natively, so nothing refused it: a real,
+  billable ad loaded and rendered in a zero-width box — an impression nobody
+  can see. Now gated on a positive width; a slot that later gains one loads
+  then, and a collapse/expand cycle does not re-request.
+
+### ADDED
+
+- **`AdFlowBanner.backgroundColor`** — an opaque colour painted **behind** the
+  slot (and behind the pre-load placeholder). An adaptive slot is anchored to
+  its width, so a smaller creative is centred by the SDK with the surround left
+  unpainted; Google's guidance is an opaque ad-view background. Paints strictly
+  under the ad, never over it, and disappears entirely while ads are disabled.
+  > **Note:** `TestAdUnitIds.banner` is now an alias of `adaptiveBanner`, so its
+  > **Android value changed** (`…/6300978111` → `…/9214589741`). Nothing stops
+  > compiling. But if you deliberately passed `TestAdUnitIds.banner` to a
+  > `BannerKind.fixed` slot — the only sample constant available before 5.3.0 —
+  > switch that placement to `TestAdUnitIds.fixedBanner`. Slots that let
+  > `testMode` resolve the id are selected by kind automatically.
+
+- **`TestAdUnitIds.adaptiveBanner`, `TestAdUnitIds.fixedBanner`,
+  `TestAdUnitIds.forBannerKind(kind)`** — Google's documented per-format sample
+  banner units. `TestAdUnitIds.banner` is kept as an alias of `adaptiveBanner`
+  (the default kind's unit), so existing references still compile.
+- **`BannerConfig.defaultKind`** and an optional `kind:` on
+  `AdFlowConfig.bannerAdUnitId`.
+
+### BEHAVIOUR CHANGES
+
+- An anchored adaptive banner's box now matches the rendered ad — typically
+  about **half** its previous height on a phone. Nothing about the ad request,
+  fill or revenue changes; the box was simply too tall before.
+- `testMode` on Android now serves correctly-sized adaptive test creatives.
+
+### KNOWN UPSTREAM LIMITATION
+
+Because the plugin drops the "large" flag, Google's *large* anchored adaptive
+format cannot currently be requested from Flutter at all — every anchored
+request degrades to the classic size. ad_flow is now honest about that (the box
+matches reality), but it cannot recover the format. There is deliberately no
+standard-vs-large option, because both Dart factories produce an identical wire
+message and such a knob would be inert. See ADR-073.
+
 ## 5.2.2
 
 A focused **reliability** patch that completes the 5.2.1 cached-consent fast

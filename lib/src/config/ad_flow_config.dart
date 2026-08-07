@@ -230,13 +230,16 @@ class BannerConfig {
   /// Creates banner configuration.
   const BannerConfig({
     required this.adUnitId,
-    this.kind = BannerKind.anchoredAdaptive,
+    this.kind = defaultKind,
     this.fixedSize = FixedBannerSize.banner,
     this.maxInlineHeight,
     this.collapsible,
     this.minRefresh,
     this.request = const AdRequestOptions(),
   });
+
+  /// The sizing strategy used when [kind] is not given.
+  static const defaultKind = BannerKind.anchoredAdaptive;
 
   /// Per-platform banner ad unit IDs.
   final PlatformAdUnitId adUnitId;
@@ -551,11 +554,37 @@ class AppOpenConfig {
 /// Google's official sample ad unit IDs (safe to click; used by
 /// [AdFlowConfig.test] and whenever [AdFlowConfig.testMode] is on).
 abstract final class TestAdUnitIds {
-  /// Sample banner IDs.
-  static const banner = PlatformAdUnitId(
-    android: 'ca-app-pub-3940256099942544/6300978111',
+  /// Sample banner IDs — the ADAPTIVE units, matching the default
+  /// [BannerKind.anchoredAdaptive]. Prefer [forBannerKind] over reading this
+  /// directly; a [BannerKind.fixed] slot wants [fixedBanner].
+  static const banner = adaptiveBanner;
+
+  /// Sample **adaptive** banner IDs (anchored *and* inline — Google publishes
+  /// one demo unit covering both).
+  ///
+  /// Google ships a different sample unit per banner FORMAT, and requesting an
+  /// adaptive size from the fixed-size unit is what made test banners look
+  /// broken before 5.3.0: it only ever answers with fixed IAB creatives
+  /// (320x50, 320x100, 468x60), which cannot fill an adaptive slot, so the ad
+  /// sat narrow and short inside it with the app's surface showing around it
+  /// (issue #15). Production is unaffected — the publisher supplies the ID.
+  static const adaptiveBanner = PlatformAdUnitId(
+    android: 'ca-app-pub-3940256099942544/9214589741',
     ios: 'ca-app-pub-3940256099942544/2435281174',
   );
+
+  /// Sample **fixed-size** banner IDs, for [BannerKind.fixed] slots.
+  static const fixedBanner = PlatformAdUnitId(
+    android: 'ca-app-pub-3940256099942544/6300978111',
+    ios: 'ca-app-pub-3940256099942544/2934735716',
+  );
+
+  /// The sample banner IDs matching [kind] — adaptive units for the two
+  /// adaptive kinds, the fixed-size units for [BannerKind.fixed].
+  static PlatformAdUnitId forBannerKind(BannerKind kind) => switch (kind) {
+    BannerKind.anchoredAdaptive || BannerKind.inlineAdaptive => adaptiveBanner,
+    BannerKind.fixed => fixedBanner,
+  };
 
   /// Sample interstitial IDs.
   static const interstitial = PlatformAdUnitId(
@@ -832,8 +861,19 @@ class AdFlowConfig {
 
   /// The banner ad unit ID to actually request for [platform]
   /// (the test ID when [testMode] is on), or null if the slot is off.
-  String? bannerAdUnitId(AdPlatform platform) =>
-      _effective(banner?.adUnitId, TestAdUnitIds.banner, platform);
+  ///
+  /// [kind] selects the matching sample unit while [testMode] is on — Google
+  /// publishes a different one per banner format, and asking the fixed-size
+  /// unit for an adaptive slot yields a creative that cannot fill it. Defaults
+  /// to this config's own banner kind; pass the per-placement kind when a
+  /// `BannerConfig` override is in play.
+  String? bannerAdUnitId(AdPlatform platform, {BannerKind? kind}) => _effective(
+    banner?.adUnitId,
+    TestAdUnitIds.forBannerKind(
+      kind ?? banner?.kind ?? BannerConfig.defaultKind,
+    ),
+    platform,
+  );
 
   /// Effective interstitial ad unit ID for [platform]; see [bannerAdUnitId].
   String? interstitialAdUnitId(AdPlatform platform) =>

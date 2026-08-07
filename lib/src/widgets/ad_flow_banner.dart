@@ -38,6 +38,7 @@ class AdFlowBanner extends StatefulWidget {
     this.controller,
     this.ownsController = false,
     this.placeholderHeight,
+    this.backgroundColor,
     super.key,
   }) : assert(
          (controller != null) ^ (adFlow != null),
@@ -82,6 +83,26 @@ class AdFlowBanner extends StatefulWidget {
   /// Remove-Ads banner always collapses to a zero footprint, whatever value is
   /// passed here.
   final double? placeholderHeight;
+
+  /// An opaque colour painted **behind** the slot.
+  ///
+  /// An adaptive banner slot is anchored to its WIDTH: when AdMob fills it
+  /// with a creative smaller than the slot, the SDK centres that creative and
+  /// leaves the surround unpainted, so the app's own surface shows through and
+  /// the ad reads as a rendering glitch. Google's anchored-adaptive guidance is
+  /// to give the ad view an opaque background for exactly this case.
+  ///
+  /// Pass an opaque colour (typically the surface the banner sits on, e.g.
+  /// `Theme.of(context).colorScheme.surface`). A translucent colour defeats the
+  /// purpose and is not recommended.
+  ///
+  /// This paints strictly UNDER the ad — never over it. Occluding, clipping or
+  /// scaling a creative is an AdMob policy violation, so there is deliberately
+  /// no API for it here.
+  ///
+  /// Like [placeholderHeight], this is **ignored while ads are disabled**
+  /// ([AdFlow.disableAds]): a Remove-Ads banner paints nothing at all.
+  final Color? backgroundColor;
 
   @override
   State<AdFlowBanner> createState() => _AdFlowBannerState();
@@ -145,8 +166,21 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
     final adsEnabled = widget.adFlow?.adsEnabled;
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth.isFinite) {
-          final width = constraints.maxWidth.truncate();
+        // A slot with no usable width must never request an ad. A zero-width
+        // (or unbounded) placement still resolves to a VALID adaptive AdSize
+        // natively — `AdSize(0, 100)`, not `AdSize.INVALID` — so nothing
+        // downstream refuses it: the request goes out, a real ad loads, and it
+        // renders in a zero-width box. That is a billable impression the user
+        // can never see, the exact thing the seam's inline-adaptive
+        // zero-height branch already refuses. Unbounded width folds into the
+        // same guard (and `double.infinity.truncate()` would throw anyway).
+        // A slot that later gains a width loads then, because `_loadRequested`
+        // is still false; one that shrinks to zero keeps its ad and its last
+        // requested width, so growing back does not re-request.
+        final width = constraints.maxWidth.isFinite
+            ? constraints.maxWidth.truncate()
+            : 0;
+        if (width > 0) {
           if (!_loadRequested) {
             _loadRequested = true;
             _requestedWidth = width;
@@ -212,9 +246,17 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
                 // just-DISPOSED ad — a permanently dead slot that still
                 // requests and pays for fresh ads it never displays
                 // (2026-07 audit).
-                child: KeyedSubtree(
-                  key: ObjectKey(handle),
-                  child: handle.buildWidget(),
+                // backgroundColor paints UNDER the ad, inside the same box: an
+                // adaptive slot is anchored to its WIDTH, so a creative smaller
+                // than the slot is centred by the SDK and the surround is left
+                // unpainted (the app's own surface shows through). Deliberately
+                // a ColoredBox BEHIND the child, never a Stack on top of it —
+                // occluding a creative is a policy violation.
+                child: _paint(
+                  KeyedSubtree(
+                    key: ObjectKey(handle),
+                    child: handle.buildWidget(),
+                  ),
                 ),
                 builder: (context, size, child) => SizedBox(
                   width: size.width,
@@ -223,17 +265,48 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
                 ),
               );
             }
-            return SizedBox(
-              width: constraints.maxWidth.isFinite
-                  ? constraints.maxWidth
-                  : null,
-              height: widget.placeholderHeight ?? _placeholderHeight,
+            return _paint(
+              SizedBox(
+                width: constraints.maxWidth.isFinite
+                    ? constraints.maxWidth
+                    : null,
+                height: widget.placeholderHeight ?? _placeholderHeight,
+              ),
             );
           },
         );
       },
     );
   }
+
+  /// Paints [AdFlowBanner.backgroundColor] behind [child].
+  ///
+  /// Deliberately an UNCONDITIONAL `DecoratedBox`, not a conditional
+  /// `ColoredBox`, for two independent reasons:
+  ///
+  /// 1. **The tree shape must not change with the colour.** Wrapping only when
+  ///    a colour is set means a null↔non-null flip (a theme change, a settings
+  ///    toggle, a nullable colour source) changes the child's position in the
+  ///    tree, and an `ObjectKey` is a LOCAL key — it cannot reparent, so the
+  ///    whole subtree is re-inflated. Flutter builds the replacement BEFORE
+  ///    unmounting the old one (verified: `initState` of the new child runs
+  ///    ahead of `dispose` of the old), so the plugin's `AdWidget` would see
+  ///    its ad id still registered as mounted, set `_adIdAlreadyMounted`, and
+  ///    throw *"This AdWidget is already in the Widget tree"* — a permanently
+  ///    dead, still-billing slot. A constant widget TYPE updates in place and
+  ///    only repaints.
+  /// 2. **`ColoredBox` is `HitTestBehavior.opaque`** (`_RenderColoredBox`), so
+  ///    it would silently swallow gestures aimed at whatever sits under the
+  ///    reserved placeholder. `RenderDecoratedBox` is a plain `RenderProxyBox`
+  ///    and changes no hit testing.
+  ///
+  /// A `BoxDecoration` with a null colour paints nothing
+  /// (`_paintBackgroundColor` is a no-op), so the default costs one proxy box
+  /// and no pixels.
+  Widget _paint(Widget child) => DecoratedBox(
+    decoration: BoxDecoration(color: widget.backgroundColor),
+    child: child,
+  );
 
   /// The default height reserved for an ordinary (enabled, not-yet-loaded)
   /// banner — used when no explicit [AdFlowBanner.placeholderHeight] is given.
@@ -242,7 +315,9 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
   /// - **fixed** — the slot's exact configured height, so loading causes no
   ///   shift at all;
   /// - **large anchored adaptive** — the documented 50dp floor. Google's large
-  ///   anchored adaptive banners are 50–150dp; reserving the floor (not a
+  ///   anchored adaptive banners have a documented 50dp minimum, and the
+  ///   height the SDK actually renders is not knowable client-side (ADR-073);
+  ///   reserving the floor (not a
   ///   speculative upper estimate) keeps the pre-load reservation minimal, and
   ///   a loaded ad simply grows the box to its exact `handle.dimensions` (60,
   ///   90, 100, 150…);

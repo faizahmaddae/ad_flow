@@ -320,8 +320,14 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      // Reserved height from the first frame — no layout shift. Widget-first
-      // (3.0): AdFlowBanner creates and owns its controller.
+      // Reserved height from the first frame, then sized to exactly what the
+      // SDK rendered. Widget-first (3.0): AdFlowBanner owns its controller.
+      //
+      // `backgroundColor` (5.3.0) is the anchored-adaptive companion: the slot
+      // is anchored to its WIDTH, so a creative narrower or shorter than the
+      // slot is centred by the SDK and the surround is left unpainted. An
+      // opaque colour (Google's own guidance) keeps that reading as a frame
+      // rather than a hole. It paints strictly BEHIND the ad.
       //
       // Remove-Ads must remove the COMPLETE bottom ad surface. Returning
       // SizedBox.shrink() BEFORE constructing SafeArea is the point: if the
@@ -332,7 +338,12 @@ class _HomeScreenState extends State<HomeScreen> {
         valueListenable: ads.adsEnabled,
         builder: (context, enabled, _) => !enabled
             ? const SizedBox.shrink()
-            : SafeArea(child: AdFlowBanner(adFlow: ads)),
+            : SafeArea(
+                child: AdFlowBanner(
+                  adFlow: ads,
+                  backgroundColor: Theme.of(context).colorScheme.surface,
+                ),
+              ),
       ),
     );
   }
