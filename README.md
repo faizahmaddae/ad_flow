@@ -50,7 +50,7 @@ Set up the ad_flow Flutter package (AdMob) in my project. Do it idiomatically �
    • If you find any: show me what it is, then REPLACE it with ad_flow equivalents and remove the
      old implementation (and the direct google_mobile_ads dependency if nothing else uses it).
    • If none: do a clean fresh integration.
-3. Add ad_flow: ^5.2.2 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
+3. Add ad_flow: ^5.3.0 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
    Android minSdk 24 / compileSdk 36). Platform setup: Android APPLICATION_ID meta-data, iOS
    GADApplicationIdentifier + NSUserTrackingUsageDescription. Remind me to publish & verify app-ads.txt.
 4. Ask me which formats I want and for my ad unit IDs (or use AdFlowConfig.test() for now).
@@ -69,7 +69,7 @@ Upgrade my project's ad_flow to the latest release. Be careful — older majors 
 
 1. FIRST read ad_flow's MIGRATION.md plus the current README and public API
    (package:ad_flow/ad_flow.dart). Use only symbols that exist there.
-2. Bump ad_flow to ^5.2.2 and meet its min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
+2. Bump ad_flow to ^5.3.0 and meet its min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
    Android minSdk 24 / compileSdk 36; adopt the iOS UISceneDelegate lifecycle if I have a custom AppDelegate).
 3. Find EVERY older ad_flow usage (legacy AdFlow.instance/initializeWithExplainer/EasyBannerAd, old
    managers/widgets, a broad google_mobile_ads re-export). List them, then migrate each per MIGRATION.md.
@@ -91,7 +91,7 @@ consent form even if they denied ATT; native ads now expire after ~55 min by def
 
 ```yaml
 dependencies:
-  ad_flow: ^5.2.2
+  ad_flow: ^5.3.0
 ```
 
 Requirements (from `google_mobile_ads` 9.x): Flutter ≥ 3.38.1, Dart ≥ 3.10,
@@ -304,8 +304,10 @@ deterministic height per kind:
 
 - **fixed** — the slot's exact configured height (no shift when it loads);
 - **large anchored adaptive** — the documented **50dp floor** (Google's large
-  anchored adaptive banners are 50–150dp with no pure-width formula), then the
-  ad grows the box to its exact resolved height (60/90/100/150…) once it loads;
+  anchored adaptive banners have a documented 50dp minimum), then the box takes
+  the exact height the SDK reports once the ad loads — typically 60–70dp on a
+  phone. See the upstream note below for why it is not the 100–150dp the
+  *large* format would imply;
 - **inline adaptive** — **0**, because the real height is unknown until
   `onAdLoaded`.
 
@@ -318,7 +320,7 @@ actually loads.
 
 | kind | slot height | best for |
 | --- | --- | --- |
-| `anchoredAdaptive` *(default)* | fixed for the width, known before the request | pinned to the top/bottom of a screen, outside scrolling content |
+| `anchoredAdaptive` *(default)* | one height per width/device, but only the SDK can tell you it — read it after load, never pre-compute it | pinned to the top/bottom of a screen, outside scrolling content |
 | `inlineAdaptive` | decided per-creative by Google, known only after load; cap it with `maxInlineHeight` | inside a feed or any scrolling content |
 | `fixed` | the exact IAB size you name | you need one guaranteed size |
 

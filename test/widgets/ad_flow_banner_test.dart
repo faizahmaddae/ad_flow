@@ -55,12 +55,11 @@ void main() {
       host(AdFlowBanner(controller: c, ownsController: true)),
     );
 
-    // First frame: placeholder reserved BEFORE any load. A large anchored
-    // adaptive banner has no pure-width height formula (Google docs: 50–150dp),
-    // so the widget reserves the documented 50dp FLOOR — not a speculative
-    // upper estimate — and the loaded ad then grows the box to its exact
-    // dimensions (5.1.1). The old 15%-of-device-height / 50–90dp estimate is
-    // gone.
+    // First frame: placeholder reserved BEFORE any load. The height the
+    // platform actually renders is only knowable after load (ADR-073), so the
+    // widget reserves the documented 50dp FLOOR — not a speculative upper
+    // estimate — and the loaded ad then takes the box to its exact dimensions
+    // (5.1.1). The old 15%-of-device-height / 50–90dp estimate is gone.
     final placeholder = tester.getSize(find.byType(AdFlowBanner));
     expect(placeholder.height, 50);
 
@@ -850,14 +849,14 @@ void main() {
   group('backgroundColor paints behind the slot (ADR-073)', () {
     const color = Color(0xFF123456);
 
-    ColoredBox? paintedBox(WidgetTester tester) {
+    Color? paintedColor(WidgetTester tester) {
       final found = find.descendant(
         of: find.byType(AdFlowBanner),
-        matching: find.byType(ColoredBox),
+        matching: find.byType(DecoratedBox),
       );
-      return found.evaluate().isEmpty
-          ? null
-          : tester.widget<ColoredBox>(found.first);
+      if (found.evaluate().isEmpty) return null;
+      final d = tester.widget<DecoratedBox>(found.first).decoration;
+      return d is BoxDecoration ? d.color : null;
     }
 
     testWidgets('no colour by default — not one extra layer', (tester) async {
@@ -868,7 +867,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(paintedBox(tester), isNull);
+      expect(paintedColor(tester), isNull);
       await tester.pumpWidget(host(const SizedBox()));
     });
 
@@ -888,14 +887,14 @@ void main() {
       );
 
       // Reserved-but-not-loaded frame.
-      expect(paintedBox(tester)?.color, color);
+      expect(paintedColor(tester), color);
       expect(tester.getSize(find.byType(AdFlowBanner)).height, 50);
 
       await tester.pumpAndSettle();
 
       // Loaded frame: still painted, and the box is still exactly the ad size
       // — the colour must not add height of its own.
-      expect(paintedBox(tester)?.color, color);
+      expect(paintedColor(tester), color);
       expect(tester.getSize(find.byType(AdFlowBanner)).height, 60);
       expect(tester.getSize(find.byType(AdFlowBanner)).width, 360);
 
@@ -926,7 +925,7 @@ void main() {
       );
       expect(adSubtree, findsOneWidget);
       expect(
-        find.ancestor(of: adSubtree, matching: find.byType(ColoredBox)),
+        find.ancestor(of: adSubtree, matching: find.byType(DecoratedBox)),
         findsOneWidget,
         reason: 'the ad must render on top of the background, not under it',
       );
@@ -938,6 +937,82 @@ void main() {
         findsNothing,
         reason: 'no overlay layer may exist above a creative',
       );
+      // ColoredBox is HitTestBehavior.opaque and would swallow gestures aimed
+      // at whatever sits under the reserved placeholder; DecoratedBox is a
+      // plain proxy box.
+      expect(
+        find.descendant(
+          of: find.byType(AdFlowBanner),
+          matching: find.byType(ColoredBox),
+        ),
+        findsNothing,
+        reason: 'the backdrop must not change hit testing',
+      );
+
+      await tester.pumpWidget(host(const SizedBox()));
+    });
+
+    // The backdrop must be an UNCONDITIONAL DecoratedBox, never a conditional
+    // ColoredBox. Wrapping only when a colour is set makes a null<->non-null
+    // flip (theme change, settings toggle, nullable colour source) change the
+    // ad's position in the tree; `ObjectKey` is a LOCAL key and cannot
+    // reparent, so the whole subtree is re-inflated — and Flutter builds the
+    // replacement BEFORE unmounting the old one, so the plugin's AdWidget
+    // would find its ad id still registered as mounted and throw "This
+    // AdWidget is already in the Widget tree": a permanently dead, still
+    // billing slot. FakeAdSdk cannot model the plugin's mount registry, so
+    // this asserts the property that prevents it — element identity.
+    testWidgets('toggling the colour never re-inflates the hosted ad', (
+      tester,
+    ) async {
+      sdk.bannerSize = const AdDimensions(width: 360, height: 60);
+      final c = controller();
+      Widget at(Color? bg) => host(
+        AdFlowBanner(controller: c, ownsController: true, backgroundColor: bg),
+      );
+
+      await tester.pumpWidget(at(null));
+      await tester.pumpAndSettle();
+      final adElement = tester.element(
+        find.descendant(
+          of: find.byType(AdFlowBanner),
+          matching: find.byType(KeyedSubtree),
+        ),
+      );
+
+      await tester.pumpWidget(at(color));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.element(
+          find.descendant(
+            of: find.byType(AdFlowBanner),
+            matching: find.byType(KeyedSubtree),
+          ),
+        ),
+        same(adElement),
+        reason: 'null -> colour must update in place, never remount the ad',
+      );
+      expect(paintedColor(tester), color);
+
+      // ...and back again.
+      await tester.pumpWidget(at(null));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.element(
+          find.descendant(
+            of: find.byType(AdFlowBanner),
+            matching: find.byType(KeyedSubtree),
+          ),
+        ),
+        same(adElement),
+        reason: 'colour -> null must update in place too',
+      );
+      expect(paintedColor(tester), isNull);
+      expect(sdk.banners, hasLength(1));
+      expect(sdk.banners.single.disposed, isFalse);
+      expect(tester.getSize(find.byType(AdFlowBanner)).height, 60);
 
       await tester.pumpWidget(host(const SizedBox()));
     });
@@ -960,13 +1035,13 @@ void main() {
         host(AdFlowBanner(adFlow: ads, backgroundColor: color)),
       );
       await tester.pumpAndSettle();
-      expect(paintedBox(tester)?.color, color);
+      expect(paintedColor(tester), color);
 
       ads.disableAds();
       await tester.pump();
       expect(tester.getSize(find.byType(AdFlowBanner)).height, 0);
       expect(
-        paintedBox(tester),
+        paintedColor(tester),
         isNull,
         reason:
             'a Remove-Ads banner must leave no coloured strip behind — the '

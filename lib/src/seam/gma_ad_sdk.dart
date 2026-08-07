@@ -18,6 +18,13 @@ import 'ad_sdk_types.dart';
 /// native SDK runs underneath is invisible here — the plugin's Dart API is
 /// identical either way.
 class GmaAdSdk implements AdSdk {
+  /// Ceiling on the post-load `getPlatformAdSize()` channel round trip.
+  ///
+  /// Generous for a local platform call — this only fires when the reply is
+  /// genuinely lost, which would otherwise hang the banner's load completer and
+  /// leak a loaded, auto-refreshing ad (see `_finishBannerLoad`).
+  static const _platformSizeTimeout = Duration(seconds: 5);
+
   bool _appStateListening = false;
 
   @override
@@ -310,7 +317,23 @@ class GmaAdSdk implements AdSdk {
     if (inlineAdaptive || spec.size is AnchoredAdaptiveSizeSpec) {
       AdDimensions? resolved;
       try {
-        final platformSize = await handle._ad.getPlatformAdSize();
+        // BOUNDED — defence in depth, not a known failure. Both native
+        // `getAdSize` handlers reply on every branch, so a missing reply takes
+        // an engine-level channel fault rather than any device or plugin
+        // condition; every ANSWERED outcome (null, zero, throw) is already
+        // handled below. But this await now sits between `onAdLoaded` and the
+        // load completer on the DEFAULT kind, and an unanswered call would hang
+        // that completer forever — which `watchAdLoad` cannot clean up, since
+        // its `disposeLate` only runs if the pending future eventually
+        // completes (`load_watchdog.dart:29-33`), leaving a loaded,
+        // mounted-nowhere, still auto-refreshing `BannerAd` for the session.
+        // Same reasoning as `RetryConfig.loadTimeout`: the plugin has no
+        // timeout of its own, so bound it here. On timeout this degrades to the
+        // ordinary no-size path — anchored keeps its requested size, inline
+        // fails the load and disposes the ad.
+        final platformSize = await handle._ad.getPlatformAdSize().timeout(
+          _platformSizeTimeout,
+        );
         if (platformSize != null) {
           resolved = AdDimensions(
             width: platformSize.width.toDouble(),

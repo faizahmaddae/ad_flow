@@ -52,6 +52,10 @@ void main() {
   /// post-load size query rejecting at the channel rather than answering null.
   Object? platformAdSizeRejectsWith;
 
+  /// When true the mock handler never answers `getAdSize` — simulates a lost
+  /// channel reply, which must not hang the banner's load completer.
+  bool platformAdSizeHangs = false;
+
   /// What the mock handler answers for the pre-load
   /// `AdSize#getLargeAnchoredAdaptiveBannerAdSize` height query (the number
   /// Dart resolves the anchored slot from). Null makes the resolver fail.
@@ -68,6 +72,7 @@ void main() {
     loadDispatchRejectsWith = null;
     platformAdSizeResult = null;
     platformAdSizeRejectsWith = null;
+    platformAdSizeHangs = false;
     anchoredAdaptiveHeight = null;
     ssvAttachRejectsWith = null;
     instanceManager = AdInstanceManager('plugins.flutter.io/google_mobile_ads');
@@ -83,6 +88,7 @@ void main() {
                 when loadDispatchRejectsWith != null:
               throw loadDispatchRejectsWith!;
             case 'getAdSize':
+              if (platformAdSizeHangs) return Completer<Object?>().future;
               if (platformAdSizeRejectsWith != null) {
                 throw platformAdSizeRejectsWith!;
               }
@@ -331,6 +337,36 @@ void main() {
       expect(notified, 1);
       expect(log.map((c) => c.method), isNot(contains('disposeAd')));
     });
+
+    test(
+      'a HUNG platform size query cannot hang the load — it degrades to '
+      'the requested size instead of leaking an auto-refreshing ad',
+      () async {
+        final sdk = GmaAdSdk();
+        anchoredAdaptiveHeight = 133;
+        // The channel reply never arrives. Without a bound this awaits forever
+        // between onAdLoaded and the load completer, and watchAdLoad's
+        // disposeLate cannot clean up a future that never completes.
+        platformAdSizeHangs = true;
+
+        final future = sdk.loadBanner(
+          const BannerLoadSpec(
+            adUnitId: 'unit-b',
+            size: AnchoredAdaptiveSizeSpec(width: 426),
+          ),
+        );
+        await pumpEventQueue();
+        await sendAdEvent(0, 'onAdLoaded');
+
+        final handle = await future.timeout(
+          const Duration(seconds: 20),
+          onTimeout: () => throw StateError('load hung on getPlatformAdSize'),
+        );
+        expect(handle.size, const AdDimensions(width: 426, height: 133));
+        expect(log.map((c) => c.method), isNot(contains('disposeAd')));
+      },
+      timeout: const Timeout(Duration(seconds: 30)),
+    );
 
     test('a refresh whose size query FAILS keeps the live size — it must not '
         'snap back to the requested one and re-open the band', () async {

@@ -45,7 +45,7 @@ refutation agents → synthesis), including independent decompiles of
   already correct.
 
 Verified: `dart format` clean, `flutter analyze` clean, full suite green
-**(563, +14)**, `dart pub publish --dry-run` clean apart from the expected
+**(569, +20)**, `dart pub publish --dry-run` clean apart from the expected
 uncommitted-changes warning.
 
 **Verified by running — BOTH platforms.** `flutter run` with the seam

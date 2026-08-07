@@ -279,12 +279,34 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
     );
   }
 
-  /// Paints [AdFlowBanner.backgroundColor] behind [child], or returns [child]
-  /// untouched when no colour was given (the default — zero extra layers).
-  Widget _paint(Widget child) {
-    final color = widget.backgroundColor;
-    return color == null ? child : ColoredBox(color: color, child: child);
-  }
+  /// Paints [AdFlowBanner.backgroundColor] behind [child].
+  ///
+  /// Deliberately an UNCONDITIONAL `DecoratedBox`, not a conditional
+  /// `ColoredBox`, for two independent reasons:
+  ///
+  /// 1. **The tree shape must not change with the colour.** Wrapping only when
+  ///    a colour is set means a null↔non-null flip (a theme change, a settings
+  ///    toggle, a nullable colour source) changes the child's position in the
+  ///    tree, and an `ObjectKey` is a LOCAL key — it cannot reparent, so the
+  ///    whole subtree is re-inflated. Flutter builds the replacement BEFORE
+  ///    unmounting the old one (verified: `initState` of the new child runs
+  ///    ahead of `dispose` of the old), so the plugin's `AdWidget` would see
+  ///    its ad id still registered as mounted, set `_adIdAlreadyMounted`, and
+  ///    throw *"This AdWidget is already in the Widget tree"* — a permanently
+  ///    dead, still-billing slot. A constant widget TYPE updates in place and
+  ///    only repaints.
+  /// 2. **`ColoredBox` is `HitTestBehavior.opaque`** (`_RenderColoredBox`), so
+  ///    it would silently swallow gestures aimed at whatever sits under the
+  ///    reserved placeholder. `RenderDecoratedBox` is a plain `RenderProxyBox`
+  ///    and changes no hit testing.
+  ///
+  /// A `BoxDecoration` with a null colour paints nothing
+  /// (`_paintBackgroundColor` is a no-op), so the default costs one proxy box
+  /// and no pixels.
+  Widget _paint(Widget child) => DecoratedBox(
+    decoration: BoxDecoration(color: widget.backgroundColor),
+    child: child,
+  );
 
   /// The default height reserved for an ordinary (enabled, not-yet-loaded)
   /// banner — used when no explicit [AdFlowBanner.placeholderHeight] is given.
@@ -293,7 +315,9 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
   /// - **fixed** — the slot's exact configured height, so loading causes no
   ///   shift at all;
   /// - **large anchored adaptive** — the documented 50dp floor. Google's large
-  ///   anchored adaptive banners are 50–150dp; reserving the floor (not a
+  ///   anchored adaptive banners have a documented 50dp minimum, and the
+  ///   height the SDK actually renders is not knowable client-side (ADR-073);
+  ///   reserving the floor (not a
   ///   speculative upper estimate) keeps the pre-load reservation minimal, and
   ///   a loaded ad simply grows the box to its exact `handle.dimensions` (60,
   ///   90, 100, 150…);

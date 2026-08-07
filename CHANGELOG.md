@@ -47,6 +47,13 @@ unchanged. Two behaviours change on purpose (see BEHAVIOUR CHANGES).
   its width, so a smaller creative is centred by the SDK with the surround left
   unpainted; Google's guidance is an opaque ad-view background. Paints strictly
   under the ad, never over it, and disappears entirely while ads are disabled.
+  > **Note:** `TestAdUnitIds.banner` is now an alias of `adaptiveBanner`, so its
+  > **Android value changed** (`…/6300978111` → `…/9214589741`). Nothing stops
+  > compiling. But if you deliberately passed `TestAdUnitIds.banner` to a
+  > `BannerKind.fixed` slot — the only sample constant available before 5.3.0 —
+  > switch that placement to `TestAdUnitIds.fixedBanner`. Slots that let
+  > `testMode` resolve the id are selected by kind automatically.
+
 - **`TestAdUnitIds.adaptiveBanner`, `TestAdUnitIds.fixedBanner`,
   `TestAdUnitIds.forBannerKind(kind)`** — Google's documented per-format sample
   banner units. `TestAdUnitIds.banner` is kept as an alias of `adaptiveBanner`
