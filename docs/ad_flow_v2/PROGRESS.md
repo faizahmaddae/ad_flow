@@ -48,12 +48,31 @@ Verified: `dart format` clean, `flutter analyze` clean, full suite green
 **(563, +14)**, `dart pub publish --dry-run` clean apart from the expected
 uncommitted-changes warning.
 
-**Still open (verify-by-running — NOT done):** on-device confirmation that a
-Pixel 10 Pro portrait anchored banner now reports ~67dp instead of 133dp, on
-Android AND iOS. Everything above is source-derived. Also unfiled: the upstream
-`isLarge` round-trip issue against `googleads-mobile-flutter` (encoder must
-carry the flag; `AdMessageCodec.java:281` and
+**Verified by running (Android).** `flutter run` on the Pixel-class AVD
+(1280x2856 @ density 3.0 = 426x952dp), instrumented at the seam:
+
+    ADFLOW_PROBE spec=AnchoredAdaptiveSizeSpec requested=426x133 platform=426x67
+
+Exactly the predicted split — the decompiled LARGE formula gives 133dp and the
+CLASSIC one 67dp, and the platform reports the classic size because the codec
+dropped the large bit. A/B screenshots (only `gma_ad_sdk.dart` reverted between
+runs, same ad unit) show the phantom band present at 133dp and gone at 67dp.
+**Measurement trap worth remembering:** a naive pixel scan reads the SAME height
+in both, because the extra band is TRANSPARENT — it renders as the page
+background, so a "differs from background" scan measures only the creative, not
+the slot. Read the numbers from the seam, not from the screenshot.
+
+**Still open:** the same confirmation on iOS (not run). Also unfiled: the
+upstream `isLarge` round-trip issue against `googleads-mobile-flutter` (encoder
+must carry the flag; `AdMessageCodec.java:281` and
 `FLTGoogleMobileAdsReaderWriter_Internal.m:253` must stop hardcoding `false`).
+
+**Toolchain note.** The example's Gradle wrapper needed 8.14 -> 9.1.0: the only
+JDK on this machine is Android Studio's JBR **25.0.2**, and Gradle 8.14's
+embedded Kotlin throws `IllegalArgumentException: 25.0.2` from
+`JavaVersion.parse` while compiling the Kotlin DSL scripts. Pre-existing and
+unrelated to the banner work; a bare `./gradlew assembleDebug` masked it by
+reusing the cached compiled script.
 
 ## Previous phase
 **Phase 29 — 5.2.2 fast-path downgrade reconciliation (2026-07-21)** — ✅
