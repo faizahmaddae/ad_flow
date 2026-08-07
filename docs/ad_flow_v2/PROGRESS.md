@@ -48,12 +48,14 @@ Verified: `dart format` clean, `flutter analyze` clean, full suite green
 **(563, +14)**, `dart pub publish --dry-run` clean apart from the expected
 uncommitted-changes warning.
 
-**Verified by running (Android).** `flutter run` on the Pixel-class AVD
-(1280x2856 @ density 3.0 = 426x952dp), instrumented at the seam:
+**Verified by running — BOTH platforms.** `flutter run` with the seam
+instrumented, on the Pixel-class AVD (1280x2856 @ density 3.0 = 426x952dp) and
+the iPhone 16 Pro Max simulator (440x956pt):
 
-    ADFLOW_PROBE spec=AnchoredAdaptiveSizeSpec requested=426x133 platform=426x67
+    Android  ADFLOW_PROBE spec=AnchoredAdaptiveSizeSpec requested=426x133 platform=426x67
+    iOS      ADFLOW_PROBE spec=AnchoredAdaptiveSizeSpec requested=440x138 platform=440x68
 
-Exactly the predicted split — the decompiled LARGE formula gives 133dp and the
+Exactly the predicted split on each — the decompiled LARGE formula gives 133dp and the
 CLASSIC one 67dp, and the platform reports the classic size because the codec
 dropped the large bit. A/B screenshots (only `gma_ad_sdk.dart` reverted between
 runs, same ad unit) show the phantom band present at 133dp and gone at 67dp.
@@ -62,8 +64,13 @@ in both, because the extra band is TRANSPARENT — it renders as the page
 background, so a "differs from background" scan measures only the creative, not
 the slot. Read the numbers from the seam, not from the screenshot.
 
-**Still open:** the same confirmation on iOS (not run). Also unfiled: the
-upstream `isLarge` round-trip issue against `googleads-mobile-flutter` (encoder
+The iOS numbers are the independent confirmation that this is the codec, not an
+Android quirk: `GADLargeAnchoredAdaptiveBannerAdSizeWithWidth(440)` -> 138pt is
+what Dart holds, `GADCurrentOrientationAnchoredAdaptiveBannerAdSizeWithWidth`
+-> 68pt is what `bannerView.adSize` reports, because
+`FLTGoogleMobileAdsReaderWriter_Internal.m:253` decodes `isLarge:false`.
+
+**Still open:** unfiled — the upstream `isLarge` round-trip issue against `googleads-mobile-flutter` (encoder
 must carry the flag; `AdMessageCodec.java:281` and
 `FLTGoogleMobileAdsReaderWriter_Internal.m:253` must stop hardcoding `false`).
 
