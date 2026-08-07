@@ -290,8 +290,8 @@ Scaffold(
 > inspect its `state`/`response` elsewhere — create it ONCE, as a field.
 
 Anchored adaptive by default (Google's revenue recommendation); the widget
-reserves its height from the first frame so content never shifts under a
-loading ad. Inline adaptive, fixed sizes and collapsible banners are
+reserves a minimal height from the first frame, then sizes the slot to exactly
+what the SDK rendered. Inline adaptive, fixed sizes and collapsible banners are
 configured via `BannerConfig(kind:, fixedSize:, collapsible:)`. Refresh is
 client-driven every `minRefresh` — **off by default** (`minRefresh: null`), because
 AdMob already auto-refreshes banner ad units server-side from the console; set the
@@ -313,6 +313,52 @@ Pass `placeholderHeight` to reserve a publisher-chosen height for a placement
 whose size you know in advance (e.g. an inline banner). `placeholderHeight: 0`
 opts into fully collapsed pre-load behaviour — no reservation until the ad
 actually loads.
+
+### Choosing a banner kind
+
+| kind | slot height | best for |
+| --- | --- | --- |
+| `anchoredAdaptive` *(default)* | fixed for the width, known before the request | pinned to the top/bottom of a screen, outside scrolling content |
+| `inlineAdaptive` | decided per-creative by Google, known only after load; cap it with `maxInlineHeight` | inside a feed or any scrolling content |
+| `fixed` | the exact IAB size you name | you need one guaranteed size |
+
+Both adaptive kinds size their slot from the SDK's own post-load answer, so the
+box always matches what was actually rendered. For a bottom-bar placement,
+`anchoredAdaptive` is the right format; reach for
+`inlineAdaptive(maxInlineHeight: …)` when the banner lives in a list.
+
+> **Upstream limitation (google_mobile_ads 9.0.0).** Google's *large* anchored
+> adaptive format cannot currently be requested from Flutter at all: the
+> plugin's codec drops the "large" flag on its way to the platform, so every
+> anchored request degrades to the classic size. ad_flow sizes the slot from
+> what the platform really rendered, so the banner is correct either way — but
+> there is deliberately no standard-vs-large option, because it would be inert.
+> See ADR-073.
+
+### Filling the slot (`backgroundColor`)
+
+An adaptive slot is anchored to its **width**. When AdMob fills it with a
+creative narrower or shorter than the slot, the SDK centres that creative and
+leaves the surround unpainted — so your app's surface shows through and the ad
+can read as a rendering glitch. Google's guidance is to give the slot an opaque
+background:
+
+```dart
+AdFlowBanner(
+  adFlow: ads,
+  backgroundColor: Theme.of(context).colorScheme.surface,
+)
+```
+
+It paints strictly **behind** the ad (never over it — occluding a creative is a
+policy violation) and, like `placeholderHeight`, disappears entirely once ads
+are disabled.
+
+> **Test mode.** Google publishes a different sample ad unit per banner format,
+> and ad_flow now picks the one matching your `kind` automatically. Before 5.3.0
+> the Android sample unit was the fixed-size one, so adaptive test banners were
+> served creatives that could not fill the slot — if your test banners used to
+> look narrow with visible gaps, that is what you were seeing.
 
 ### Interstitial
 

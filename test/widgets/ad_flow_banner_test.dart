@@ -756,4 +756,139 @@ void main() {
       },
     );
   });
+
+  // ADR-073 / issue #15. An adaptive slot is anchored to its WIDTH, so a
+  // creative smaller than the slot is centred by the SDK and the surround is
+  // left unpainted — the app's own surface shows through and the ad reads as a
+  // rendering glitch. Google's anchored-adaptive guidance is an opaque ad-view
+  // background; the package had no way to supply one.
+  group('backgroundColor paints behind the slot (ADR-073)', () {
+    const color = Color(0xFF123456);
+
+    ColoredBox? paintedBox(WidgetTester tester) {
+      final found = find.descendant(
+        of: find.byType(AdFlowBanner),
+        matching: find.byType(ColoredBox),
+      );
+      return found.evaluate().isEmpty
+          ? null
+          : tester.widget<ColoredBox>(found.first);
+    }
+
+    testWidgets('no colour by default — not one extra layer', (tester) async {
+      sdk.bannerSize = const AdDimensions(width: 360, height: 60);
+      final c = controller();
+      await tester.pumpWidget(
+        host(AdFlowBanner(controller: c, ownsController: true)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(paintedBox(tester), isNull);
+      await tester.pumpWidget(host(const SizedBox()));
+    });
+
+    testWidgets('paints behind the loaded ad AND the pre-load placeholder', (
+      tester,
+    ) async {
+      sdk.bannerSize = const AdDimensions(width: 360, height: 60);
+      final c = controller();
+      await tester.pumpWidget(
+        host(
+          AdFlowBanner(
+            controller: c,
+            ownsController: true,
+            backgroundColor: color,
+          ),
+        ),
+      );
+
+      // Reserved-but-not-loaded frame.
+      expect(paintedBox(tester)?.color, color);
+      expect(tester.getSize(find.byType(AdFlowBanner)).height, 50);
+
+      await tester.pumpAndSettle();
+
+      // Loaded frame: still painted, and the box is still exactly the ad size
+      // — the colour must not add height of its own.
+      expect(paintedBox(tester)?.color, color);
+      expect(tester.getSize(find.byType(AdFlowBanner)).height, 60);
+      expect(tester.getSize(find.byType(AdFlowBanner)).width, 360);
+
+      await tester.pumpWidget(host(const SizedBox()));
+    });
+
+    testWidgets('paints strictly UNDER the ad, never over it (occluding a '
+        'creative is a policy violation)', (tester) async {
+      sdk.bannerSize = const AdDimensions(width: 360, height: 60);
+      final c = controller();
+      await tester.pumpWidget(
+        host(
+          AdFlowBanner(
+            controller: c,
+            ownsController: true,
+            backgroundColor: color,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The ad subtree must be a DESCENDANT of the ColoredBox: a ColoredBox
+      // paints itself first, then its child, so the ad is on top. A sibling in
+      // a Stack (or any ancestor of the ColoredBox) would paint over the ad.
+      final adSubtree = find.descendant(
+        of: find.byType(AdFlowBanner),
+        matching: find.byType(KeyedSubtree),
+      );
+      expect(adSubtree, findsOneWidget);
+      expect(
+        find.ancestor(of: adSubtree, matching: find.byType(ColoredBox)),
+        findsOneWidget,
+        reason: 'the ad must render on top of the background, not under it',
+      );
+      expect(
+        find.descendant(
+          of: find.byType(AdFlowBanner),
+          matching: find.byType(Stack),
+        ),
+        findsNothing,
+        reason: 'no overlay layer may exist above a creative',
+      );
+
+      await tester.pumpWidget(host(const SizedBox()));
+    });
+
+    testWidgets('Remove-Ads still reclaims the WHOLE placement — a disabled '
+        'banner paints nothing at all', (tester) async {
+      final ads = await AdFlow.initialize(
+        const AdFlowConfig(
+          banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
+        ),
+        sdk: sdk,
+        store: InMemoryKeyValueStore(),
+        platform: AdPlatform.android,
+      );
+      addTearDown(ads.dispose);
+      await ads.whenReady;
+
+      sdk.bannerSize = const AdDimensions(width: 360, height: 60);
+      await tester.pumpWidget(
+        host(AdFlowBanner(adFlow: ads, backgroundColor: color)),
+      );
+      await tester.pumpAndSettle();
+      expect(paintedBox(tester)?.color, color);
+
+      ads.disableAds();
+      await tester.pump();
+      expect(tester.getSize(find.byType(AdFlowBanner)).height, 0);
+      expect(
+        paintedBox(tester),
+        isNull,
+        reason:
+            'a Remove-Ads banner must leave no coloured strip behind — the '
+            'background is part of the ad slot, not the app chrome',
+      );
+
+      await tester.pumpWidget(host(const SizedBox()));
+    });
+  });
 }

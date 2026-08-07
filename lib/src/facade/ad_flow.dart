@@ -1222,8 +1222,15 @@ class AdFlow {
         'AdFlowConfig.banner.',
       );
     }
-    final adUnitId = (_config.testMode ? TestAdUnitIds.banner : config.adUnitId)
-        .resolve(_platform);
+    // In test mode the sample unit must match THIS placement's kind (an
+    // adaptive slot served from Google's fixed-size sample unit gets a
+    // creative that cannot fill it — issue #15), so resolve from the
+    // override's kind, not the global config's.
+    final adUnitId =
+        (_config.testMode
+                ? TestAdUnitIds.forBannerKind(config.kind)
+                : config.adUnitId)
+            .resolve(_platform);
     if (adUnitId == null) {
       throw AdFlowError(
         AdFlowErrorKind.invalidConfig,

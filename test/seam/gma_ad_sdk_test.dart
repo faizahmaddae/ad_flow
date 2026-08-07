@@ -43,10 +43,19 @@ void main() {
   /// (as opposed to the SDK's own onAdFailedToLoad callback).
   Object? loadDispatchRejectsWith;
 
-  /// What the mock handler answers for `getAdSize` (an inline adaptive
-  /// banner's post-load platform size query). Null simulates the query
-  /// failing to produce a size.
+  /// What the mock handler answers for `getAdSize` (an adaptive banner's
+  /// post-load platform size query). Null simulates the query failing to
+  /// produce a size.
   Object? platformAdSizeResult;
+
+  /// If set, the mock handler throws this on `getAdSize` — simulates the
+  /// post-load size query rejecting at the channel rather than answering null.
+  Object? platformAdSizeRejectsWith;
+
+  /// What the mock handler answers for the pre-load
+  /// `AdSize#getLargeAnchoredAdaptiveBannerAdSize` height query (the number
+  /// Dart resolves the anchored slot from). Null makes the resolver fail.
+  Object? anchoredAdaptiveHeight;
 
   /// If set, the mock handler throws this on `setServerSideVerificationOptions`
   /// — simulates the one SSV-attach failure the plugin can actually surface
@@ -58,6 +67,8 @@ void main() {
     showRejectsWith = null;
     loadDispatchRejectsWith = null;
     platformAdSizeResult = null;
+    platformAdSizeRejectsWith = null;
+    anchoredAdaptiveHeight = null;
     ssvAttachRejectsWith = null;
     instanceManager = AdInstanceManager('plugins.flutter.io/google_mobile_ads');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -72,7 +83,12 @@ void main() {
                 when loadDispatchRejectsWith != null:
               throw loadDispatchRejectsWith!;
             case 'getAdSize':
+              if (platformAdSizeRejectsWith != null) {
+                throw platformAdSizeRejectsWith!;
+              }
               return platformAdSizeResult;
+            case 'AdSize#getLargeAnchoredAdaptiveBannerAdSize':
+              return anchoredAdaptiveHeight;
             case 'setServerSideVerificationOptions'
                 when ssvAttachRejectsWith != null:
               throw ssvAttachRejectsWith!;
@@ -204,6 +220,136 @@ void main() {
             'reporting for this placement for the rest of the session',
       );
     });
+  });
+
+  // ADR-073 / issue #15. google_mobile_ads 9.0.0 cannot round-trip the "large"
+  // bit of an anchored adaptive size: `AnchoredAdaptiveBannerAdSize` has no
+  // `isLarge` field, the Dart encoder writes only (orientation, width), and
+  // both native decoders rebuild it with `isLarge = false`. So Dart holds the
+  // LARGE height while the AdView the ad renders in is the CLASSIC one — on a
+  // 426x952dp phone, 67dp of ad inside a 133dp box, with the remainder showing
+  // the app's own surface through the transparent platform view. The seam must
+  // size the handle from the platform's own post-load answer, not from the
+  // AdSize it asked for.
+  group('anchored adaptive size reconciliation (ADR-073)', () {
+    Future<BannerHandle> loadAnchored(GmaAdSdk sdk, {int width = 426}) async {
+      final future = sdk.loadBanner(
+        BannerLoadSpec(
+          adUnitId: 'unit-b',
+          size: AnchoredAdaptiveSizeSpec(width: width),
+        ),
+      );
+      await pumpEventQueue();
+      await sendAdEvent(0, 'onAdLoaded');
+      await pumpEventQueue();
+      return future;
+    }
+
+    test('the handle follows the PLATFORM size, not the requested one — the '
+        'phantom band in issue #15', () async {
+      final sdk = GmaAdSdk();
+      // What Dart resolves through the large-anchored query...
+      anchoredAdaptiveHeight = 133;
+      // ...versus what the native AdView was actually constructed with,
+      // because the codec dropped the large bit.
+      platformAdSizeResult = AdSize(width: 426, height: 67);
+
+      final handle = await loadAnchored(sdk);
+
+      expect(
+        handle.size,
+        const AdDimensions(width: 426, height: 67),
+        reason:
+            'a 133dp box around a 67dp ad is 66dp of app background showing '
+            'through the slot',
+      );
+      expect(log.map((c) => c.method), contains('getAdSize'));
+    });
+
+    test('a platform size query that answers nothing keeps the requested size '
+        'and still COMPLETES the load (never fails a billable ad)', () async {
+      final sdk = GmaAdSdk();
+      anchoredAdaptiveHeight = 133;
+      platformAdSizeResult = null;
+
+      final handle = await loadAnchored(sdk);
+
+      expect(
+        handle.size,
+        const AdDimensions(width: 426, height: 133),
+        reason: 'anchored HAS a usable requested height to fall back on',
+      );
+      expect(
+        log.map((c) => c.method),
+        isNot(contains('disposeAd')),
+        reason:
+            'unlike inline adaptive, a failed query costs only the correction '
+            '— it must never throw away a renderable ad',
+      );
+    });
+
+    test('a platform size query that THROWS is equally non-fatal', () async {
+      final sdk = GmaAdSdk();
+      anchoredAdaptiveHeight = 133;
+      platformAdSizeRejectsWith = PlatformException(code: 'boom');
+
+      final handle = await loadAnchored(sdk);
+
+      expect(handle.size, const AdDimensions(width: 426, height: 133));
+      expect(log.map((c) => c.method), isNot(contains('disposeAd')));
+    });
+
+    test('a zero platform height is rejected as a size, not adopted', () async {
+      final sdk = GmaAdSdk();
+      anchoredAdaptiveHeight = 133;
+      platformAdSizeResult = AdSize(width: 426, height: 0);
+
+      final handle = await loadAnchored(sdk);
+
+      expect(
+        handle.size,
+        const AdDimensions(width: 426, height: 133),
+        reason: 'a zero-height box is a billable impression nobody can see',
+      );
+    });
+
+    test('an auto-refresh that resolves a new platform size resizes the live '
+        'handle and notifies listeners', () async {
+      final sdk = GmaAdSdk();
+      anchoredAdaptiveHeight = 133;
+      platformAdSizeResult = AdSize(width: 426, height: 67);
+      final handle = await loadAnchored(sdk);
+
+      var notified = 0;
+      handle.dimensions.addListener(() => notified++);
+
+      platformAdSizeResult = AdSize(width: 426, height: 100);
+      await sendAdEvent(0, 'onAdLoaded');
+      await pumpEventQueue();
+
+      expect(handle.size, const AdDimensions(width: 426, height: 100));
+      expect(notified, 1);
+      expect(log.map((c) => c.method), isNot(contains('disposeAd')));
+    });
+
+    test(
+      'a fixed banner never pays for the platform size round trip',
+      () async {
+        final sdk = GmaAdSdk();
+        final future = sdk.loadBanner(
+          const BannerLoadSpec(
+            adUnitId: 'unit-b',
+            size: FixedSizeSpec(FixedBannerSize.banner),
+          ),
+        );
+        await pumpEventQueue();
+        await sendAdEvent(0, 'onAdLoaded');
+        final handle = await future;
+
+        expect(handle.size, const AdDimensions(width: 320, height: 50));
+        expect(log.map((c) => c.method), isNot(contains('getAdSize')));
+      },
+    );
   });
 
   group('inline adaptive refresh (2026-07 audit)', () {

@@ -38,6 +38,7 @@ class AdFlowBanner extends StatefulWidget {
     this.controller,
     this.ownsController = false,
     this.placeholderHeight,
+    this.backgroundColor,
     super.key,
   }) : assert(
          (controller != null) ^ (adFlow != null),
@@ -82,6 +83,26 @@ class AdFlowBanner extends StatefulWidget {
   /// Remove-Ads banner always collapses to a zero footprint, whatever value is
   /// passed here.
   final double? placeholderHeight;
+
+  /// An opaque colour painted **behind** the slot.
+  ///
+  /// An adaptive banner slot is anchored to its WIDTH: when AdMob fills it
+  /// with a creative smaller than the slot, the SDK centres that creative and
+  /// leaves the surround unpainted, so the app's own surface shows through and
+  /// the ad reads as a rendering glitch. Google's anchored-adaptive guidance is
+  /// to give the ad view an opaque background for exactly this case.
+  ///
+  /// Pass an opaque colour (typically the surface the banner sits on, e.g.
+  /// `Theme.of(context).colorScheme.surface`). A translucent colour defeats the
+  /// purpose and is not recommended.
+  ///
+  /// This paints strictly UNDER the ad — never over it. Occluding, clipping or
+  /// scaling a creative is an AdMob policy violation, so there is deliberately
+  /// no API for it here.
+  ///
+  /// Like [placeholderHeight], this is **ignored while ads are disabled**
+  /// ([AdFlow.disableAds]): a Remove-Ads banner paints nothing at all.
+  final Color? backgroundColor;
 
   @override
   State<AdFlowBanner> createState() => _AdFlowBannerState();
@@ -212,9 +233,17 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
                 // just-DISPOSED ad — a permanently dead slot that still
                 // requests and pays for fresh ads it never displays
                 // (2026-07 audit).
-                child: KeyedSubtree(
-                  key: ObjectKey(handle),
-                  child: handle.buildWidget(),
+                // backgroundColor paints UNDER the ad, inside the same box: an
+                // adaptive slot is anchored to its WIDTH, so a creative smaller
+                // than the slot is centred by the SDK and the surround is left
+                // unpainted (the app's own surface shows through). Deliberately
+                // a ColoredBox BEHIND the child, never a Stack on top of it —
+                // occluding a creative is a policy violation.
+                child: _paint(
+                  KeyedSubtree(
+                    key: ObjectKey(handle),
+                    child: handle.buildWidget(),
+                  ),
                 ),
                 builder: (context, size, child) => SizedBox(
                   width: size.width,
@@ -223,16 +252,25 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
                 ),
               );
             }
-            return SizedBox(
-              width: constraints.maxWidth.isFinite
-                  ? constraints.maxWidth
-                  : null,
-              height: widget.placeholderHeight ?? _placeholderHeight,
+            return _paint(
+              SizedBox(
+                width: constraints.maxWidth.isFinite
+                    ? constraints.maxWidth
+                    : null,
+                height: widget.placeholderHeight ?? _placeholderHeight,
+              ),
             );
           },
         );
       },
     );
+  }
+
+  /// Paints [AdFlowBanner.backgroundColor] behind [child], or returns [child]
+  /// untouched when no colour was given (the default — zero extra layers).
+  Widget _paint(Widget child) {
+    final color = widget.backgroundColor;
+    return color == null ? child : ColoredBox(color: color, child: child);
   }
 
   /// The default height reserved for an ordinary (enabled, not-yet-loaded)

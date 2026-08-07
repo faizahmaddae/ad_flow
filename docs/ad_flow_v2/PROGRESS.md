@@ -1,6 +1,61 @@
 # PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
+**Phase 30 — 5.3.0 banner sizing (issue #15) (2026-08-07)** — ✅ implemented on
+branch **`fix/banner-adaptive-sizing`**; NOT pushed / tagged / merged /
+published. ADR-073. Backward-compatible **minor**: additive API only, no
+removals, no signature changes, no migration.
+
+Issue #15 reported an anchored banner reserving far more height than the ad it
+showed, with the app surface visible around a narrow, short creative. **The
+issue's observation was right and its diagnosis was wrong on every specific.**
+Investigated with a 17-agent workflow (6 parallel source lanes → 10 adversarial
+refutation agents → synthesis), including independent decompiles of
+`play-services-ads-api` 25.3.0 and a read of the reporter's own AVD config.
+
+- **REFUTED — "the seam calls the wrong AdSize API".** Google's *current*
+  sample calls the same `getLargeAnchoredAdaptiveBannerAdSize`;
+  `getCurrentOrientationAnchoredAdaptiveBannerAdSize` is the `@Deprecated` one.
+  And because the codec writes only `(orientation, width)`, **both Dart
+  factories produce a byte-identical wire message** — swapping them changes
+  nothing that is requested or rendered.
+- **ROOT CAUSE (upstream, triggered by us).** The plugin cannot round-trip the
+  "large" bit: the height QUERY honours it, but the codec drops it and both
+  native decoders hardcode `isLarge = false`. Dart held the LARGE height while
+  the AdView was built CLASSIC — 133dp box around a 67dp ad on the reporter's
+  Pixel 10 Pro — and the unpainted remainder showed the app's Scaffold through
+  the transparent platform view. **Fix:** the seam resolves dimensions via
+  `getPlatformAdSize()` for BOTH adaptive kinds, with asymmetric failure
+  handling (anchored falls back to the requested size and never fails a
+  loadable ad; inline keeps its ADR-048 semantics).
+- **SECONDARY.** `TestAdUnitIds.banner.android` was Google's **fixed-size**
+  sample unit while the default kind is `anchoredAdaptive` — so test mode was
+  served 320x50 / 320x100 / 468x60 creatives that cannot fill an adaptive slot
+  (exactly the labels in the report). iOS was already correct, so the defect
+  was Android-only. Sample units are now per-format, selected by `BannerKind`.
+- **ADDED.** `AdFlowBanner.backgroundColor` — an opaque colour painted strictly
+  BEHIND the slot (Google's prescribed remedy for a centred smaller creative;
+  their own sample hardcodes `Colors.green`). Never an overlay; a test asserts
+  the ancestry and the absence of any `Stack`.
+- **DELIBERATE NON-CHANGE.** No standard-vs-large knob — source proves it would
+  be inert. Documented as an upstream limitation instead.
+- **Ground truth corrected** in RESEARCH.md §3 (both decompiled formulas + the
+  codec asymmetry) and the two stale 50-90dp notes below. The stale entry is
+  *why* ADR-070 investigated this same symptom and concluded loaded banners were
+  already correct.
+
+Verified: `dart format` clean, `flutter analyze` clean, full suite green
+**(563, +14)**, `dart pub publish --dry-run` clean apart from the expected
+uncommitted-changes warning.
+
+**Still open (verify-by-running — NOT done):** on-device confirmation that a
+Pixel 10 Pro portrait anchored banner now reports ~67dp instead of 133dp, on
+Android AND iOS. Everything above is source-derived. Also unfiled: the upstream
+`isLarge` round-trip issue against `googleads-mobile-flutter` (encoder must
+carry the flag; `AdMessageCodec.java:281` and
+`FLTGoogleMobileAdsReaderWriter_Internal.m:253` must stop hardcoding `false`).
+
+## Previous phase
 **Phase 29 — 5.2.2 fast-path downgrade reconciliation (2026-07-21)** — ✅
 implemented on branch **`fix/fastpath-downgrade-generation`** (off `origin/main`
 `c2fc8c0`; NOT pushed / tagged / merged / published — Faiz reviews). A focused
@@ -802,7 +857,7 @@ the tests that PRIMED that latch all lie".
 ## Open questions / assumptions
 - `test/seam/gma_ad_sdk_test.dart` covers interstitial + banner only; the same mock-channel pattern applies directly to rewarded/rewarded-interstitial/app-open/native if a future session wants full-format seam coverage — not required, `FakeAdSdk`-level tests already cover their controller logic.
 - `FullScreenAdCoordinator`'s `postDismissSuppression` default (1s, in `AppOpenAdManager`) is a judgment call (DECISIONS ADR-026 item #9) — no RESEARCH.md-documented value exists for this; revisit if real-world app-open fill data suggests otherwise.
-- `AdFlowBanner`'s adaptive-height estimate (`deviceHeight * 0.15`, clamped 50-90) is grounded in Google's documented bounds (now in RESEARCH.md) but is still an estimate — `placeholderHeight` is the exact override when the real height is known.
+- ~~`AdFlowBanner`'s adaptive-height estimate (`deviceHeight * 0.15`, clamped 50-90)~~ — **superseded twice.** ADR-070 replaced the estimate with a deterministic 50dp floor; ADR-073 then established that the 50-90dp figure was the CLASSIC bound and never applied to the large API the seam calls. See RESEARCH.md §3 for both decompiled formulas.
 
 ## Traps hit this session
 - **Explainer-v2 session:** a `capture?.call(show(...))` in a widget test short-circuits argument evaluation when `capture` is null (`?.` guards the whole expression), so the primer never opened — call `show(...)` first, then forward. And a nested `Future<Future<void>>` return type is illegal (`void`-flattening) where `Future<Future<bool>>` compiles — capture the primer future via a `void Function(Future<void>)` callback param. Both appended to SKILL.md §6, plus the "presenter must be context-safe; package never holds a `BuildContext`" trap (ADR-030).
@@ -815,7 +870,7 @@ the tests that PRIMED that latch all lie".
 - **Testing the real `GmaAdSdk` seam requires the plugin's own private test infrastructure pattern**: a fresh `AdInstanceManager` per test (resets ad ids to 0), `setMockMethodCallHandler` on `instanceManager.channel` for outgoing calls, and a hand-reproduced `sendAdEvent` helper (`handlePlatformMessage` + the channel's own `AdMessageCodec`) for simulating incoming `onAdEvent` calls — mirrors the plugin's own `test/ad_containers_test.dart`/`test/banner_ad_test.dart` (reachable in the pub cache, not importable across packages). See `test/seam/gma_ad_sdk_test.dart`.
 - **`sdk.loadBanner(spec)` suspends at its own internal awaits before the ad is registered with `instanceManager`** — dispatching a simulated `onAdEvent` immediately after calling `loadBanner` (without an intervening `await pumpEventQueue()`) hits "Ad with id `0` is not available," not because the seam is wrong, but because the TEST raced ahead of Dart's own microtask ordering.
 - **Dart's Future error propagation requires the listener attached BEFORE the error, not after**: `await triggerTheError(); await expectLater(future, throwsA(...));` reports an unhandled async error even though the assertion is "correct," because nothing was listening on `future` at the moment it completed. Always do `final expectation = expectLater(future, throwsA(...));` first, trigger the error second, `await expectation` last.
-- **Google's anchored adaptive banner height has no pure-width formula** — verified via web search (developers.google.com): 50-90dp, capped at 15% of device height, depends on device/aspect ratio on the native side. Don't try to compute it exactly client-side; a documented-bounds-based estimate is the best achievable without a platform round trip.
+- ~~**Google's anchored adaptive banner height has no pure-width formula**~~ — **WRONG, and it cost a release (ADR-073).** Both anchored formulas ARE closed-form in (width, screen height); the 50-90dp/15% figure is the CLASSIC bound, while the seam calls the LARGE API (50-150dp/20%, floor 100dp). Worse, the plugin cannot round-trip the "large" bit, so the Dart height and the height the ad actually renders at DISAGREE — this trap is exactly why ADR-070 declared loaded banners correct when they were not. **Never size an adaptive banner's box from `ad.size`; use `getPlatformAdSize()`.** Formulas in RESEARCH.md §3.
 - **Adding a default (non-zero) time-based behavior to a shared collaborator (`FullScreenAdCoordinator`) breaks any existing test that does `exit()` then immediately re-`enter()`/`show()` at the same (real or injected) clock instant** — when fixing review finding #7, one pre-existing app-open test asserted the OLD immediate-re-show behavior as correct; had to update it to advance the injected clock past the new suppression window rather than treat the test failure as a regression.
 - **A Dart-side `.timeout(Duration)` cannot save you from a native call that blocks the platform thread synchronously** — `.timeout()` needs the isolate's own timer queue to run, and a synchronously-blocked platform thread starves that queue too. Diagnostic tell: query the Dart VM service directly (`GET {vmServiceUri}getIsolate?isolateId=...`) — if that times out too, the whole isolate is wedged, not just your `Future`. **BUT (corrected — see next trap): "isolate wedged by a native platform-thread block" does NOT mean "unfixable from Dart."** The block is *triggered by* specific native calls; changing *which* calls you make, or *when*, can avoid triggering it entirely. Rounds 1–3 of this session wrongly stopped at "unfixable / it's the AVD's Play-Services state." It wasn't.
 - **The fix for "the native SDK bootstrap freezes the platform thread" was in OUR call ordering — read the plugin's source to find which thread each call runs on (SKILL.md §5/§6, ADR-028).** `MobileAds.updateRequestConfiguration()` is serviced synchronously on the platform thread and force-bootstraps the Ads-Dynamite settings-manager singleton; `MobileAds.initialize()` bootstraps the same singleton on a background thread. Calling them concurrently (`Future.wait`, as review-fix #5 did) deadlocks the platform thread on a cold device. Sequencing (`await initialize()` then `updateRequestConfiguration()`) fixes it. The meta-lesson: three rounds of black-box symptom-chasing reached the right *mechanism* but a wrong, defeatist *cause*; reading the collaborator's actual Java source in round 4 found the real, Dart-fixable bug in minutes. When a hang looks like it's "below your layer," confirm by reading that layer's source before declaring it unreachable.

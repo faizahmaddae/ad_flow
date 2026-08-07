@@ -288,11 +288,26 @@ class GmaAdSdk implements AdSdk {
       width: handle._ad.size.width.toDouble(),
       height: handle._ad.size.height.toDouble(),
     );
-    if (spec.size is InlineAdaptiveSizeSpec) {
-      // Inline adaptive banners get their real height only after load: the
-      // plugin's InlineAdaptiveSize is constructed with HEIGHT 0 and is only
-      // resolved by getPlatformAdSize() (see AdSize.getInlineAdaptiveBanner…
-      // in the plugin — "an AdSize with the given width and 0 height").
+    // BOTH adaptive kinds must be sized from the platform's own post-load
+    // answer, not from the AdSize we asked for (ADR-073).
+    //
+    // - **inline adaptive** — mandatory: the plugin's `InlineAdaptiveSize` is
+    //   constructed with HEIGHT 0 and is only resolved by `getPlatformAdSize()`
+    //   (see `AdSize.getInlineAdaptiveBanner…` in the plugin — "an AdSize with
+    //   the given width and 0 height").
+    // - **anchored adaptive** — corrective: `handle._ad.size` is the height
+    //   Dart resolved through `AdSize#getLargeAnchoredAdaptiveBannerAdSize`,
+    //   but the plugin's codec cannot carry the "large" bit back down —
+    //   `AnchoredAdaptiveBannerAdSize` has no `isLarge` field, the encoder
+    //   writes only (orientation, width), and BOTH native decoders rebuild it
+    //   with `isLarge = false`. So the AdView/GADBannerView the ad actually
+    //   renders in is the CLASSIC size while Dart holds the LARGE one — on a
+    //   426x952dp phone, 67dp rendered inside a 133dp box, with the ~66dp
+    //   remainder showing the app's own surface through the transparent
+    //   platform view (issue #15). `getPlatformAdSize()` returns the size the
+    //   native view was really built with, which closes that gap.
+    final inlineAdaptive = spec.size is InlineAdaptiveSizeSpec;
+    if (inlineAdaptive || spec.size is AnchoredAdaptiveSizeSpec) {
       AdDimensions? resolved;
       try {
         final platformSize = await handle._ad.getPlatformAdSize();
@@ -306,32 +321,42 @@ class GmaAdSdk implements AdSdk {
         // Fall through to the failure path below.
       }
       if (resolved == null || resolved.height <= 0) {
-        // On an AUTO-REFRESH (completer already completed) the ad on screen
-        // is live, mounted and earning: a failed size query must keep the
-        // last known size, never tear the ad down — the symmetric hole to
-        // the onAdFailedToLoad refresh guard above (review finding #2,
-        // 2026-07 audit).
-        if (completer.isCompleted) return;
-        // On the INITIAL load we cannot size the container, and the
-        // requested size's height is 0. Rendering the ad anyway would put a
-        // LOADED, BILLABLE creative in a zero-height box: an impression the
-        // user can never see. Google's own guidance is to use
-        // getPlatformAdSize() to size the container, so if it will not tell
-        // us, treat this as a failed load — dispose the ad (no impression)
-        // and let the controller's normal retry path run.
-        unawaited(handle._ad.dispose());
-        unawaited(handle._events.close());
-        unawaited(handle._paid.close());
-        completer.completeError(
-          const AdFlowError(
-            AdFlowErrorKind.loadFailed,
-            'Could not resolve the inline adaptive banner height '
-            '(getPlatformAdSize returned no size).',
-          ),
-        );
-        return;
+        // ANCHORED adaptive keeps its requested size and carries on: it HAS a
+        // usable (concrete, non-zero) height, so a query that fails or returns
+        // nothing costs only the correction, not the ad. Failing the load here
+        // would throw away a perfectly renderable, billable ad to avoid a box
+        // that is merely taller than it needs to be — i.e. exactly the
+        // pre-ADR-073 behaviour. `size` is already the requested size, so
+        // there is nothing to do but fall through.
+        if (inlineAdaptive) {
+          // On an AUTO-REFRESH (completer already completed) the ad on screen
+          // is live, mounted and earning: a failed size query must keep the
+          // last known size, never tear the ad down — the symmetric hole to
+          // the onAdFailedToLoad refresh guard above (review finding #2,
+          // 2026-07 audit).
+          if (completer.isCompleted) return;
+          // On the INITIAL load we cannot size the container, and the
+          // requested size's height is 0. Rendering the ad anyway would put a
+          // LOADED, BILLABLE creative in a zero-height box: an impression the
+          // user can never see. Google's own guidance is to use
+          // getPlatformAdSize() to size the container, so if it will not tell
+          // us, treat this as a failed load — dispose the ad (no impression)
+          // and let the controller's normal retry path run.
+          unawaited(handle._ad.dispose());
+          unawaited(handle._events.close());
+          unawaited(handle._paid.close());
+          completer.completeError(
+            const AdFlowError(
+              AdFlowErrorKind.loadFailed,
+              'Could not resolve the inline adaptive banner height '
+              '(getPlatformAdSize returned no size).',
+            ),
+          );
+          return;
+        }
+      } else {
+        size = resolved;
       }
-      size = resolved;
     }
     var collapsible = false;
     if (spec.collapsible != null) {
