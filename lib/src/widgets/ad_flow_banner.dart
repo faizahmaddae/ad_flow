@@ -166,8 +166,21 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
     final adsEnabled = widget.adFlow?.adsEnabled;
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth.isFinite) {
-          final width = constraints.maxWidth.truncate();
+        // A slot with no usable width must never request an ad. A zero-width
+        // (or unbounded) placement still resolves to a VALID adaptive AdSize
+        // natively — `AdSize(0, 100)`, not `AdSize.INVALID` — so nothing
+        // downstream refuses it: the request goes out, a real ad loads, and it
+        // renders in a zero-width box. That is a billable impression the user
+        // can never see, the exact thing the seam's inline-adaptive
+        // zero-height branch already refuses. Unbounded width folds into the
+        // same guard (and `double.infinity.truncate()` would throw anyway).
+        // A slot that later gains a width loads then, because `_loadRequested`
+        // is still false; one that shrinks to zero keeps its ad and its last
+        // requested width, so growing back does not re-request.
+        final width = constraints.maxWidth.isFinite
+            ? constraints.maxWidth.truncate()
+            : 0;
+        if (width > 0) {
           if (!_loadRequested) {
             _loadRequested = true;
             _requestedWidth = width;

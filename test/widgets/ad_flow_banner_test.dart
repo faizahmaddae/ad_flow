@@ -757,6 +757,91 @@ void main() {
     );
   });
 
+  // A zero-width slot resolves to a VALID adaptive AdSize natively
+  // (`AdSize(0, 100)`, not `AdSize.INVALID`), so nothing downstream refuses
+  // it: before this guard a 0-width parent dispatched a real request, landed
+  // AdLoaded, and rendered a BILLABLE ad in a Size(0, 50) box — an impression
+  // the user can never see. Same rule the seam already applies to a
+  // zero-height inline adaptive banner.
+  group('a slot with no usable width never requests an ad (ADR-073)', () {
+    testWidgets('zero width dispatches nothing', (tester) async {
+      final c = controller();
+      await tester.pumpWidget(
+        host(
+          SizedBox(
+            width: 0,
+            child: AdFlowBanner(controller: c, ownsController: true),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(sdk.bannerSpecs, isEmpty);
+      expect(c.state.value, isA<AdIdle>());
+      expect(c.handle, isNull);
+
+      await tester.pumpWidget(host(const SizedBox()));
+    });
+
+    testWidgets('a slot that GAINS a width then loads exactly once', (
+      tester,
+    ) async {
+      sdk.bannerSize = const AdDimensions(width: 400, height: 60);
+      final c = controller();
+      Widget at(double w) => host(
+        SizedBox(
+          width: w,
+          child: AdFlowBanner(controller: c, ownsController: true),
+        ),
+      );
+
+      await tester.pumpWidget(at(0));
+      await tester.pumpAndSettle();
+      expect(sdk.bannerSpecs, isEmpty);
+
+      // The collapsed panel opens.
+      await tester.pumpWidget(at(400));
+      await tester.pumpAndSettle();
+      expect(sdk.bannerSpecs, hasLength(1));
+      expect(
+        sdk.bannerSpecs.single.size,
+        isA<AnchoredAdaptiveSizeSpec>().having((s) => s.width, 'width', 400),
+      );
+
+      await tester.pumpWidget(host(const SizedBox()));
+    });
+
+    testWidgets('shrinking to zero and back does NOT re-request', (
+      tester,
+    ) async {
+      sdk.bannerSize = const AdDimensions(width: 400, height: 60);
+      final c = controller();
+      Widget at(double w) => host(
+        SizedBox(
+          width: w,
+          child: AdFlowBanner(controller: c, ownsController: true),
+        ),
+      );
+
+      await tester.pumpWidget(at(400));
+      await tester.pumpAndSettle();
+      expect(sdk.bannerSpecs, hasLength(1));
+
+      await tester.pumpWidget(at(0));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(at(400));
+      await tester.pumpAndSettle();
+
+      expect(
+        sdk.bannerSpecs,
+        hasLength(1),
+        reason: 'a collapse/expand cycle at the same width is not a resize',
+      );
+
+      await tester.pumpWidget(host(const SizedBox()));
+    });
+  });
+
   // ADR-073 / issue #15. An adaptive slot is anchored to its WIDTH, so a
   // creative smaller than the slot is centred by the SDK and the surround is
   // left unpainted — the app's own surface shows through and the ad reads as a

@@ -32,6 +32,14 @@ unchanged. Two behaviours change on purpose (see BEHAVIOUR CHANGES).
   the pair was inconsistent and the defect was Android-only. Sample units are
   now per-format and selected by `BannerKind`, per placement.
 
+- **A banner slot with no usable width no longer requests an ad.** The load
+  was gated on the layout width being *finite*, which admits **zero**. A
+  zero-width placement (a collapsed panel, a mid-animation container) still
+  resolves to a valid adaptive ad size natively, so nothing refused it: a real,
+  billable ad loaded and rendered in a zero-width box — an impression nobody
+  can see. Now gated on a positive width; a slot that later gains one loads
+  then, and a collapse/expand cycle does not re-request.
+
 ### ADDED
 
 - **`AdFlowBanner.backgroundColor`** — an opaque colour painted **behind** the
