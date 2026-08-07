@@ -321,20 +321,18 @@ class GmaAdSdk implements AdSdk {
         // Fall through to the failure path below.
       }
       if (resolved == null || resolved.height <= 0) {
-        // ANCHORED adaptive keeps its requested size and carries on: it HAS a
-        // usable (concrete, non-zero) height, so a query that fails or returns
-        // nothing costs only the correction, not the ad. Failing the load here
-        // would throw away a perfectly renderable, billable ad to avoid a box
-        // that is merely taller than it needs to be — i.e. exactly the
-        // pre-ADR-073 behaviour. `size` is already the requested size, so
-        // there is nothing to do but fall through.
+        // On an AUTO-REFRESH (completer already completed) the ad on screen is
+        // live, mounted and earning: a failed size query must keep the LAST
+        // KNOWN size and never tear the ad down — the symmetric hole to the
+        // onAdFailedToLoad refresh guard above (review finding #2, 2026-07
+        // audit). This guard covers BOTH kinds, and for anchored that is
+        // load-bearing rather than merely tidy: `size` was re-read at the top
+        // of this method from the IMMUTABLE requested AdSize, so falling
+        // through would resize a live anchored banner from the height the
+        // platform reported back up to the requested one — re-opening the very
+        // band ADR-073 closed, on a mounted ad, mid-session.
+        if (completer.isCompleted) return;
         if (inlineAdaptive) {
-          // On an AUTO-REFRESH (completer already completed) the ad on screen
-          // is live, mounted and earning: a failed size query must keep the
-          // last known size, never tear the ad down — the symmetric hole to
-          // the onAdFailedToLoad refresh guard above (review finding #2,
-          // 2026-07 audit).
-          if (completer.isCompleted) return;
           // On the INITIAL load we cannot size the container, and the
           // requested size's height is 0. Rendering the ad anyway would put a
           // LOADED, BILLABLE creative in a zero-height box: an impression the
@@ -354,6 +352,12 @@ class GmaAdSdk implements AdSdk {
           );
           return;
         }
+        // ANCHORED adaptive on its INITIAL load keeps the requested size and
+        // carries on: it HAS a usable (concrete, non-zero) height, so a query
+        // that fails costs only the correction, not the ad. Failing here would
+        // throw away a perfectly renderable, billable ad to avoid a box that is
+        // merely taller than it needs to be — i.e. the pre-ADR-073 behaviour.
+        // `size` is already the requested size, so fall through.
       } else {
         size = resolved;
       }

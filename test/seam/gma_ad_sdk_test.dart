@@ -332,6 +332,41 @@ void main() {
       expect(log.map((c) => c.method), isNot(contains('disposeAd')));
     });
 
+    test('a refresh whose size query FAILS keeps the live size — it must not '
+        'snap back to the requested one and re-open the band', () async {
+      final sdk = GmaAdSdk();
+      anchoredAdaptiveHeight = 133;
+      platformAdSizeResult = AdSize(width: 426, height: 67);
+      final handle = await loadAnchored(sdk);
+      expect(handle.size, const AdDimensions(width: 426, height: 67));
+
+      var notified = 0;
+      handle.dimensions.addListener(() => notified++);
+
+      // AdMob auto-refresh re-fires onAdLoaded for the SAME ad and the size
+      // query hiccups. `_ad.size` is the IMMUTABLE requested 426x133, so a
+      // naive fall-through would resize the LIVE banner 67 -> 133 and put the
+      // phantom band back on a mounted ad.
+      platformAdSizeResult = null;
+      await sendAdEvent(0, 'onAdLoaded');
+      await pumpEventQueue();
+
+      expect(
+        handle.size,
+        const AdDimensions(width: 426, height: 67),
+        reason: 'keep the last known platform size, never the requested one',
+      );
+      expect(notified, 0, reason: 'no spurious resize of a live ad');
+      expect(log.map((c) => c.method), isNot(contains('disposeAd')));
+
+      // A throwing query on refresh behaves identically.
+      platformAdSizeRejectsWith = PlatformException(code: 'boom');
+      await sendAdEvent(0, 'onAdLoaded');
+      await pumpEventQueue();
+      expect(handle.size, const AdDimensions(width: 426, height: 67));
+      expect(notified, 0);
+    });
+
     test(
       'a fixed banner never pays for the platform size round trip',
       () async {
