@@ -157,14 +157,14 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   void onLoaded() {}
 
   /// Drops the current handle (without showing it) and preloads a fresh
-  /// one — used by app-open to discard expired ads.
+  /// one — for a warm ad that must not be shown: expired, requested under a
+  /// stale consent generation, or left with a failed runtime-SSV attach.
   ///
   /// A no-op while a load is already in flight (same reasoning as review
-  /// finding #4 on `NativeAdController.reload()`): today's one caller
-  /// (`AppOpenAdController.show()`) only invokes this after confirming
-  /// `isReady` (implies `AdLoaded`), so this guard is currently
-  /// unreachable in practice — kept as defense-in-depth since this is a
-  /// `@protected` method a future subclass could call from elsewhere.
+  /// finding #4 on `NativeAdController.reload()`): that load is already the
+  /// replacement. It deliberately runs while the slot is [AdShowing]: the
+  /// show engine calls it, claim already released, for an ad it refused to
+  /// dispatch (ADR-075) — bailing there would strand the slot at AdShowing.
   @protected
   void discardCurrentAd() {
     if (_disposed || _state.value is AdLoading) return;
@@ -492,6 +492,19 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       return false;
     }
 
+    // A warm ad that must not be shown at all (stale consent, or expired) is
+    // dropped and reloaded in the same turn as the claim release — never
+    // rolled back to AdLoaded first (5.3.1). That rollback notified `state`
+    // listeners a microtask before the discard: a listener's show() claimed
+    // the doomed handle in between, the discard then dropped it from under
+    // that show and started a load, and that show's own discard started a
+    // second one, leaking a handle (ADR-075).
+    bool releaseAndDiscard() {
+      _exitCoordinator();
+      discardCurrentAd();
+      return false;
+    }
+
     // These preconditions run AFTER the coordinator has been claimed and
     // AdShowing written (both must be synchronous — ADR-024), so any throw in
     // here MUST roll both back. A corrupt shared_preferences backend makes
@@ -552,10 +565,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         }
         if (isExpired) {
           noteBlocked(AdBlockReason.expired);
-          // Roll back the claim/state, THEN discard the stale ad + reload.
-          await rejectAndRollBack();
-          discardCurrentAd();
-          return false;
+          return releaseAndDiscard();
         }
       }
     } catch (_) {
@@ -599,18 +609,14 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     }
     if (_loadedGeneration != _gate.consentGeneration) {
       // Consent mutated mid-show: the warm ad carries stale consent/forwarding.
-      // Roll back the claim/state, then drop + reload through the fresh gate.
-      await rejectAndRollBack();
-      discardCurrentAd();
-      return false;
+      // Release the claim, then drop + reload through the fresh gate.
+      return releaseAndDiscard();
     }
     if (isExpired) {
       // Aged past maxAdAge mid-show (e.g. a slow cap hydration crossed expiry):
       // discard rather than show a stale ad that may fail or not count.
       noteBlocked(AdBlockReason.expired);
-      await rejectAndRollBack();
-      discardCurrentAd();
-      return false;
+      return releaseAndDiscard();
     }
     try {
       await handle.show(onUserEarnedReward: onRewardOnce);

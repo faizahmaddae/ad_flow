@@ -3,9 +3,12 @@
 ## Current phase
 **Phase 31 — 5.3.1 native ad placeholder width (2026-10-18)** — ✅ implemented
 on branch **`fix/native-placeholder-width`** (off `origin/main` `a5bb58b`), with
-the Dart 3.13 analyzer fix on **`fix/analyzer-dart-3-13`** on top of it (NOT
-pushed / tagged / merged / published — Faiz reviews). ADR-074, ADR-034
-addendum. Patch: no public API, no default change, no migration.
+the Dart 3.13 analyzer fix on **`fix/analyzer-dart-3-13`** on top of it, and the
+show engine's drop-branch race fix on **`fix/show-engine-rollback-race`** on
+top of that (`fix/analyzer-dart-3-13` is pushed as PR #17; the race fix is
+local only; nothing tagged / merged / published — Faiz reviews). ADR-074,
+ADR-034 addendum, ADR-075. Patch: no public API, no default change, no
+migration.
 
 Found in Atelier (one of Faiz's apps) on the iPhone 18 Pro simulator: the
 gallery's native card drew as a **16 × 376 pt strip** while its ad loaded, then
@@ -69,9 +72,47 @@ follow-up: `lib/src/seam/gma_ad_sdk.dart`, `test/seam/gma_mappers_test.dart`,
 CHANGELOG (+1 bullet), DECISIONS ADR-003 addendum, RESEARCH §1, SKILL §6 (+1
 trap).
 
+**Also in 5.3.1 — a dropped ad is never re-published as `AdLoaded`** (branch
+**`fix/show-engine-rollback-race`**, on top of `fix/analyzer-dart-3-13`
+`69b9331`; NOT pushed). A suspected race spotted while reviewing the analyzer
+fix, checked fail-first: **real** for the stale-consent branch. ADR-075.
+
+- **CAUSE.** Three `showEngine` branches drop the warm ad instead of showing
+  it (final guard: stale consent generation, expiry; post-intro expiry) with
+  `await rejectAndRollBack(); discardCurrentAd();`. The rollback writes
+  `AdLoaded` (listeners notified at once), the discard runs a microtask later.
+  A `state` listener that shows on `AdLoaded` re-claimed the doomed handle in
+  between; the late discard (it bails only on `AdLoading`) dropped it from
+  under that show and started a load, and that show's own guard rolled back
+  onto the in-flight load and started a SECOND one. Seen with `FakeAdSdk`: two
+  loads in flight, an ad never disposed (not even by `dispose()`), `AdLoaded`
+  reported while the coordinator was claimed. The expiry branches never
+  double-loaded (the inner `show()` hits its own `isExpired` check first) but
+  also flashed `AdLoaded` for a condemned ad.
+- **FIX.** `releaseAndDiscard()` — `_exitCoordinator(); discardCurrentAd();` —
+  at all three sites: drop and reload in the same turn as the claim release.
+  `state` goes `AdShowing → AdIdle → AdLoading`. Rejected: bailing
+  `discardCurrentAd()` on `AdShowing` (it would loop the stale ad between the
+  two shows), a pre-claim generation check in `show()` (still publishes the
+  doomed `AdLoaded`).
+- **TESTS.** `show_dispatch_guard_test.dart` +6 (3 branches × reload held /
+  not held, under a show-on-`AdLoaded` listener, with a seam counter of loads
+  in flight). Fail-first: both stale-consent cases red on the old code
+  (`Expected: <1> Actual: <2>` loads in flight; 3 handles for one reload);
+  the four expiry cases pass either way (regression guards); restoring the old
+  file turns the two red again. `state_machine_fuzz_test.dart` interstitial op
+  set +2 (consent mutation, held cap check) plus a seeded coin-flip
+  show-on-`AdLoaded` listener: catches the old code in seeds 4 and 14.
+
+Files: `lib/src/controllers/full_screen_ad_controller_base.dart`
+(`releaseAndDiscard` + `discardCurrentAd` dartdoc),
+`test/controllers/show_dispatch_guard_test.dart`,
+`test/controllers/state_machine_fuzz_test.dart`, `CHANGELOG.md` (+1 bullet in
+5.3.1), DECISIONS ADR-075, SKILL §6 (+1 trap, 1 corrected).
+
 ## How to verify (Phase 31)
 `dart format --output=none --set-exit-if-changed .` && `flutter analyze` &&
-`flutter test` → **580 tests** green (569 + 4 native + 7 rollback);
+`flutter test` → **586 tests** green (569 + 4 native + 7 rollback + 6 drop);
 `flutter analyze` **No issues found**; `dart pub publish --dry-run` on the
 committed tree: **0 warnings**; `example/` test passes; pana 160/160 (local
 0.23.10). Run on Flutter 3.47.7 / Dart 3.13.5, with the latest resolution
@@ -80,8 +121,33 @@ well as the old 9.0.0 lock. Not run on a device here (Atelier's simulator
 check of the native symptom is in its own repo).
 
 ## Open items for Faiz (5.3.1)
-- Review + merge **`fix/analyzer-dart-3-13`** (PR #17; it contains
-  `fix/native-placeholder-width`); release 5.3.1 when ready.
+- Review + merge **`fix/show-engine-rollback-race`**: it sits on
+  **`fix/analyzer-dart-3-13`** (PR #17), which contains
+  `fix/native-placeholder-width`; release 5.3.1 when ready.
+- **Found while fuzzing, NOT fixed (pre-existing, separate bug):** the
+  closed-gate recheck stops backing off after about an hour.
+  `RetryPolicy.nextDelay` computes `baseDelay * math.pow(2, attempt - 1)` in
+  `int`, and `_gateAttempts` (banner, native, full-screen) only resets on a
+  successful load. With the defaults `gateRecheckDelay(52)` is **0 ms**, and
+  from attempt 62 on it is always 0 ms (measured: 51 → 60000, 52 → 0,
+  53 → 60000, 55 → 0, 62+ → 0). A gate closed for ~an hour (Remove-Ads bought,
+  consent declined) then re-checks on a zero-delay timer: a CPU spin, plus an
+  `onAdBlocked` callback per spin (read from the code; not run on a device).
+  In `fakeAsync` the elapse never ends: a scratch copy of the extended
+  interstitial fuzz hung on seed 7 at 200 ops, during settle's 10-minute
+  elapse with ads disabled (the committed 120-op run stays below attempt 52).
+  Fix: clamp the exponent (or cap `_gateAttempts`) and test a large attempt
+  count.
+  The SKILL §6 "elapse of hours against a CLOSED gate" trap was most likely
+  this, not dense churn.
+- **Found, NOT fixed (design question):** an app listener that calls `show()`
+  on every `AdLoaded`, with nothing else guarding it, loops forever on a
+  persistent refusal (cap, pacing, Remove-Ads, consent): each refusal rolls
+  back to `AdLoaded`, which fires the listener again. All on microtasks, so it
+  starves the event loop (measured: 100,000 `show()` calls before one timer
+  tick, under a refusing cap). The package could refuse a `show()` that
+  re-enters from its own rollback, or the docs could warn; for now, guard such
+  listeners with a "show in flight" flag (as the fuzz does).
 - `ci.yml` still tracks `stable` unpinned, so a later Dart can add a warning
   again on unchanged code (that is how the Dart 3.13 one landed).
 - Decide when to move to `ageRestrictedTreatment`. It is a minor: raise the

@@ -41,6 +41,16 @@ before. See ADR-074.
   `ageRestrictedTreatment`, which 9.0.0 does not have. ad_flow still supports
   `^9.0.0`, so it keeps setting both tags, and 9.1.0 still applies them on
   Android and iOS: no behaviour change.
+- **A show that drops its ad at the last moment no longer reports it loaded
+  first.** When a full-screen show found, just before dispatch, that its ad
+  could not be shown (consent changed while the show waited, or the ad
+  expired), `state` went back to `AdLoaded` for a moment before the ad was
+  dropped. A `state` listener that shows "as soon as loaded" could take the
+  doomed ad in that moment. After a consent change the slot then started two
+  loads at once, and one of the two ads was never disposed, not even by
+  `dispose()`. The ad is now dropped and its replacement requested in the
+  same step: `state` goes from `AdShowing` straight to `AdLoading`, and the
+  slot loads once. See ADR-075.
 
 ## 5.3.0
 
