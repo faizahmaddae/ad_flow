@@ -1,23 +1,39 @@
 # PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
-**Phase 31 — 5.3.1 native ad placeholder width (2026-10-18)** — ✅ implemented
-on branch **`fix/native-placeholder-width`** (off `origin/main` `a5bb58b`), with
-the Dart 3.13 analyzer fix on **`fix/analyzer-dart-3-13`** on top of it, the
-show engine's drop-branch race fix on **`fix/show-engine-rollback-race`** on
-top of that, the retry-delay overflow fix on **`fix/retry-delay-overflow`** on
-top of that, the gate re-check floor on **`fix/gate-recheck-zero-delay`** on
-top of that, and the failure-path cooldown floor on
-**`fix/failure-retry-zero-cooldown`** on top of that. `fix/analyzer-dart-3-13`
-is PR #17, since fast-forwarded to the gate re-check floor (`a5e70e5`) and
-pushed; the cooldown floor is local only. Nothing tagged / merged / published —
-Faiz reviews. ADR-074, ADR-034 addendum, ADR-075, ADR-035 addendum, ADR-076,
-ADR-077. Patch: no public API, no default change, no migration.
+**Phase 31 — 5.3.1 native ad layout and reliability patch (2026-10-18)** — ✅
+**SHIPPED & PUBLISHED (2026-10-18).** Merged, tagged, on pub.dev. Patch: no
+public API, no default change, no migration. ADR-074, ADR-034 addendum,
+ADR-075, ADR-035 addendum, ADR-076, ADR-077.
+
+**Release record.** PR [#17](https://github.com/faizahmaddae/ad_flow/pull/17)
+(7 commits, `7d91ab9` … `69e31a1`; the six `fix/*` branches below, stacked;
+all 4 checks green on `69e31a1`, run 39146046030) squash-merged to `main`
+(admin bypass of the 1-review requirement only — no reviewer available, all CI
+green, `enforce_admins` off) at 2026-10-18T16:47:22Z → squash commit
+**`1c4d885`**. Then **`b822cc9`** "docs(changelog): describe all of 5.3.1 in its
+summary" (the summary still named only the native layout fix). Annotated tag
+**`v5.3.1`** (object `881c05d`) → `b822cc9`. Published via the tag-triggered
+OIDC workflow (run 39146965916, success) — **5.3.1 is live and Latest** on
+https://pub.dev/packages/ad_flow (published 2026-10-18T16:55:21Z). No GitHub
+Release (none for 5.3.0 either). Post-merge main CI on `1c4d885` ✓
+(39146606354); on `b822cc9` (run 39146963758) the Android example build first
+failed on a Maven Central 403 for `kotlin-gradle-plugin` 2.3.0 — network, on a
+CHANGELOG-only commit — and its re-run passed (all 4 jobs ✓). Verified locally before
+tagging (Flutter 3.47.7, Dart 3.13.5): format clean, analyze clean, **615
+tests**, dry-run **0 warnings**, after reverting `build/**` excludes that local
+tooling had added to both `analysis_options.yaml` files (never publish those).
+Right after publishing, pub's resolver kept seeing 5.3.0 for a couple of
+minutes (CDN, `max-age=120`, plus pub's own listing cache under
+`~/.pub-cache/hosted/pub.dev/.cache/`): wait, delete that package's
+`-versions.json`, retry.
 
 Found in Atelier (one of Faiz's apps) on the iPhone 18 Pro simulator: the
 gallery's native card drew as a **16 × 376 pt strip** while its ad loaded, then
 jumped to full width. Atelier worked around it in its own commit `3b1fbb7` (the
 card sets its own width); this removes the cause, so no caller needs to.
+Atelier took 5.3.1 and dropped that workaround in `92e681e` (its 1019 tests
+green, the card-width test now guarding this fix).
 
 - **CAUSE.** `AdFlowNativeAd` returned `SizedBox(height: h)` — no width, no
   child — until `AdLoaded`: 0 wide under any loose parent. The loaded
@@ -248,16 +264,11 @@ well as the old 9.0.0 lock. Not run on a device here (Atelier's simulator
 check of the native symptom is in its own repo).
 
 ## Open items for Faiz (5.3.1)
-- Review + merge **`fix/failure-retry-zero-cooldown`** (local only): it sits
-  on **`fix/gate-recheck-zero-delay`** (`a5e70e5`), which sits on
-  **`fix/retry-delay-overflow`**, which sits on
-  **`fix/show-engine-rollback-race`**, which sits on
-  **`fix/analyzer-dart-3-13`** (PR #17), which contains
-  `fix/native-placeholder-width`. PR #17's branch has since been
-  fast-forwarded to `a5e70e5` and pushed, so the PR carries everything but the
-  cooldown floor. Release 5.3.1 when ready. The overflow fix, the gate floor
-  and the cooldown floor are each written up as a 5.3.1 bullet; moving any of
-  them to a later patch is Faiz's call.
+- ~~Review + merge the stacked `fix/*` branches, release 5.3.1~~ — **done
+  2026-10-18**: PR #17 was fast-forwarded to the cooldown floor (`69e31a1`),
+  so it carried all six branches; squash-merged as `1c4d885` and released as
+  5.3.1 (record under Current phase). The six local `fix/*` branches are
+  merged and can be deleted.
 - **Found, NOT fixed (design question):** an app listener that calls `show()`
   on every `AdLoaded`, with nothing else guarding it, loops forever on a
   persistent refusal (cap, pacing, Remove-Ads, consent): each refusal rolls
