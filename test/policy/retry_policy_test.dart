@@ -197,4 +197,89 @@ void main() {
       }
     });
   });
+
+  group('a closed gate is re-checked at most once a second (ADR-076)', () {
+    // nextDelay reads baseDelay and maxDelay in whole milliseconds, so a base
+    // or a cap under 1 ms makes every delay 0 ms. Failure retries stop at
+    // maxAttempts, but the gate re-check's counter grows for as long as the
+    // gate stays closed, so a 0 ms gate re-check was a busy loop.
+    // AdFlowConfig.validate() rejects a zero baseDelay, not a sub-millisecond
+    // one, and a hand-built RetryPolicy is never validated at all.
+    const second = Duration(seconds: 1);
+    const configs = {
+      'zero base and cap': RetryConfig(
+        baseDelay: Duration.zero,
+        maxDelay: Duration.zero,
+      ),
+      'sub-millisecond base and cap': RetryConfig(
+        baseDelay: Duration(microseconds: 500),
+        maxDelay: Duration(microseconds: 500),
+      ),
+      'zero base, default cap': RetryConfig(baseDelay: Duration.zero),
+      'default base, zero cap': RetryConfig(maxDelay: Duration.zero),
+      '1 ms base and cap': RetryConfig(
+        baseDelay: Duration(milliseconds: 1),
+        maxDelay: Duration(milliseconds: 1),
+      ),
+    };
+
+    test('gateRecheckDelay is 1 s when the configured delays are all '
+        'shorter, at any attempt and any jitter', () {
+      for (final MapEntry(key: name, value: config) in configs.entries) {
+        for (final r in [0.0, 0.5, 0.999999]) {
+          final policy = RetryPolicy(config, random: () => r);
+          for (final attempt in [1, 2, 10, 52, 61, 1000000]) {
+            expect(
+              policy.gateRecheckDelay(attempt),
+              second,
+              reason: '$name, random() = $r, gateRecheckDelay($attempt)',
+            );
+          }
+        }
+      }
+    });
+
+    test('delays of 1 s or more are unchanged, shorter ones become 1 s, and '
+        'failure retries keep the configured delays', () {
+      final policy = noJitter(
+        const RetryConfig(
+          baseDelay: Duration(milliseconds: 250),
+          maxDelay: Duration(seconds: 4),
+        ),
+      );
+      const attempts = [1, 2, 3, 4, 5, 6];
+      expect(
+        [for (final attempt in attempts) policy.gateRecheckDelay(attempt)],
+        const [
+          second,
+          second,
+          second,
+          Duration(seconds: 2),
+          Duration(seconds: 4),
+          Duration(seconds: 4),
+        ],
+      );
+      expect(
+        [for (final attempt in attempts) policy.nextDelay(attempt)],
+        const [
+          Duration(milliseconds: 250),
+          Duration(milliseconds: 500),
+          second,
+          Duration(seconds: 2),
+          Duration(seconds: 4),
+          Duration(seconds: 4),
+        ],
+      );
+    });
+
+    test('the floor applies after the jitter', () {
+      // A 1 s base at the low jitter extreme (±25%) is 750 ms.
+      final low = RetryPolicy(
+        const RetryConfig(baseDelay: Duration(seconds: 1)),
+        random: () => 0.0,
+      );
+      expect(low.nextDelay(1), const Duration(milliseconds: 750));
+      expect(low.gateRecheckDelay(1), second);
+    });
+  });
 }

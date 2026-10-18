@@ -5,11 +5,12 @@
 on branch **`fix/native-placeholder-width`** (off `origin/main` `a5bb58b`), with
 the Dart 3.13 analyzer fix on **`fix/analyzer-dart-3-13`** on top of it, the
 show engine's drop-branch race fix on **`fix/show-engine-rollback-race`** on
-top of that, and the retry-delay overflow fix on **`fix/retry-delay-overflow`**
-on top of that (`fix/analyzer-dart-3-13` is pushed as PR #17; the last two are
-local only; nothing tagged / merged / published — Faiz reviews). ADR-074,
-ADR-034 addendum, ADR-075, ADR-035 addendum. Patch: no public API, no default
-change, no migration.
+top of that, the retry-delay overflow fix on **`fix/retry-delay-overflow`** on
+top of that, and the gate re-check floor on **`fix/gate-recheck-zero-delay`**
+on top of that (`fix/analyzer-dart-3-13` is pushed as PR #17; the last three
+are local only; nothing tagged / merged / published — Faiz reviews). ADR-074,
+ADR-034 addendum, ADR-075, ADR-035 addendum, ADR-076. Patch: no public API, no
+default change, no migration.
 
 Found in Atelier (one of Faiz's apps) on the iPhone 18 Pro simulator: the
 gallery's native card drew as a **16 × 376 pt strip** while its ad loaded, then
@@ -147,27 +148,76 @@ Files: `lib/src/policy/retry_policy.dart` (fix + dartdoc),
 bullet in 5.3.1), DECISIONS ADR-035 addendum + ADR-008 pointer, SKILL §6 (the
 "elapse of hours" trap rewritten).
 
+**Also in 5.3.1 — a closed gate is re-checked at most once a second, whatever
+the config** (branch **`fix/gate-recheck-zero-delay`**, on top of
+`fix/retry-delay-overflow` `c038d82`; NOT pushed). The overflow fix's open
+item. ADR-076, plus pointers in the ADR-035 addendum and ADR-053.
+
+- **CAUSE.** `nextDelay` reads `baseDelay` and `maxDelay` in whole
+  milliseconds, so either one under 1 ms gives 0 ms for every attempt, and a
+  closed gate was re-checked on a zero-delay timer from the first re-check on.
+  The overflow note's "nothing validates these Durations" was wrong in part:
+  ADR-053's `validate()` rejects a zero `baseDelay` (and `maxDelay <
+  baseDelay`). The holes: a sub-millisecond base, which validates (reproduced
+  through `AdFlow.initialize`), and a `RetryPolicy` handed to a controller
+  directly, which is never validated (a zero base and cap spun all three
+  controllers).
+- **FIX.** `gateRecheckDelay` = `nextDelay`, raised to 1 s when shorter, after
+  the jitter; a private constant in the policy. Below the default 5 s base, so
+  no default schedule moves. Failure retries unchanged. Rejected: tightening
+  `validate()` (misses hand-built policies, adds an init throw in a patch, and
+  no threshold fits both uses of the fields), a floor in the three
+  controllers, microsecond precision, a 1 ms floor (still a thousand
+  re-checks a second).
+- **TESTS.** `retry_policy_test.dart` +3 (five sub-second configs give exactly
+  1 s at attempts 1 to 10^6 and any jitter; delays of 1 s or more unchanged
+  and failure retries as configured; the floor applies after the jitter).
+  `closed_gate_recheck_test.dart` +3 (banner, native, interstitial with a
+  zero base and cap: 60 re-checks a minute, no load, loaded within a second
+  once ads are back; same 300 breaker; the helpers are now shared by both
+  groups). New `test/facade/sub_millisecond_retry_config_test.dart` +1 (a
+  500 µs config passes `AdFlow.initialize`; 60 re-checks a minute). All 7 fail
+  first (`[299, 0]`, no hang). Neuter: the old line and a 1 ms floor fail all
+  7; the floor before the jitter fails 4; flooring failure retries fails 2;
+  removing the overflow fix's exponent clamp fails 1 (so that clamp is now
+  pinned).
+
+Files: `lib/src/policy/retry_policy.dart` (floor + dartdoc),
+`lib/src/config/ad_flow_config.dart` (`baseDelay`/`maxDelay` dartdoc),
+`test/policy/retry_policy_test.dart`,
+`test/controllers/closed_gate_recheck_test.dart`,
+`test/facade/sub_millisecond_retry_config_test.dart` (new), `CHANGELOG.md` (+1
+bullet in 5.3.1), DECISIONS ADR-076 + ADR-035 addendum note corrected + ADR-053
+addendum, SKILL §6 (+1 trap).
+
 ## How to verify (Phase 31)
 `dart format --output=none --set-exit-if-changed .` && `flutter analyze` &&
-`flutter test` → **593 tests** green (569 + 4 native + 7 rollback + 6 drop + 7
-overflow); `flutter analyze` **No issues found**; `dart pub publish --dry-run`
-on the committed tree: **0 warnings**; `example/` test passes; pana 160/160
-(local 0.23.10). Run on Flutter 3.47.7 / Dart 3.13.5, with the latest resolution
+`flutter test` → **600 tests** green (569 + 4 native + 7 rollback + 6 drop + 7
+overflow + 7 floor); `flutter analyze` **No issues found**;
+`dart pub publish --dry-run` on the committed tree: **0 warnings**; `example/`
+test passes; pana 160/160 (local 0.23.10). Run on Flutter 3.47.7 / Dart 3.13.5, with the latest resolution
 (`flutter pub upgrade` → google_mobile_ads 9.1.0, which is what CI gets) as
 well as the old 9.0.0 lock. Not run on a device here (Atelier's simulator
 check of the native symptom is in its own repo).
 
 ## Open items for Faiz (5.3.1)
-- Review + merge **`fix/retry-delay-overflow`**: it sits on
+- Review + merge **`fix/gate-recheck-zero-delay`**: it sits on
+  **`fix/retry-delay-overflow`**, which sits on
   **`fix/show-engine-rollback-race`**, which sits on
   **`fix/analyzer-dart-3-13`** (PR #17), which contains
   `fix/native-placeholder-width`; release 5.3.1 when ready. The overflow fix
-  is written up as a 5.3.1 bullet; moving it to a later patch is Faiz's call.
-- **Found, NOT fixed (config-induced):** a `RetryConfig` whose `baseDelay` or
-  `maxDelay` is zero (or under 1 ms) still re-checks a closed gate on a
-  zero-delay timer: the overflow's spin, by configuration. Nothing validates
-  these Durations (a const constructor cannot assert on them, SKILL §6); a
-  use-time floor in `gateRecheckDelay` would close it. The defaults are fine.
+  and the floor are each written up as a 5.3.1 bullet; moving either to a
+  later patch is Faiz's call.
+- **Found, NOT fixed (config-induced, failure path):** `cooldown` may be zero
+  (`validate()` only rejects a negative one). `RetryConfig(maxAttempts: 0,
+  cooldown: Duration.zero)` validates, and against a load that keeps failing
+  it re-arms on a zero-delay timer after every failure (a scratch probe with
+  an interstitial hung: `flutter_tester` at about 190% CPU, killed by its own
+  PID tree). Read from the code, not probed: `maxAttempts: 1` does the same,
+  and so does a zero or sub-millisecond base with a zero cooldown. Every
+  iteration there is a real SDK load request. Floor the re-arm like ADR-076,
+  or reject a zero cooldown in `validate()`: Faiz's call (ADR-076, "Not
+  changed").
 - **Found, NOT fixed (design question):** an app listener that calls `show()`
   on every `AdLoaded`, with nothing else guarding it, loops forever on a
   persistent refusal (cap, pacing, Remove-Ads, consent): each refusal rolls

@@ -61,6 +61,15 @@ before. See ADR-074.
   `RetryConfig.maxDelay` (one minute by default) for as long as ads stay off.
   Failure retries had the same overflow, but only with `maxAttempts` set
   above 51. See the ADR-035 addendum.
+- **A slot whose ads stay off never checks more than once a second.** With a
+  `RetryConfig` whose `baseDelay` or `maxDelay` was under 1 ms, every backoff
+  delay came out as 0 ms, so a banner, native or full-screen slot whose ads
+  were off checked again with no delay at all, over and over, from its first
+  check on: the same busy loop, by configuration. `AdFlow.initialize` rejects
+  a zero `baseDelay` but let a sub-millisecond one through, and a controller
+  given its own `RetryPolicy` is never validated. That check now waits at
+  least one second, whatever the config says. The defaults (5 s, doubling up
+  to one minute) and failure retries are unchanged. See ADR-076.
 
 ## 5.3.0
 

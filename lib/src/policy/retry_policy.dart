@@ -71,5 +71,21 @@ class RetryPolicy {
   /// controllers reset [attempt] only on a successful load, so it keeps
   /// growing while the gate stays shut — hours of re-checks still get
   /// [RetryConfig.maxDelay], never a zero delay.
-  Duration gateRecheckDelay(int attempt) => nextDelay(attempt);
+  ///
+  /// Never shorter than one second, whatever the config says (ADR-076).
+  /// [nextDelay] reads `baseDelay` and `maxDelay` in whole milliseconds, so
+  /// either one under 1 ms makes every delay 0 ms, and validation does not
+  /// stop that: `AdFlowConfig.validate` rejects a zero `baseDelay`, not a
+  /// sub-millisecond one, and a policy handed to a controller directly is
+  /// never validated. A failure retry may run that fast (it stops at
+  /// `maxAttempts`); this re-check may not, because it runs for as long as
+  /// the gate stays shut, and on a zero-delay timer it is a busy loop.
+  Duration gateRecheckDelay(int attempt) {
+    final delay = nextDelay(attempt);
+    return delay < _minGateRecheckDelay ? _minGateRecheckDelay : delay;
+  }
+
+  /// The shortest [gateRecheckDelay]: below the default `baseDelay` (5 s),
+  /// so no default schedule moves.
+  static const _minGateRecheckDelay = Duration(seconds: 1);
 }

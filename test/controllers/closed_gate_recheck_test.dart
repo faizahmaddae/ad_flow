@@ -15,7 +15,8 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Far above the 183 blocked loads that three healthy hours make.
+/// Far above the 183 blocked loads that three healthy hours make, and the 121
+/// that two minutes at the one-second floor make.
 const _spinCeiling = 300;
 
 /// A gate that stays CLOSED for hours (Remove-Ads bought, consent declined) is
@@ -28,6 +29,9 @@ const _spinCeiling = 300;
 /// fakeAsync that spin never lets `elapse` return, so these tests count the
 /// blocked loads and, at [_spinCeiling], OPEN the gate: the spin then ends in a
 /// successful load, and the test fails on its counts instead of hanging.
+///
+/// A `RetryConfig` whose delays are zero (or under 1 ms) spun the same way from
+/// the first re-check on; the re-check now waits at least a second (ADR-076).
 void main() {
   late FakeAdSdk sdk;
   late FullScreenAdCoordinator coordinator;
@@ -70,83 +74,29 @@ void main() {
     if (blocked >= _spinCeiling) enabled = true;
   }
 
-  /// Holds the gate closed for three hours, counting the blocked loads in
-  /// each hour, then opens it.
-  void closedForThreeHours(
-    FakeAsync async, {
-    required ValueListenable<AdLoadState> state,
-    required void Function() load,
-  }) {
-    load();
-    async.flushMicrotasks();
-    expect(blocked, 1);
-    expect(state.value, const AdBlocked(AdBlockReason.adsDisabled));
+  BannerAdController banner(RetryPolicy retry) => BannerAdController(
+    sdk: sdk,
+    gate: gate(),
+    config: const BannerConfig(adUnitId: PlatformAdUnitId(android: 'unit-b')),
+    adUnitId: 'unit-b',
+    retry: retry,
+    onBlocked: onBlocked,
+  );
 
-    final perHour = <int>[];
-    for (var hour = 0; hour < 3; hour++) {
-      final before = blocked;
-      async.elapse(const Duration(hours: 1));
-      perHour.add(blocked - before);
-    }
-    // 62 re-checks in the first hour (at 5, 15, 35, 75 and 135 s, then one a
-    // minute), then exactly one a minute: never a zero-delay spin.
-    expect(perHour, [62, 60, 60]);
-    expect(state.value, const AdBlocked(AdBlockReason.adsDisabled));
-    expect(sdk.loadLog, isEmpty);
+  NativeAdController native(RetryPolicy retry) => NativeAdController(
+    sdk: sdk,
+    gate: gate(),
+    config: const NativeConfig(
+      adUnitId: PlatformAdUnitId(android: 'unit-n'),
+      templateKind: NativeTemplateKind.medium,
+    ),
+    adUnitId: 'unit-n',
+    retry: retry,
+    onBlocked: onBlocked,
+  );
 
-    // Ads are allowed again (a refund, consent given): the slot loads within
-    // the minute.
-    enabled = true;
-    async.elapse(const Duration(minutes: 1));
-    expect(state.value, const AdLoaded());
-    expect(sdk.loadLog, hasLength(1));
-  }
-
-  test('banner: a gate closed for hours is re-checked once a minute, '
-      'never on a zero-delay timer', () {
-    fakeAsync((async) {
-      final c = BannerAdController(
-        sdk: sdk,
-        gate: gate(),
-        config: const BannerConfig(
-          adUnitId: PlatformAdUnitId(android: 'unit-b'),
-        ),
-        adUnitId: 'unit-b',
-        retry: retry(),
-        onBlocked: onBlocked,
-      );
-      closedForThreeHours(
-        async,
-        state: c.state,
-        load: () => c.load(width: 320),
-      );
-      c.dispose();
-    });
-  });
-
-  test('native: a gate closed for hours is re-checked once a minute, '
-      'never on a zero-delay timer', () {
-    fakeAsync((async) {
-      final c = NativeAdController(
-        sdk: sdk,
-        gate: gate(),
-        config: const NativeConfig(
-          adUnitId: PlatformAdUnitId(android: 'unit-n'),
-          templateKind: NativeTemplateKind.medium,
-        ),
-        adUnitId: 'unit-n',
-        retry: retry(),
-        onBlocked: onBlocked,
-      );
-      closedForThreeHours(async, state: c.state, load: c.load);
-      c.dispose();
-    });
-  });
-
-  test('full-screen (interstitial): a gate closed for hours is re-checked '
-      'once a minute, never on a zero-delay timer', () {
-    fakeAsync((async) {
-      final c = InterstitialAdController(
+  InterstitialAdController interstitial(RetryPolicy retry) =>
+      InterstitialAdController(
         sdk: sdk,
         gate: gate(),
         caps: StoredFrequencyCapPolicy(
@@ -159,11 +109,146 @@ void main() {
           adUnitId: PlatformAdUnitId(android: 'unit-i'),
         ),
         adUnitId: 'unit-i',
-        retry: retry(),
+        retry: retry,
         onBlocked: onBlocked,
       );
+
+  /// Holds the gate closed for `perStretch.length` stretches of [stretch],
+  /// expecting [perStretch] blocked loads in each, then opens it and expects
+  /// the slot to load within [reopen].
+  void holdClosed(
+    FakeAsync async, {
+    required ValueListenable<AdLoadState> state,
+    required void Function() load,
+    required Duration stretch,
+    required List<int> perStretch,
+    required Duration reopen,
+  }) {
+    load();
+    async.flushMicrotasks();
+    expect(blocked, 1);
+    expect(state.value, const AdBlocked(AdBlockReason.adsDisabled));
+
+    final counts = <int>[];
+    for (var i = 0; i < perStretch.length; i++) {
+      final before = blocked;
+      async.elapse(stretch);
+      counts.add(blocked - before);
+    }
+    expect(counts, perStretch);
+    expect(state.value, const AdBlocked(AdBlockReason.adsDisabled));
+    expect(sdk.loadLog, isEmpty);
+
+    // Ads are allowed again (a refund, consent given): the slot loads within
+    // the next re-check.
+    enabled = true;
+    async.elapse(reopen);
+    expect(state.value, const AdLoaded());
+    expect(sdk.loadLog, hasLength(1));
+  }
+
+  /// Holds the gate closed for three hours, counting the blocked loads in
+  /// each hour, then opens it: 62 re-checks in the first hour (at 5, 15, 35,
+  /// 75 and 135 s, then one a minute), then exactly one a minute, never a
+  /// zero-delay spin; loaded within the minute once ads are allowed again.
+  void closedForThreeHours(
+    FakeAsync async, {
+    required ValueListenable<AdLoadState> state,
+    required void Function() load,
+  }) => holdClosed(
+    async,
+    state: state,
+    load: load,
+    stretch: const Duration(hours: 1),
+    perStretch: const [62, 60, 60],
+    reopen: const Duration(minutes: 1),
+  );
+
+  test('banner: a gate closed for hours is re-checked once a minute, '
+      'never on a zero-delay timer', () {
+    fakeAsync((async) {
+      final c = banner(retry());
+      closedForThreeHours(
+        async,
+        state: c.state,
+        load: () => c.load(width: 320),
+      );
+      c.dispose();
+    });
+  });
+
+  test('native: a gate closed for hours is re-checked once a minute, '
+      'never on a zero-delay timer', () {
+    fakeAsync((async) {
+      final c = native(retry());
       closedForThreeHours(async, state: c.state, load: c.load);
       c.dispose();
+    });
+  });
+
+  test('full-screen (interstitial): a gate closed for hours is re-checked '
+      'once a minute, never on a zero-delay timer', () {
+    fakeAsync((async) {
+      final c = interstitial(retry());
+      closedForThreeHours(async, state: c.state, load: c.load);
+      c.dispose();
+    });
+  });
+
+  group('a zero RetryConfig (ADR-076)', () {
+    // A hand-built controller's RetryPolicy never meets
+    // AdFlowConfig.validate(). With a zero baseDelay and maxDelay every delay
+    // is 0 ms, so the closed gate was re-checked on a zero-delay timer from
+    // the first re-check on. random() is irrelevant: 0 ms jittered is 0 ms.
+    RetryPolicy zero() => RetryPolicy(
+      const RetryConfig(baseDelay: Duration.zero, maxDelay: Duration.zero),
+      random: () => 0.5,
+    );
+
+    /// One re-check a second (at 1, 2, … 120 s), never a zero-delay spin;
+    /// loaded within the second once ads are allowed again.
+    void closedForTwoMinutes(
+      FakeAsync async, {
+      required ValueListenable<AdLoadState> state,
+      required void Function() load,
+    }) => holdClosed(
+      async,
+      state: state,
+      load: load,
+      stretch: const Duration(minutes: 1),
+      perStretch: const [60, 60],
+      reopen: const Duration(seconds: 1),
+    );
+
+    test('banner: a closed gate is re-checked once a second, never on a '
+        'zero-delay timer', () {
+      fakeAsync((async) {
+        final c = banner(zero());
+        closedForTwoMinutes(
+          async,
+          state: c.state,
+          load: () => c.load(width: 320),
+        );
+        c.dispose();
+      });
+    });
+
+    test('native: a closed gate is re-checked once a second, never on a '
+        'zero-delay timer', () {
+      fakeAsync((async) {
+        final c = native(zero());
+        closedForTwoMinutes(async, state: c.state, load: c.load);
+        c.dispose();
+      });
+    });
+
+    test('full-screen (interstitial): a closed gate is re-checked once a '
+        'second, never on a zero-delay timer', () {
+      fakeAsync((async) {
+        final c = interstitial(zero());
+        closedForTwoMinutes(async, state: c.state, load: c.load);
+        c.dispose();
+      });
     });
   });
 }
