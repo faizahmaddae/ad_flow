@@ -157,14 +157,14 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   void onLoaded() {}
 
   /// Drops the current handle (without showing it) and preloads a fresh
-  /// one — used by app-open to discard expired ads.
+  /// one — for a warm ad that must not be shown: expired, requested under a
+  /// stale consent generation, or left with a failed runtime-SSV attach.
   ///
   /// A no-op while a load is already in flight (same reasoning as review
-  /// finding #4 on `NativeAdController.reload()`): today's one caller
-  /// (`AppOpenAdController.show()`) only invokes this after confirming
-  /// `isReady` (implies `AdLoaded`), so this guard is currently
-  /// unreachable in practice — kept as defense-in-depth since this is a
-  /// `@protected` method a future subclass could call from elsewhere.
+  /// finding #4 on `NativeAdController.reload()`): that load is already the
+  /// replacement. It deliberately runs while the slot is [AdShowing]: the
+  /// show engine calls it, claim already released, for an ad it refused to
+  /// dispatch (ADR-075) — bailing there would strand the slot at AdShowing.
   @protected
   void discardCurrentAd() {
     if (_disposed || _state.value is AdLoading) return;
@@ -479,9 +479,29 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     // sees it immediately and bails.
     _state.value = const AdShowing();
 
+    // Inside the try below every rollback is AWAITED: a bare
+    // `return rejectAndRollBack();` hands back its Future, so a throw from the
+    // rollback itself would skip the catch and leave the slot at AdShowing
+    // with the claim flag set (5.3.1; Dart 3.13 flags it as
+    // unawaited_return_in_try_block). The catch then runs the rollback again,
+    // which is safe: the state write is a no-op the second time, and exit()
+    // runs again only if the first call threw (the flag is cleared after it).
     Future<bool> rejectAndRollBack() async {
       _exitCoordinator();
       if (!_disposed) _state.value = const AdLoaded();
+      return false;
+    }
+
+    // A warm ad that must not be shown at all (stale consent, or expired) is
+    // dropped and reloaded in the same turn as the claim release — never
+    // rolled back to AdLoaded first (5.3.1). That rollback notified `state`
+    // listeners a microtask before the discard: a listener's show() claimed
+    // the doomed handle in between, the discard then dropped it from under
+    // that show and started a load, and that show's own discard started a
+    // second one, leaking a handle (ADR-075).
+    bool releaseAndDiscard() {
+      _exitCoordinator();
+      discardCurrentAd();
       return false;
     }
 
@@ -504,17 +524,17 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       final blocked = await _gate.showBlockReason(slot);
       if (blocked != null) {
         noteBlocked(blocked);
-        return rejectAndRollBack();
+        return await rejectAndRollBack();
       }
       if (_disposed) return false; // dispose() already rolled everything back
       if (!await _caps.canShow(slot)) {
         noteBlocked(AdBlockReason.frequencyCapped);
-        return rejectAndRollBack();
+        return await rejectAndRollBack();
       }
       if (_disposed) return false;
       if (!canShowExtra()) {
         noteBlocked(AdBlockReason.userActionPacing);
-        return rejectAndRollBack();
+        return await rejectAndRollBack();
       }
       // The confirm hook (the rewarded-interstitial intro) runs LAST, with
       // every policy check already passed and the claim held. It is
@@ -522,7 +542,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       // the expiry timer cannot discard the handle mid-intro and re-entrant
       // show() calls bail on the AdShowing guard.
       if (confirm != null && !await confirm()) {
-        return rejectAndRollBack();
+        return await rejectAndRollBack();
       }
       // The confirm hook can outlive the graph (the user backgrounds the
       // app on the intro and the screen is popped): dispose() already
@@ -541,14 +561,11 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         if (_disposed) return false;
         if (after != null && after != AdBlockReason.internalError) {
           noteBlocked(after);
-          return rejectAndRollBack();
+          return await rejectAndRollBack();
         }
         if (isExpired) {
           noteBlocked(AdBlockReason.expired);
-          // Roll back the claim/state, THEN discard the stale ad + reload.
-          await rejectAndRollBack();
-          discardCurrentAd();
-          return false;
+          return releaseAndDiscard();
         }
       }
     } catch (_) {
@@ -592,18 +609,14 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     }
     if (_loadedGeneration != _gate.consentGeneration) {
       // Consent mutated mid-show: the warm ad carries stale consent/forwarding.
-      // Roll back the claim/state, then drop + reload through the fresh gate.
-      await rejectAndRollBack();
-      discardCurrentAd();
-      return false;
+      // Release the claim, then drop + reload through the fresh gate.
+      return releaseAndDiscard();
     }
     if (isExpired) {
       // Aged past maxAdAge mid-show (e.g. a slow cap hydration crossed expiry):
       // discard rather than show a stale ad that may fail or not count.
       noteBlocked(AdBlockReason.expired);
-      await rejectAndRollBack();
-      discardCurrentAd();
-      return false;
+      return releaseAndDiscard();
     }
     try {
       await handle.show(onUserEarnedReward: onRewardOnce);

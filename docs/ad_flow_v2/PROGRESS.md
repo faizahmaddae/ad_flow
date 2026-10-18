@@ -1,10 +1,292 @@
 # PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
-**Phase 30 — 5.3.0 banner sizing (issue #15) (2026-08-07)** — ✅ implemented on
-branch **`fix/banner-adaptive-sizing`**; NOT pushed / tagged / merged /
-published. ADR-073. Backward-compatible **minor**: additive API only, no
-removals, no signature changes, no migration.
+**Phase 31 — 5.3.1 native ad placeholder width (2026-10-18)** — ✅ implemented
+on branch **`fix/native-placeholder-width`** (off `origin/main` `a5bb58b`), with
+the Dart 3.13 analyzer fix on **`fix/analyzer-dart-3-13`** on top of it, the
+show engine's drop-branch race fix on **`fix/show-engine-rollback-race`** on
+top of that, the retry-delay overflow fix on **`fix/retry-delay-overflow`** on
+top of that, the gate re-check floor on **`fix/gate-recheck-zero-delay`** on
+top of that, and the failure-path cooldown floor on
+**`fix/failure-retry-zero-cooldown`** on top of that. `fix/analyzer-dart-3-13`
+is PR #17, since fast-forwarded to the gate re-check floor (`a5e70e5`) and
+pushed; the cooldown floor is local only. Nothing tagged / merged / published —
+Faiz reviews. ADR-074, ADR-034 addendum, ADR-075, ADR-035 addendum, ADR-076,
+ADR-077. Patch: no public API, no default change, no migration.
+
+Found in Atelier (one of Faiz's apps) on the iPhone 18 Pro simulator: the
+gallery's native card drew as a **16 × 376 pt strip** while its ad loaded, then
+jumped to full width. Atelier worked around it in its own commit `3b1fbb7` (the
+card sets its own width); this removes the cause, so no caller needs to.
+
+- **CAUSE.** `AdFlowNativeAd` returned `SizedBox(height: h)` — no width, no
+  child — until `AdLoaded`: 0 wide under any loose parent. The loaded
+  `AdWidget` is a platform view (`constraints.biggest`), so the slot jumped to
+  full width. Masked in tests: `FakeNativeHandle` renders a fixed 320×90 box
+  and the native widget tests checked heights only.
+- **FIX.** One box in every non-disabled state:
+  `LimitedBox(maxWidth: 0) → SizedBox(width: ∞, height: h, child: ad or null)`.
+  It fills a bounded width before and after the load, and is zero wide (no
+  throw) under an unbounded one, like `AdFlowBanner`'s placeholder. The
+  Remove-Ads `SizedBox.shrink()` and the `ObjectKey(handle)` keying are
+  unchanged.
+- **NOT a `LayoutBuilder`** (the banner's tool, and the first fix suggested):
+  it cannot report intrinsics and throws under `IntrinsicWidth`, i.e. inside an
+  `AlertDialog` — verified with a neutered variant.
+
+Files: `lib/src/widgets/ad_flow_native_ad.dart` (fix + dartdoc),
+`test/widgets/ad_flow_native_ad_test.dart` (+4 tests, 2 strengthened),
+`CHANGELOG.md`, `pubspec.yaml` 5.3.1, README pins, `doc/NATIVE_ADS_SETUP.md`,
+DECISIONS ADR-074, SKILL §6 (+3 traps).
+
+**Also in 5.3.1 — analyzer-clean on Dart 3.13** (branch
+**`fix/analyzer-dart-3-13`**, on top of `fix/native-placeholder-width`
+`7d91ab9`; NOT pushed). Dart 3.13's `unawaited_return_in_try_block` flagged the
+five `return rejectAndRollBack();` inside `showEngine`'s post-claim `try`
+(`full_screen_ad_controller_base.dart`, on `origin/main` too), failing CI's
+Analyze (`channel: stable`, unpinned) on every PR and warning in the publish
+dry-run.
+
+- **CAUSE.** A Future returned without `await` completes after the `try` is
+  left, so a throw from the rollback itself skipped the `catch`: `show()` threw
+  and the slot stayed at `AdShowing` with its claim flag set.
+- **FIX.** `return await rejectAndRollBack();` at the five sites; the `catch`
+  then re-runs the rollback. Why that repeat is safe, and its one-microtask
+  caveat: ADR-034 addendum. Through `AdFlow` the rollback throws only when an
+  app `FlutterError.onError` rethrows a listener's error; a hand-built graph
+  with its own throwing coordinator could also wedge the slot.
+- **TESTS.** `error_containment_test.dart` +7, with a coordinator whose
+  `exit()` throws once: each refusal after the claim (consent, cap, pacing,
+  intro skipped, revoked after the intro) returns `false`, retries the rollback
+  once, frees the claim and rolls back to `AdLoaded`; plus a first `exit()`
+  that kept the claim, and coordinator balance for the next ad. All 7 fail
+  first (`Bad state: coordinator exit failed` escaped `show()`); removing any
+  one `await` fails exactly its refusal's test(s).
+- **CI also caught google_mobile_ads 9.1.0 (PR #17).** CI has no lockfile, so
+  it resolved 9.1.0, which deprecates the two age tags. That produced six
+  `deprecated_member_use` infos: Analyze failed and pana scored 150/160. The
+  tags stay, behind per-line ignores, because 9.1.0 still applies them and
+  9.0.0 lacks the replacement (ADR-003 addendum). Verified clean on 9.1.0, on
+  the old 9.0.0 lock, and after `pub downgrade`.
+
+Files: `lib/src/controllers/full_screen_ad_controller_base.dart` (5 × `await` +
+comment), `test/controllers/error_containment_test.dart`, `CHANGELOG.md` (+1
+bullet in 5.3.1), DECISIONS ADR-034 addendum, SKILL §6 (+1 trap). The 9.1.0
+follow-up: `lib/src/seam/gma_ad_sdk.dart`, `test/seam/gma_mappers_test.dart`,
+CHANGELOG (+1 bullet), DECISIONS ADR-003 addendum, RESEARCH §1, SKILL §6 (+1
+trap).
+
+**Also in 5.3.1 — a dropped ad is never re-published as `AdLoaded`** (branch
+**`fix/show-engine-rollback-race`**, on top of `fix/analyzer-dart-3-13`
+`69b9331`; NOT pushed). A suspected race spotted while reviewing the analyzer
+fix, checked fail-first: **real** for the stale-consent branch. ADR-075.
+
+- **CAUSE.** Three `showEngine` branches drop the warm ad instead of showing
+  it (final guard: stale consent generation, expiry; post-intro expiry) with
+  `await rejectAndRollBack(); discardCurrentAd();`. The rollback writes
+  `AdLoaded` (listeners notified at once), the discard runs a microtask later.
+  A `state` listener that shows on `AdLoaded` re-claimed the doomed handle in
+  between; the late discard (it bails only on `AdLoading`) dropped it from
+  under that show and started a load, and that show's own guard rolled back
+  onto the in-flight load and started a SECOND one. Seen with `FakeAdSdk`: two
+  loads in flight, an ad never disposed (not even by `dispose()`), `AdLoaded`
+  reported while the coordinator was claimed. The expiry branches never
+  double-loaded (the inner `show()` hits its own `isExpired` check first) but
+  also flashed `AdLoaded` for a condemned ad.
+- **FIX.** `releaseAndDiscard()` — `_exitCoordinator(); discardCurrentAd();` —
+  at all three sites: drop and reload in the same turn as the claim release.
+  `state` goes `AdShowing → AdIdle → AdLoading`. Rejected: bailing
+  `discardCurrentAd()` on `AdShowing` (it would loop the stale ad between the
+  two shows), a pre-claim generation check in `show()` (still publishes the
+  doomed `AdLoaded`).
+- **TESTS.** `show_dispatch_guard_test.dart` +6 (3 branches × reload held /
+  not held, under a show-on-`AdLoaded` listener, with a seam counter of loads
+  in flight). Fail-first: both stale-consent cases red on the old code
+  (`Expected: <1> Actual: <2>` loads in flight; 3 handles for one reload);
+  the four expiry cases pass either way (regression guards); restoring the old
+  file turns the two red again. `state_machine_fuzz_test.dart` interstitial op
+  set +2 (consent mutation, held cap check) plus a seeded coin-flip
+  show-on-`AdLoaded` listener: catches the old code in seeds 4 and 14.
+
+Files: `lib/src/controllers/full_screen_ad_controller_base.dart`
+(`releaseAndDiscard` + `discardCurrentAd` dartdoc),
+`test/controllers/show_dispatch_guard_test.dart`,
+`test/controllers/state_machine_fuzz_test.dart`, `CHANGELOG.md` (+1 bullet in
+5.3.1), DECISIONS ADR-075, SKILL §6 (+1 trap, 1 corrected).
+
+**Also in 5.3.1 — a closed gate is re-checked once a minute, however long**
+(branch **`fix/retry-delay-overflow`**, on top of `fix/show-engine-rollback-race`
+`84f8764`; NOT pushed). Found while fuzzing the race fix above (it was an open
+item there). ADR-035 addendum, plus a pointer in ADR-008.
+
+- **CAUSE.** `RetryPolicy.nextDelay` computed `baseDelay * math.pow(2,
+  attempt - 1)` in `int`, which overflows; the clamp to `[0, maxDelay]` made
+  each wrap below zero a 0 ms delay. Measured (defaults, neutral jitter):
+  51 → 60 s, 52 → 0, 55–57 → 0, and 0 from 61 on. `_gateAttempts` (banner,
+  native, full-screen) resets only on a successful load, so a gate closed for
+  about an hour (Remove-Ads, declined consent) re-checked on a zero-delay timer
+  from about 53 minutes on: a busy loop with an `onAdBlocked` per spin (read
+  from the code, not seen on a device). In every release since 2.1.0.
+- **FIX.** The product in `double`, the exponent clamped at 63: 2^63 ms is
+  longer than any `Duration`, so the clamp changes no result and only keeps
+  the arithmetic finite. `_gateAttempts` gets no cap: the policy now answers
+  every attempt, the counter cannot overflow, and a cap would duplicate the
+  policy in three controllers.
+- **TESTS.** `retry_policy_test.dart` +4 (attempts 52 to 10^6 give `maxDelay`;
+  45 s / 60 s at the jitter extremes; never shrinking from 1 to 10,000; a
+  1-day base). New `closed_gate_recheck_test.dart` +3 (banner, native,
+  interstitial: Remove-Ads for three hours gives 62, 60 and 60 re-checks per
+  hour and no load; with ads back, loaded within the minute). A breaker opens
+  the gate at 300 `onAdBlocked` calls, so a spin FAILS instead of hanging. All
+  7 fail first (0 ms delays; `[299, 0, 0]` per hour). Neuter: the old line and
+  an `int` with a clamped exponent fail the same 7; `double` without the clamp
+  passes (the clamp is not pinned: it matters only for a zero base). A scratch
+  200-op fuzz passes all 48 runs with the fix; the old code still hangs on
+  seed 7 (killed by PID after 90 s).
+
+Files: `lib/src/policy/retry_policy.dart` (fix + dartdoc),
+`test/policy/retry_policy_test.dart`,
+`test/controllers/closed_gate_recheck_test.dart` (new), `CHANGELOG.md` (+1
+bullet in 5.3.1), DECISIONS ADR-035 addendum + ADR-008 pointer, SKILL §6 (the
+"elapse of hours" trap rewritten).
+
+**Also in 5.3.1 — a closed gate is re-checked at most once a second, whatever
+the config** (branch **`fix/gate-recheck-zero-delay`**, on top of
+`fix/retry-delay-overflow` `c038d82`; NOT pushed). The overflow fix's open
+item. ADR-076, plus pointers in the ADR-035 addendum and ADR-053.
+
+- **CAUSE.** `nextDelay` reads `baseDelay` and `maxDelay` in whole
+  milliseconds, so either one under 1 ms gives 0 ms for every attempt, and a
+  closed gate was re-checked on a zero-delay timer from the first re-check on.
+  The overflow note's "nothing validates these Durations" was wrong in part:
+  ADR-053's `validate()` rejects a zero `baseDelay` (and `maxDelay <
+  baseDelay`). The holes: a sub-millisecond base, which validates (reproduced
+  through `AdFlow.initialize`), and a `RetryPolicy` handed to a controller
+  directly, which is never validated (a zero base and cap spun all three
+  controllers).
+- **FIX.** `gateRecheckDelay` = `nextDelay`, raised to 1 s when shorter, after
+  the jitter; a private constant in the policy. Below the default 5 s base, so
+  no default schedule moves. Failure retries unchanged. Rejected: tightening
+  `validate()` (misses hand-built policies, adds an init throw in a patch, and
+  no threshold fits both uses of the fields), a floor in the three
+  controllers, microsecond precision, a 1 ms floor (still a thousand
+  re-checks a second).
+- **TESTS.** `retry_policy_test.dart` +3 (five sub-second configs give exactly
+  1 s at attempts 1 to 10^6 and any jitter; delays of 1 s or more unchanged
+  and failure retries as configured; the floor applies after the jitter).
+  `closed_gate_recheck_test.dart` +3 (banner, native, interstitial with a
+  zero base and cap: 60 re-checks a minute, no load, loaded within a second
+  once ads are back; same 300 breaker; the helpers are now shared by both
+  groups). New `test/facade/sub_millisecond_retry_config_test.dart` +1 (a
+  500 µs config passes `AdFlow.initialize`; 60 re-checks a minute). All 7 fail
+  first (`[299, 0]`, no hang). Neuter: the old line and a 1 ms floor fail all
+  7; the floor before the jitter fails 4; flooring failure retries fails 2;
+  removing the overflow fix's exponent clamp fails 1 (so that clamp is now
+  pinned).
+
+Files: `lib/src/policy/retry_policy.dart` (floor + dartdoc),
+`lib/src/config/ad_flow_config.dart` (`baseDelay`/`maxDelay` dartdoc),
+`test/policy/retry_policy_test.dart`,
+`test/controllers/closed_gate_recheck_test.dart`,
+`test/facade/sub_millisecond_retry_config_test.dart` (new), `CHANGELOG.md` (+1
+bullet in 5.3.1), DECISIONS ADR-076 + ADR-035 addendum note corrected + ADR-053
+addendum, SKILL §6 (+1 trap).
+
+**Also in 5.3.1 (Faiz decides) — a load that keeps failing re-arms at most once
+a second, whatever the config** (branch **`fix/failure-retry-zero-cooldown`**,
+on top of `fix/gate-recheck-zero-delay` `a5e70e5`; NOT pushed). ADR-076's open
+item. ADR-077, plus pointers in ADR-008, ADR-053 and ADR-076. The CHANGELOG has
+it as a 5.3.1 bullet by default; moving it to a later patch is Faiz's call.
+
+- **CAUSE.** After `maxAttempts` failures the controllers wait `cooldown`,
+  reset the attempts and load again (a banner's failing refresh does the
+  same), for as long as the loads fail: a loop with no end, each turn a real
+  SDK load request. `validate()` rejects only a negative cooldown. With a zero
+  one and no retries (`maxAttempts` 0 or 1), or retries of 0 ms (a base under
+  1 ms), every turn ran on a zero-delay timer: a busy loop of load requests.
+  Reproduced with `FakeAdSdk.alwaysLoadError` through `AdFlow.initialize`
+  (`maxAttempts: 0, cooldown: Duration.zero`), and for hand-built banner,
+  native and interstitial controllers and a banner's failing refreshes.
+- **FIX.** `RetryPolicy.cooldown` is the configured cooldown, raised to 1 s
+  when shorter: a private constant in the policy, read by all four re-arm
+  sites. Far below the 5-minute default, so no default moves; the retries
+  inside a turn (`nextDelay`) and `validate()` are unchanged. Rejected:
+  rejecting a zero cooldown in `validate()` (misses hand-built policies, adds
+  an init throw in a patch, no threshold fits), a floor at the four sites,
+  zero read as "the default" or as "never re-arm", flooring `nextDelay` too,
+  a 1 ms floor.
+- **TESTS.** `retry_policy_test.dart` +2 (cooldowns under 1 s give exactly
+  1 s for `maxAttempts` 0, 1 and 3; 1 s and longer unchanged; a zero base
+  still retries at 0 ms inside a turn). New `failing_load_rearm_test.dart` +12
+  (`maxAttempts` 0 or 1 with a zero cooldown, and a 500 µs base with a zero
+  cooldown, each for banner, native and interstitial loads and for a banner's
+  refreshes: 1 or 3 requests at once, then 60 or 180 a minute, recovered
+  within a second; the refreshing banner keeps its ad). New
+  `test/facade/zero_cooldown_retry_config_test.dart` +1 (the config passes
+  `AdFlow.initialize`; `[1, 60, 60]`). The breakers count load requests in a
+  `FakeAdSdk` subclass, inside the loop, and stop failing them at a ceiling.
+  All 15 fail first (`[1000, 0, 0]`, refreshes `[999, 2, 2]`, in under a
+  second, no hang). Neuter: the old line, a 1 ms floor and zero read as the
+  default each fail all 15; flooring `nextDelay` too fails 7.
+
+Files: `lib/src/policy/retry_policy.dart` (floor + dartdoc),
+`lib/src/config/ad_flow_config.dart` (`cooldown` dartdoc),
+`test/policy/retry_policy_test.dart`,
+`test/controllers/failing_load_rearm_test.dart` (new),
+`test/facade/zero_cooldown_retry_config_test.dart` (new), `CHANGELOG.md` (+1
+bullet in 5.3.1), DECISIONS ADR-077 + ADR-008 and ADR-053 addenda + ADR-076's
+open item closed, SKILL §6 (+1 trap).
+
+## How to verify (Phase 31)
+`dart format --output=none --set-exit-if-changed .` && `flutter analyze` &&
+`flutter test` → **615 tests** green (569 + 4 native + 7 rollback + 6 drop + 7
+overflow + 7 floor + 15 cooldown); `flutter analyze` **No issues found**;
+`dart pub publish --dry-run` on the committed tree: **0 warnings**; `example/`
+test passes; pana 160/160 (local 0.23.10). Run on Flutter 3.47.7 / Dart 3.13.5, with the latest resolution
+(`flutter pub upgrade` → google_mobile_ads 9.1.0, which is what CI gets) as
+well as the old 9.0.0 lock. Not run on a device here (Atelier's simulator
+check of the native symptom is in its own repo).
+
+## Open items for Faiz (5.3.1)
+- Review + merge **`fix/failure-retry-zero-cooldown`** (local only): it sits
+  on **`fix/gate-recheck-zero-delay`** (`a5e70e5`), which sits on
+  **`fix/retry-delay-overflow`**, which sits on
+  **`fix/show-engine-rollback-race`**, which sits on
+  **`fix/analyzer-dart-3-13`** (PR #17), which contains
+  `fix/native-placeholder-width`. PR #17's branch has since been
+  fast-forwarded to `a5e70e5` and pushed, so the PR carries everything but the
+  cooldown floor. Release 5.3.1 when ready. The overflow fix, the gate floor
+  and the cooldown floor are each written up as a 5.3.1 bullet; moving any of
+  them to a later patch is Faiz's call.
+- **Found, NOT fixed (design question):** an app listener that calls `show()`
+  on every `AdLoaded`, with nothing else guarding it, loops forever on a
+  persistent refusal (cap, pacing, Remove-Ads, consent): each refusal rolls
+  back to `AdLoaded`, which fires the listener again. All on microtasks, so it
+  starves the event loop (measured: 100,000 `show()` calls before one timer
+  tick, under a refusing cap). The package could refuse a `show()` that
+  re-enters from its own rollback, or the docs could warn; for now, guard such
+  listeners with a "show in flight" flag (as the fuzz does).
+- `ci.yml` still tracks `stable` unpinned, so a later Dart can add a warning
+  again on unchanged code (that is how the Dart 3.13 one landed).
+- Decide when to move to `ageRestrictedTreatment`. It is a minor: raise the
+  floor to `^9.1.0` and add a config field (ADR-003 addendum). 9.1.0 also
+  adds ad preloading APIs (RESEARCH §1), so the "no preload API" trap in SKILL
+  §6 now holds only up to 9.0.0.
+- `flutter pub get` on 3.47 rewrites both `analysis_options.yaml` files (adds
+  `build/**` excludes); left out of this change.
+- The local, unpushed branch `web-9-stabilize` (`8b416ac`: `*OrNull`
+  slot-getter tests + example metadata) is separate from this one. If both
+  land, its `example/pubspec.yaml` (`version: 5.3.0`, "tracks the package
+  version") needs 5.3.1.
+- Nit: `test/widgets/ad_flow_banner_test.dart` "an adopted controller swap
+  remounts the native ad subtree too" drives `AdFlowBanner`, not the native
+  widget; the native keyed remount is now pinned in the native adoption test.
+
+## Previous phase
+**Phase 30 — 5.3.0 banner sizing (issue #15) (2026-08-07)** — ✅ shipped:
+merged to `main` as #16 (`a5bb58b`), tagged `v5.3.0`, on pub.dev. ADR-073.
+Backward-compatible **minor**: additive API only, no removals, no signature
+changes, no migration.
 
 Issue #15 reported an anchored banner reserving far more height than the ad it
 showed, with the app surface visible around a narrow, short creative. **The

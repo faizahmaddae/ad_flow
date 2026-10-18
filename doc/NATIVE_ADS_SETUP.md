@@ -36,11 +36,15 @@ class _MyScreenState extends State<MyScreen> {
 }
 ```
 
-`AdFlowNativeAd` reserves the template's minimum height up front (small ≈ 90,
-medium ≈ 320 logical px; override with `placeholderHeight`), loads through the
-consent/config gate like every other format, and disposes the controller with
-the widget when `ownsController` is true. Native ads never auto-refresh; call
-`controller.reload()` if you want a new one.
+`AdFlowNativeAd` reserves its slot up front — the full width it is given, at
+the template's minimum height (small ≈ 90, medium ≈ 320 logical px; override
+with `placeholderHeight`) — and hosts the loaded ad in that same box, so
+nothing shifts when it arrives (5.3.1). Give it a bounded width: under an
+unbounded one (a `Row` child without `Expanded`, a horizontal list) it lays
+out zero wide. It loads through the consent/config gate like every other
+format, and disposes the controller with the widget when `ownsController` is
+true. Native ads never auto-refresh; call `controller.reload()` if you want a
+new one.
 
 ## Path B — platform factories (custom layouts)
 

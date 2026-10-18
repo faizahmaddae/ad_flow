@@ -1,3 +1,86 @@
+## 5.3.1
+
+A **native ad layout** patch. **No public API changes, no default changes, no
+migration** — every existing call site compiles unchanged.
+
+### FIXED
+
+- **`AdFlowNativeAd` is as wide before its ad comes as once it has.** Until
+  the ad loaded, the widget reserved only a height — a `SizedBox` with no width
+  and no child, which is **0 wide** under a loose parent: a `Center`, an
+  `Align`, a centred `Column`, a padded card. The loaded ad is a platform view,
+  which takes the biggest size its constraints allow, so the slot then jumped
+  to full width: the layout shift the widget's own documentation promised not
+  to make. In one app the gallery's native card drew as a 16 pt strip — only
+  its padding — while its ad loaded. The slot now takes the full width it is
+  given, at the reserved height, in every state (loading, failed, loaded), so
+  the ad's arrival moves nothing and callers no longer need to give the widget
+  a width of their own. Remove-Ads still collapses it to nothing.
+- **An unbounded width no longer throws.** Under an unbounded width (a `Row`
+  child without `Expanded`, a horizontal list) the loaded platform view was
+  given an infinite size and threw. There is no width to fill there, so the
+  slot now takes the least width it is allowed (zero), as `AdFlowBanner`'s
+  placeholder does; give such a slot a width (a `SizedBox`, an `Expanded`) to
+  show the ad.
+
+The slot still works under intrinsic sizing (`IntrinsicWidth`, which
+`AlertDialog` wraps its content in), so a native ad in a dialog lays out as
+before. See ADR-074.
+
+- **A refused full-screen show can no longer throw past its own clean-up.**
+  If releasing the screen after a refusal (consent, a frequency cap, pacing, a
+  skipped or revoked intro) threw, the error skipped the show engine's guard
+  and escaped `show()`. Through `AdFlow` that took a throwing listener under a
+  `FlutterError.onError` that rethrows; a throwing `FullScreenAdCoordinator` of
+  your own also left the slot stuck as showing. It is now caught like every
+  check before it: `show()` returns `false` and the ad stays loaded. This also
+  makes the package analyzer-clean on Dart 3.13, which flags the pattern
+  (`unawaited_return_in_try_block`).
+- **Analyzer-clean with google_mobile_ads 9.1.0 too.** 9.1.0 deprecates the
+  child-directed and under-age-of-consent tags in favour of
+  `ageRestrictedTreatment`, which 9.0.0 does not have. ad_flow still supports
+  `^9.0.0`, so it keeps setting both tags, and 9.1.0 still applies them on
+  Android and iOS: no behaviour change.
+- **A show that drops its ad at the last moment no longer reports it loaded
+  first.** When a full-screen show found, just before dispatch, that its ad
+  could not be shown (consent changed while the show waited, or the ad
+  expired), `state` went back to `AdLoaded` for a moment before the ad was
+  dropped. A `state` listener that shows "as soon as loaded" could take the
+  doomed ad in that moment. After a consent change the slot then started two
+  loads at once, and one of the two ads was never disposed, not even by
+  `dispose()`. The ad is now dropped and its replacement requested in the
+  same step: `state` goes from `AdShowing` straight to `AdLoading`, and the
+  slot loads once. See ADR-075.
+- **A slot whose ads stay off keeps checking once a minute, however long.**
+  While ads may not load (Remove-Ads bought, consent declined), a banner,
+  native or full-screen slot checks again about once a minute, so it loads
+  soon after ads are allowed again. The delay overflowed after about 50
+  checks: within about an hour the slot started checking with no delay at
+  all, over and over, for as long as ads stayed off (a busy loop, with an
+  `onAdBlocked` call each time; present since 2.1.0). The delay now stays at
+  `RetryConfig.maxDelay` (one minute by default) for as long as ads stay off.
+  Failure retries had the same overflow, but only with `maxAttempts` set
+  above 51. See the ADR-035 addendum.
+- **A slot whose ads stay off never checks more than once a second.** With a
+  `RetryConfig` whose `baseDelay` or `maxDelay` was under 1 ms, every backoff
+  delay came out as 0 ms, so a banner, native or full-screen slot whose ads
+  were off checked again with no delay at all, over and over, from its first
+  check on: the same busy loop, by configuration. `AdFlow.initialize` rejects
+  a zero `baseDelay` but let a sub-millisecond one through, and a controller
+  given its own `RetryPolicy` is never validated. That check now waits at
+  least one second, whatever the config says. The defaults (5 s, doubling up
+  to one minute) and failure retries are unchanged. See ADR-076.
+- **A slot whose loads keep failing waits at least a second before it starts
+  over.** After its retries, a banner, native or full-screen slot whose loads
+  fail (no network, no fill) waits `RetryConfig.cooldown` and tries again, for
+  as long as the loads keep failing. `AdFlow.initialize` accepts a zero
+  cooldown, and with no retries (`maxAttempts` 0 or 1), or with retries that
+  came out as 0 ms (a `baseDelay` under 1 ms), the slot then requested a new
+  ad with no delay at all, over and over: a busy loop of ad requests. A banner
+  whose refreshes kept failing did the same. That wait is now at least one
+  second, whatever the config says. The default cooldown (5 minutes) and the
+  retries before it are unchanged. See ADR-077.
+
 ## 5.3.0
 
 A **banner sizing** release. Fixes issue #15: an anchored adaptive banner

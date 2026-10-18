@@ -96,12 +96,20 @@ class RetryConfig {
   final Duration? loadTimeout;
 
   /// Delay before the first retry; doubles each attempt.
+  ///
+  /// Also where the re-check of a closed gate (Remove-Ads bought, consent
+  /// declined) starts its backoff. That re-check never waits less than one
+  /// second, whatever this and [maxDelay] say.
   final Duration baseDelay;
 
-  /// Upper bound for a single backoff delay.
+  /// Upper bound for a single backoff delay. A closed gate's re-check
+  /// settles here, but never below one second.
   final Duration maxDelay;
 
   /// How long to wait after [maxAttempts] failures before auto re-arming.
+  ///
+  /// The re-arm repeats for as long as loads keep failing, so it never waits
+  /// less than one second, whatever this says.
   final Duration cooldown;
 
   /// Random jitter applied to each delay, as a fraction of the delay

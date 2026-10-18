@@ -10,6 +10,12 @@ Verified against primary sources on **2026-07-11** (pub.dev, googleads-mobile-fl
 - **v9 minimum requirements:** Flutter **≥ 3.38.1**, Dart **≥ 3.10.0**, iOS deployment target **13.0**, Android **minSdk 24 / compileSdk 36**, Android Gradle Plugin **8.13.1**.
 - Native SDKs bundled by v9: Android `play-services-ads` **25.3.0** (+ experimental Next-Gen `ads-mobile-sdk` **1.1.0** behind a build flag); iOS `Google-Mobile-Ads-SDK` **~13.3.0**; UMP Android **4.0.0** / iOS **3.1.0**.
 - Platforms: **Android + iOS only.**
+- **9.1.0** (current on 2026-10-18; read in its pub-cache source):
+  - Adds `RequestConfiguration.ageRestrictedTreatment` (`AgeRestrictedTreatment.unspecified` / `child` / `teen`).
+  - Deprecates `tagForChildDirectedTreatment` / `tagForUnderAgeOfConsent` and their value classes in its favour. Both tags are still sent and still applied on Android (play-services and Next-Gen `FlutterRequestConfiguration`) and iOS (`FLTGoogleMobileAdsPlugin.m`). 9.0.0 has no `ageRestrictedTreatment` (ADR-003 addendum).
+  - Also new: ad preloading APIs, `ConsentRequestParameters.setConsentSyncId()`, and null-safe return values.
+  - Bundles play-services-ads 25.4.0, Next-Gen 1.3.1 and the iOS SDK 13.7.0.
+  - CI has no lockfile, so it resolves 9.1.0.
 - The old `ad_flow` v1.3.18 pinned `google_mobile_ads: ^7.0.0` → two majors behind; it version-conflicts with any app on 8.x/9.x.
 
 ## 2. Migration deltas 7.x → 9.x (what actually changed)

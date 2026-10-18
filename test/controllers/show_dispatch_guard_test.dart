@@ -1,13 +1,17 @@
 import 'dart:async';
 
 import 'package:ad_flow/src/config/ad_flow_config.dart';
+import 'package:ad_flow/src/controllers/full_screen_ad_controller_base.dart';
 import 'package:ad_flow/src/controllers/interstitial_ad_controller.dart';
+import 'package:ad_flow/src/controllers/rewarded_interstitial_ad_controller.dart';
 import 'package:ad_flow/src/core/ad_block_reason.dart';
 import 'package:ad_flow/src/core/ad_load_state.dart';
 import 'package:ad_flow/src/policy/ad_gate.dart';
 import 'package:ad_flow/src/policy/frequency_cap_policy.dart';
 import 'package:ad_flow/src/policy/full_screen_ad_coordinator.dart';
 import 'package:ad_flow/src/policy/retry_policy.dart';
+import 'package:ad_flow/src/seam/ad_sdk.dart';
+import 'package:ad_flow/src/seam/ad_sdk_types.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -27,6 +31,41 @@ class _HoldableCaps implements FrequencyCapPolicy {
   Future<void> recordImpression(String slot) async {}
 }
 
+/// A [FakeAdSdk] that counts the full-screen loads IN FLIGHT at the seam. Two
+/// at once on one slot is ADR-024's double load: the later handle overwrites
+/// the earlier one, which is then never disposed.
+class _CountingSdk extends FakeAdSdk {
+  int _inFlight = 0;
+
+  /// The most full-screen loads that were ever in flight at once.
+  int maxInFlight = 0;
+
+  Future<T> _counted<T>(Future<T> Function() load) async {
+    _inFlight++;
+    if (_inFlight > maxInFlight) maxInFlight = _inFlight;
+    try {
+      return await load();
+    } finally {
+      _inFlight--;
+    }
+  }
+
+  @override
+  Future<InterstitialHandle> loadInterstitial(
+    String adUnitId,
+    AdRequestOptions options,
+  ) => _counted(() => super.loadInterstitial(adUnitId, options));
+
+  @override
+  Future<RewardedInterstitialHandle> loadRewardedInterstitial(
+    String adUnitId,
+    AdRequestOptions options, {
+    ServerSideVerification? ssv,
+  }) => _counted(
+    () => super.loadRewardedInterstitial(adUnitId, options, ssv: ssv),
+  );
+}
+
 /// The final full-screen dispatch boundary (5.2.1).
 ///
 /// `showEngine` claims the coordinator + publishes `AdShowing`, then awaits
@@ -36,12 +75,12 @@ class _HoldableCaps implements FrequencyCapPolicy {
 /// the ad could be dispatched despite being revoked or stale. A cheap
 /// synchronous re-check immediately before `handle.show()` closes that window.
 void main() {
-  late FakeAdSdk sdk;
+  late _CountingSdk sdk;
   late FullScreenAdCoordinator coordinator;
   late _HoldableCaps caps;
 
   setUp(() {
-    sdk = FakeAdSdk()
+    sdk = _CountingSdk()
       ..enforceConsentGate = true
       ..canRequestAdsResult = true;
     coordinator = FullScreenAdCoordinator();
@@ -170,5 +209,144 @@ void main() {
     await pumpEventQueue();
     expect(sdk.interstitials.length, greaterThanOrEqualTo(2));
     controller.dispose();
+  });
+
+  // "Show as soon as loaded": an app listener on `state` that calls show() the
+  // moment it sees AdLoaded. A branch that drops the warm ad instead of showing
+  // it (stale consent or expiry at the final guard, expiry after the rewarded
+  // interstitial's intro) must reload ONCE and leak nothing, even when that
+  // listener re-enters show() while the branch runs.
+  group('a show() from an AdLoaded listener while the warm ad is dropped', () {
+    /// Parks the listener's first show() in its pre-dispatch window (the
+    /// caller holds [window]), makes the warm ad stale with [makeStale],
+    /// releases the window, and checks that the slot reloads exactly once,
+    /// leaks no handle and keeps the claim balanced. With [holdReload] the
+    /// reload is kept in flight, so a second concurrent one is counted at the
+    /// seam whatever the microtask order.
+    Future<void> expectOneCleanReload(
+      FullScreenAdControllerBase controller,
+      List<FakeFullScreenAdHandle> handles, {
+      required Future<bool> Function() show,
+      required Completer<void> window,
+      required void Function() makeStale,
+      required bool holdReload,
+    }) async {
+      // Capped, so a regression that loops show() through a rollback fails
+      // the asserts below instead of spinning the microtask queue forever.
+      var autoShow = true;
+      var autoShows = 0;
+      controller.state.addListener(() {
+        if (!autoShow || controller.state.value is! AdLoaded) return;
+        if (++autoShows > 20) return;
+        unawaited(show());
+      });
+
+      await controller.load(); // the listener's show() parks in the window
+      await pumpEventQueue();
+      expect(controller.state.value, isA<AdShowing>());
+      final stale = handles.single;
+
+      makeStale();
+      if (holdReload) sdk.loadHold = Completer<void>();
+      window.complete();
+      await pumpEventQueue();
+
+      expect(stale.showCalls, 0, reason: 'the stale ad is never dispatched');
+      expect(stale.disposed, isTrue, reason: 'the stale ad is dropped');
+      expect(sdk.maxInFlight, 1, reason: 'one reload, never two at once');
+      if (holdReload) {
+        expect(controller.state.value, isA<AdLoading>());
+        expect(coordinator.isFullScreenAdVisible, isFalse);
+        sdk.loadHold!.complete(); // the reload lands
+        sdk.loadHold = null;
+        await pumpEventQueue();
+        expect(sdk.maxInFlight, 1);
+      }
+
+      // The listener shows the fresh ad.
+      expect(handles, hasLength(2), reason: 'the first load + ONE reload');
+      final fresh = handles.last;
+      expect(fresh.showCalls, 1);
+      expect(controller.state.value, isA<AdShowing>());
+      expect(coordinator.isFullScreenAdVisible, isTrue);
+      expect(handles.where((h) => !h.disposed), [fresh], reason: 'no leak');
+
+      autoShow = false;
+      fresh.simulateDismissed();
+      await pumpEventQueue();
+      expect(coordinator.isFullScreenAdVisible, isFalse);
+      controller.dispose();
+      await pumpEventQueue();
+      expect(handles.every((h) => h.disposed), isTrue, reason: 'no leak');
+    }
+
+    for (final holdReload in [true, false]) {
+      final held = holdReload ? 'reload held' : 'reload not held';
+
+      test('final guard, consent generation changed ($held)', () async {
+        var generation = 0;
+        final controller = build(
+          isEnabled: () => true,
+          consentGeneration: () => generation,
+        );
+        caps.canShowHold = Completer<void>();
+        await expectOneCleanReload(
+          controller,
+          sdk.interstitials,
+          show: controller.show,
+          window: caps.canShowHold!,
+          makeStale: () => generation = 1,
+          holdReload: holdReload,
+        );
+      });
+
+      test('final guard, the ad expired ($held)', () async {
+        var clock = DateTime(2026, 1, 1, 12);
+        final controller = build(
+          isEnabled: () => true,
+          maxAdAge: const Duration(minutes: 55),
+          now: () => clock,
+        );
+        caps.canShowHold = Completer<void>();
+        await expectOneCleanReload(
+          controller,
+          sdk.interstitials,
+          show: controller.show,
+          window: caps.canShowHold!,
+          makeStale: () => clock = clock.add(const Duration(hours: 2)),
+          holdReload: holdReload,
+        );
+      });
+
+      test('rewarded interstitial, the ad expired during the intro '
+          '($held)', () async {
+        var clock = DateTime(2026, 1, 1, 12);
+        final intro = Completer<void>();
+        final controller = RewardedInterstitialAdController(
+          sdk: sdk,
+          gate: AdGate(canRequestAds: () async => true, isEnabled: () => true),
+          caps: caps,
+          coordinator: coordinator,
+          config: const RewardedInterstitialConfig(
+            adUnitId: PlatformAdUnitId(android: 'unit-ri'),
+          ),
+          adUnitId: 'unit-ri',
+          showIntro: (_) async {
+            await intro.future;
+            return true;
+          },
+          retry: RetryPolicy(const RetryConfig(), random: () => 0.5),
+          now: () => clock,
+        );
+        await expectOneCleanReload(
+          controller,
+          sdk.rewardedInterstitials,
+          show: () => controller.show(onReward: (_) {}),
+          window: intro,
+          makeStale: () => clock = clock.add(const Duration(hours: 2)),
+          holdReload: holdReload,
+        );
+      });
+    }
   });
 }

@@ -677,13 +677,21 @@ Map<String, String>? mergeCollapsibleExtras(
 }
 
 /// Maps the seam request configuration to the plugin's.
+///
+/// google_mobile_ads 9.1.0 deprecates both age tags in favour of
+/// `ageRestrictedTreatment` (child / teen), which 9.0.0 — still inside this
+/// package's `^9.0.0` range — does not have. 9.1.0 still sends and applies
+/// both tags on Android (both SDK variants) and iOS, verified in its source,
+/// so they stay until the floor moves (ADR-003 addendum).
 gma.RequestConfiguration toGmaRequestConfiguration(AdRequestConfig config) {
   return gma.RequestConfiguration(
     testDeviceIds: config.testDeviceIds,
     maxAdContentRating: config.maxAdContentRating == null
         ? null
         : toGmaMaxContentRating(config.maxAdContentRating!),
+    // ignore: deprecated_member_use
     tagForChildDirectedTreatment: toGmaTag(config.tagForChildDirectedTreatment),
+    // ignore: deprecated_member_use
     tagForUnderAgeOfConsent: toGmaTag(config.tagForUnderAgeOfConsent),
   );
 }

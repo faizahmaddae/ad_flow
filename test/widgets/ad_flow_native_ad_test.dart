@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/config/ad_platform.dart';
 import 'package:ad_flow/src/controllers/native_ad_controller.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
+import 'package:ad_flow/src/core/ad_load_state.dart';
 import 'package:ad_flow/src/facade/ad_flow.dart';
 import 'package:ad_flow/src/policy/ad_gate.dart';
 import 'package:ad_flow/src/policy/full_screen_ad_coordinator.dart';
@@ -109,6 +112,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(sdk.natives, hasLength(1));
       final firstHandle = sdk.natives.single;
+      expect(find.byKey(ObjectKey(firstHandle)), findsOneWidget);
 
       // Rebuild the SAME widget position with a brand-new controller (the
       // anti-pattern of `ads.native()` inside build()).
@@ -123,6 +127,10 @@ void main() {
       expect(sdk.natives, hasLength(2));
       expect(sdk.natives.last.disposed, isFalse);
       expect(sdk.natives.last.buildWidgetCalls, greaterThan(0));
+      // Hosted under its OWN key, so the plugin's AdWidget is remounted for
+      // the new ad rather than updated in place (ADR-047).
+      expect(find.byKey(ObjectKey(firstHandle)), findsNothing);
+      expect(find.byKey(ObjectKey(sdk.natives.last)), findsOneWidget);
 
       await tester.pumpWidget(host(const SizedBox()));
     },
@@ -152,12 +160,13 @@ void main() {
     expect(tester.getSize(find.byType(AdFlowNativeAd)).height, 320);
     final firstHandle = sdk.natives.single;
 
-    // Synchronous collapse via the adsEnabled notifier (one frame).
+    // Synchronous collapse via the adsEnabled notifier (one frame) — width
+    // too: the slot fills its width in every other state.
     ads.disableAds();
     await tester.pump();
     expect(
-      tester.getSize(find.byType(AdFlowNativeAd)).height,
-      0,
+      tester.getSize(find.byType(AdFlowNativeAd)),
+      Size.zero,
       reason: 'collapse must not wait for the async controller recheck',
     );
 
@@ -173,5 +182,141 @@ void main() {
     expect(tester.getSize(find.byType(AdFlowNativeAd)).height, 320);
 
     await tester.pumpWidget(host(const SizedBox()));
+  });
+
+  group('the slot is as wide before its ad comes as once it has (5.3.1)', () {
+    // The loaded ad is a platform view, and a platform view takes the BIGGEST
+    // size its constraints allow: the slot's full width. Under a loose parent
+    // (Center, Align, a centred Column, a padded card) a placeholder with no
+    // width of its own was 0 wide, so the slot jumped from 0 — or just a
+    // card's padding — to full width when the ad came. The fake handle renders
+    // a fixed 320x90 box instead of a platform view, so these tests pin the
+    // SLOT, which the widget sizes itself in every state.
+
+    Future<void> completeLoad(WidgetTester tester) async {
+      sdk.loadHold!.complete();
+      sdk.loadHold = null;
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('inside a Center: maxWidth x placeholderHeight while the load '
+        'is in flight, and the same rect once the ad is in', (tester) async {
+      sdk.loadHold = Completer<void>(); // keep the load in flight
+      final c = controller();
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Center(
+            child: AdFlowNativeAd(
+              controller: c,
+              ownsController: true,
+              placeholderHeight: 360,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(c.state.value, isA<AdLoading>());
+      final before = tester.getRect(find.byType(AdFlowNativeAd));
+      expect(before.size, const Size(800, 360));
+
+      await completeLoad(tester);
+      expect(c.state.value, isA<AdLoaded>());
+      expect(tester.getRect(find.byType(AdFlowNativeAd)), before);
+      // The ad is hosted in that whole box, not in a box of its own size.
+      expect(tester.getRect(find.byKey(ObjectKey(sdk.natives.single))), before);
+
+      await tester.pumpWidget(host(const SizedBox()));
+    });
+
+    testWidgets('a padded card in a Center has its full width from the first '
+        'frame, not just its padding', (tester) async {
+      sdk.loadHold = Completer<void>();
+      final c = controller(); // medium template: 320 reserved
+      const card = Key('card');
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 416),
+              child: Padding(
+                key: card,
+                padding: const EdgeInsets.all(8),
+                child: AdFlowNativeAd(controller: c, ownsController: true),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(c.state.value, isA<AdLoading>());
+      final before = tester.getRect(find.byKey(card));
+      expect(before.size, const Size(416, 336));
+      expect(tester.getSize(find.byType(AdFlowNativeAd)), const Size(400, 320));
+
+      await completeLoad(tester);
+      expect(c.state.value, isA<AdLoaded>());
+      expect(tester.getRect(find.byKey(card)), before);
+      expect(tester.getSize(find.byType(AdFlowNativeAd)), const Size(400, 320));
+
+      await tester.pumpWidget(host(const SizedBox()));
+    });
+
+    testWidgets('unbounded width (a Row child without Expanded) does not throw '
+        'and keeps one box, loading or loaded: the least width it is allowed, '
+        'as AdFlowBanner does', (tester) async {
+      sdk.loadHold = Completer<void>();
+      final c = controller();
+      await tester.pumpWidget(
+        host(
+          Row(children: [AdFlowNativeAd(controller: c, ownsController: true)]),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(c.state.value, isA<AdLoading>());
+      expect(tester.getSize(find.byType(AdFlowNativeAd)), const Size(0, 320));
+
+      await completeLoad(tester);
+      expect(tester.takeException(), isNull);
+      expect(c.state.value, isA<AdLoaded>());
+      expect(tester.getSize(find.byType(AdFlowNativeAd)), const Size(0, 320));
+
+      await tester.pumpWidget(host(const SizedBox()));
+    });
+
+    testWidgets('under IntrinsicWidth — what AlertDialog wraps its content in, '
+        'so a native ad in an exit dialog — it lays out without error, as '
+        'wide as the dialog', (tester) async {
+      sdk.loadHold = Completer<void>();
+      final c = controller();
+      await tester.pumpWidget(
+        host(
+          IntrinsicWidth(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // The dialog's title, wider than the fake ad's own 320 (a
+                // platform view reports no intrinsic width at all).
+                const SizedBox(width: 360, height: 40),
+                AdFlowNativeAd(controller: c, ownsController: true),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      final before = tester.getRect(find.byType(AdFlowNativeAd));
+      expect(before.size, const Size(360, 320));
+
+      await completeLoad(tester);
+      expect(tester.takeException(), isNull);
+      expect(c.state.value, isA<AdLoaded>());
+      expect(tester.getRect(find.byType(AdFlowNativeAd)), before);
+
+      await tester.pumpWidget(host(const SizedBox()));
+    });
   });
 }

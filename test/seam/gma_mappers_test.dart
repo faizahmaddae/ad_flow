@@ -88,6 +88,8 @@ void main() {
     });
   });
 
+  // The age tags are deprecated in google_mobile_ads 9.1.0 but still applied
+  // (see toGmaRequestConfiguration), so these reads keep their ignores.
   group('toGmaRequestConfiguration', () {
     test('maps ratings and int-encodes tags', () {
       const config = AdRequestConfig(
@@ -99,13 +101,17 @@ void main() {
       final mapped = toGmaRequestConfiguration(config);
       expect(mapped.testDeviceIds, ['dev-1']);
       expect(mapped.maxAdContentRating, gma.MaxAdContentRating.pg);
+      // ignore: deprecated_member_use
       expect(mapped.tagForChildDirectedTreatment, 1);
+      // ignore: deprecated_member_use
       expect(mapped.tagForUnderAgeOfConsent, 0);
     });
 
     test('null tags stay unspecified', () {
       final mapped = toGmaRequestConfiguration(const AdRequestConfig());
+      // ignore: deprecated_member_use
       expect(mapped.tagForChildDirectedTreatment, isNull);
+      // ignore: deprecated_member_use
       expect(mapped.tagForUnderAgeOfConsent, isNull);
       expect(mapped.maxAdContentRating, isNull);
       expect(mapped.testDeviceIds, isNull);

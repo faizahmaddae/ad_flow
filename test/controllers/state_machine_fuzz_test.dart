@@ -6,6 +6,25 @@ import 'package:ad_flow/ad_flow_testing.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// Wraps a cap policy so its `canShow` can be HELD, parking a show in its
+/// pre-dispatch window across ops.
+class _HoldableCaps implements FrequencyCapPolicy {
+  _HoldableCaps(this._inner);
+
+  final FrequencyCapPolicy _inner;
+  Completer<void>? hold;
+
+  @override
+  Future<bool> canShow(String slot) async {
+    final pending = hold;
+    if (pending != null) await pending.future;
+    return _inner.canShow(slot);
+  }
+
+  @override
+  Future<void> recordImpression(String slot) => _inner.recordImpression(slot);
+}
+
 /// Randomized-interleaving fuzz over the controller state machines
 /// (2026-07 audit).
 ///
@@ -23,6 +42,11 @@ import 'package:flutter_test/flutter_test.dart';
 ///    produced is disposed.
 ///
 /// On failure, the printed seed reproduces the exact sequence.
+///
+/// The interstitial run also lands consent mutations, holds the pre-dispatch
+/// cap check across ops and carries an app listener that shows "as soon as
+/// loaded" (5.3.1): a listener that re-entered show() while the dispatch
+/// guard dropped a stale ad used to start a second concurrent load (ADR-075).
 void main() {
   const seeds = 24;
   const opsPerRun = 120;
@@ -149,20 +173,25 @@ void main() {
           ..canRequestAdsResult = true;
         final coordinator = FullScreenAdCoordinator();
         var enabled = true;
+        var generation = 0;
         var now = DateTime(2026, 7, 17, 12);
         fakeAsync((async) {
-          final c = InterstitialAdController(
-            sdk: sdk,
-            gate: AdGate(
-              canRequestAds: sdk.canRequestAds,
-              isEnabled: () => enabled,
-            ),
-            caps: StoredFrequencyCapPolicy(
+          final caps = _HoldableCaps(
+            StoredFrequencyCapPolicy(
               store: InMemoryKeyValueStore(),
               slotCaps: const {},
               globalCap: const FrequencyCap(),
               now: () => now,
             ),
+          );
+          final c = InterstitialAdController(
+            sdk: sdk,
+            gate: AdGate(
+              canRequestAds: sdk.canRequestAds,
+              isEnabled: () => enabled,
+              consentGeneration: () => generation,
+            ),
+            caps: caps,
             coordinator: coordinator,
             config: const InterstitialConfig(
               adUnitId: PlatformAdUnitId(android: 'unit-i'),
@@ -175,6 +204,27 @@ void main() {
           // The fake enforces legal event ordering (dismiss only after
           // show), so track what is legal to simulate.
           FakeFullScreenAdHandle? shownAd;
+          void track(Future<bool> show) => unawaited(
+            show.then((shown) {
+              if (shown) {
+                shownAd = sdk.interstitials
+                    .where((h) => !h.disposed)
+                    .firstOrNull;
+              }
+            }),
+          );
+
+          // An app that shows "as soon as loaded": a state listener that calls
+          // show() on AdLoaded — on a seeded coin flip, so some warm ads are
+          // left for op 2's show — with at most one of its own shows in flight
+          // (an unguarded one re-fires on its own refusal's rollback forever).
+          var autoShowPending = false;
+          c.state.addListener(() {
+            if (autoShowPending || c.state.value is! AdLoaded) return;
+            if (!random.nextBool()) return;
+            autoShowPending = true;
+            track(c.show().whenComplete(() => autoShowPending = false));
+          });
 
           void checkInvariants(String afterOp) {
             final live = sdk.interstitials.where((h) => !h.disposed).toList();
@@ -196,20 +246,12 @@ void main() {
           }
 
           for (var i = 0; i < opsPerRun; i++) {
-            final op = random.nextInt(10);
+            final op = random.nextInt(12);
             switch (op) {
               case 0 || 1:
                 unawaited(c.load());
               case 2:
-                unawaited(
-                  c.show().then((shown) {
-                    if (shown) {
-                      shownAd = sdk.interstitials
-                          .where((h) => !h.disposed)
-                          .firstOrNull;
-                    }
-                  }),
-                );
+                track(c.show());
               case 3:
                 if (sdk.loadHold == null) {
                   sdk.loadHold = Completer<void>();
@@ -238,11 +280,24 @@ void main() {
                 async.flushMicrotasks();
               case 9:
                 unawaited(c.recheckGate());
+              case 10:
+                generation++; // a consent mutation lands
+              case 11:
+                // Hold or release the pre-dispatch cap check, so a show can
+                // sit in its window while other ops land.
+                if (caps.hold == null) {
+                  caps.hold = Completer<void>();
+                } else {
+                  caps.hold!.complete();
+                  caps.hold = null;
+                }
             }
             async.flushMicrotasks();
             checkInvariants('op#$i($op)');
           }
 
+          caps.hold?.complete();
+          caps.hold = null;
           sdk.loadHold?.complete();
           sdk.loadHold = null;
           sdk.alwaysLoadError = null;
