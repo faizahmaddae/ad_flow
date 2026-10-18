@@ -479,6 +479,13 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     // sees it immediately and bails.
     _state.value = const AdShowing();
 
+    // Inside the try below every rollback is AWAITED: a bare
+    // `return rejectAndRollBack();` hands back its Future, so a throw from the
+    // rollback itself would skip the catch and leave the slot at AdShowing
+    // with the claim flag set (5.3.1; Dart 3.13 flags it as
+    // unawaited_return_in_try_block). The catch then runs the rollback again,
+    // which is safe: the state write is a no-op the second time, and exit()
+    // runs again only if the first call threw (the flag is cleared after it).
     Future<bool> rejectAndRollBack() async {
       _exitCoordinator();
       if (!_disposed) _state.value = const AdLoaded();
@@ -504,17 +511,17 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       final blocked = await _gate.showBlockReason(slot);
       if (blocked != null) {
         noteBlocked(blocked);
-        return rejectAndRollBack();
+        return await rejectAndRollBack();
       }
       if (_disposed) return false; // dispose() already rolled everything back
       if (!await _caps.canShow(slot)) {
         noteBlocked(AdBlockReason.frequencyCapped);
-        return rejectAndRollBack();
+        return await rejectAndRollBack();
       }
       if (_disposed) return false;
       if (!canShowExtra()) {
         noteBlocked(AdBlockReason.userActionPacing);
-        return rejectAndRollBack();
+        return await rejectAndRollBack();
       }
       // The confirm hook (the rewarded-interstitial intro) runs LAST, with
       // every policy check already passed and the claim held. It is
@@ -522,7 +529,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       // the expiry timer cannot discard the handle mid-intro and re-entrant
       // show() calls bail on the AdShowing guard.
       if (confirm != null && !await confirm()) {
-        return rejectAndRollBack();
+        return await rejectAndRollBack();
       }
       // The confirm hook can outlive the graph (the user backgrounds the
       // app on the intro and the screen is popped): dispose() already
@@ -541,7 +548,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         if (_disposed) return false;
         if (after != null && after != AdBlockReason.internalError) {
           noteBlocked(after);
-          return rejectAndRollBack();
+          return await rejectAndRollBack();
         }
         if (isExpired) {
           noteBlocked(AdBlockReason.expired);

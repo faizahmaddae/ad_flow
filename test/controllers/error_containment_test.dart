@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/core/ad_block_reason.dart';
 import 'package:ad_flow/src/controllers/banner_ad_controller.dart';
+import 'package:ad_flow/src/controllers/full_screen_ad_controller_base.dart';
 import 'package:ad_flow/src/controllers/interstitial_ad_controller.dart';
 import 'package:ad_flow/src/controllers/native_ad_controller.dart';
+import 'package:ad_flow/src/controllers/rewarded_interstitial_ad_controller.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/core/ad_load_state.dart';
 import 'package:ad_flow/src/policy/ad_gate.dart';
@@ -55,6 +57,38 @@ class _ThrowingSdk extends FakeAdSdk {
   @override
   Future<NativeHandle> loadNative(NativeLoadSpec spec) async =>
       throw const FormatException('MissingPluginException');
+}
+
+/// A coordinator whose next [exit] throws, once.
+///
+/// By default it releases the claim before throwing — the only way the real
+/// `exit()` can fail (its clock read and its `visible` notification both run
+/// after the depth decrement). With [releaseBeforeThrow] off it throws with
+/// the claim still held.
+class _ExitThrowsOnceCoordinator extends FullScreenAdCoordinator {
+  bool throwOnNextExit = false;
+  bool releaseBeforeThrow = true;
+  int exitCalls = 0;
+
+  @override
+  void exit() {
+    exitCalls++;
+    final fail = throwOnNextExit;
+    throwOnNextExit = false;
+    if (!fail || releaseBeforeThrow) super.exit();
+    if (fail) throw StateError('coordinator exit failed');
+  }
+}
+
+/// A cap policy whose answer the test sets.
+class _SwitchCaps implements FrequencyCapPolicy {
+  bool allow = true;
+
+  @override
+  Future<bool> canShow(String slot) async => allow;
+
+  @override
+  Future<void> recordImpression(String slot) async {}
 }
 
 void main() {
@@ -146,6 +180,147 @@ void main() {
         isTrue,
         reason: 'the slot must recover, not stay wedged for the session',
       );
+      controller.dispose();
+    });
+  });
+
+  group('a throwing rollback is retried by the catch, never wedges', () {
+    // Each refusal after the claim ends in `return await rejectAndRollBack();`
+    // inside the show engine's try (5.3.1, Dart 3.13's
+    // unawaited_return_in_try_block). Without the await, a throw from the
+    // rollback skipped the catch: show() threw, and the slot was left at
+    // AdShowing with its claim flag set. With it, the catch runs the rollback
+    // again — safe, because the state write is then a no-op and exit() runs
+    // again only because the first call threw.
+    late FakeAdSdk sdk;
+    late _ExitThrowsOnceCoordinator coordinator;
+    late _SwitchCaps caps;
+    late bool consented;
+
+    setUp(() {
+      sdk = FakeAdSdk()..canRequestAdsResult = true;
+      coordinator = _ExitThrowsOnceCoordinator();
+      caps = _SwitchCaps();
+      consented = true;
+    });
+    tearDown(() {
+      coordinator.dispose();
+      sdk.dispose();
+    });
+
+    AdGate gate() =>
+        AdGate(canRequestAds: () async => consented, isEnabled: () => true);
+
+    Future<InterstitialAdController> warmInterstitial() async {
+      final controller = InterstitialAdController(
+        sdk: sdk,
+        gate: gate(),
+        caps: caps,
+        coordinator: coordinator,
+        config: const InterstitialConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-i'),
+        ),
+        adUnitId: 'unit-i',
+      );
+      await controller.load();
+      expect(controller.state.value, isA<AdLoaded>());
+      return controller;
+    }
+
+    Future<RewardedInterstitialAdController> warmRewardedInterstitial(
+      Future<bool> Function() intro,
+    ) async {
+      final controller = RewardedInterstitialAdController(
+        sdk: sdk,
+        gate: gate(),
+        caps: caps,
+        coordinator: coordinator,
+        config: const RewardedInterstitialConfig(
+          adUnitId: PlatformAdUnitId(android: 'unit-ri'),
+        ),
+        adUnitId: 'unit-ri',
+        showIntro: (_) => intro(),
+      );
+      await controller.load();
+      expect(controller.state.value, isA<AdLoaded>());
+      return controller;
+    }
+
+    /// Shows with one throwing exit() armed: the refusal must come back as a
+    /// plain `false`, with one retried rollback, the claim free and the slot
+    /// rolled back to AdLoaded.
+    Future<void> expectRetriedRollback(
+      FullScreenAdControllerBase controller,
+      AdBlockReason reason,
+    ) async {
+      coordinator.throwOnNextExit = true;
+      expect(await controller.show(), isFalse, reason: 'a refusal, no throw');
+      expect(coordinator.exitCalls, 2, reason: 'the catch retries it once');
+      expect(coordinator.isFullScreenAdVisible, isFalse);
+      expect(
+        controller.state.value,
+        isA<AdLoaded>(),
+        reason: 'rolled back — not left at AdShowing for the session',
+      );
+      expect(controller.lastBlockReason, reason);
+      controller.dispose();
+    }
+
+    test('consent withdrawn before the show', () async {
+      final controller = await warmInterstitial();
+      consented = false;
+      await expectRetriedRollback(controller, AdBlockReason.consentNotGranted);
+    });
+
+    test('frequency-capped', () async {
+      final controller = await warmInterstitial();
+      caps.allow = false;
+      await expectRetriedRollback(controller, AdBlockReason.frequencyCapped);
+    });
+
+    test('user-action pacing', () async {
+      final controller = await warmInterstitial();
+      controller.recordUserAction(); // 1 of the default 2
+      await expectRetriedRollback(controller, AdBlockReason.userActionPacing);
+    });
+
+    test('rewarded interstitial: intro skipped', () async {
+      final controller = await warmRewardedInterstitial(() async => false);
+      await expectRetriedRollback(controller, AdBlockReason.introSkipped);
+    });
+
+    test('rewarded interstitial: consent withdrawn during the intro', () async {
+      final controller = await warmRewardedInterstitial(() async {
+        consented = false;
+        return true;
+      });
+      await expectRetriedRollback(controller, AdBlockReason.consentNotGranted);
+    });
+
+    test(
+      'a first exit() that kept the claim is released by the retry',
+      () async {
+        coordinator.releaseBeforeThrow = false;
+        final controller = await warmInterstitial();
+        caps.allow = false;
+        await expectRetriedRollback(controller, AdBlockReason.frequencyCapped);
+      },
+    );
+
+    test('the retried exit() leaves the coordinator balanced', () async {
+      final controller = await warmInterstitial();
+      caps.allow = false;
+      coordinator.throwOnNextExit = true;
+      expect(await controller.show(), isFalse);
+
+      // The first exit() released the claim, the retry found nothing left to
+      // release: the next ad holds the claim while on screen, and its dismiss
+      // frees it.
+      caps.allow = true;
+      expect(await controller.show(), isTrue);
+      expect(coordinator.isFullScreenAdVisible, isTrue);
+      sdk.interstitials.single.simulateDismissed();
+      expect(coordinator.isFullScreenAdVisible, isFalse);
       controller.dispose();
     });
   });

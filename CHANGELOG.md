@@ -27,6 +27,16 @@ The slot still works under intrinsic sizing (`IntrinsicWidth`, which
 `AlertDialog` wraps its content in), so a native ad in a dialog lays out as
 before. See ADR-074.
 
+- **A refused full-screen show can no longer throw past its own clean-up.**
+  If releasing the screen after a refusal (consent, a frequency cap, pacing, a
+  skipped or revoked intro) threw, the error skipped the show engine's guard
+  and escaped `show()`. Through `AdFlow` that took a throwing listener under a
+  `FlutterError.onError` that rethrows; a throwing `FullScreenAdCoordinator` of
+  your own also left the slot stuck as showing. It is now caught like every
+  check before it: `show()` returns `false` and the ad stays loaded. This also
+  makes the package analyzer-clean on Dart 3.13, which flags the pattern
+  (`unawaited_return_in_try_block`).
+
 ## 5.3.0
 
 A **banner sizing** release. Fixes issue #15: an anchored adaptive banner

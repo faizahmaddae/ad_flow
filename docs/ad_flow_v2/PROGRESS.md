@@ -2,9 +2,10 @@
 
 ## Current phase
 **Phase 31 — 5.3.1 native ad placeholder width (2026-10-18)** — ✅ implemented
-on branch **`fix/native-placeholder-width`** (off `origin/main` `a5bb58b`; NOT
-pushed / tagged / merged / published — Faiz reviews). ADR-074. Patch: no public
-API, no default change, no migration.
+on branch **`fix/native-placeholder-width`** (off `origin/main` `a5bb58b`), with
+the Dart 3.13 analyzer fix on **`fix/analyzer-dart-3-13`** on top of it (NOT
+pushed / tagged / merged / published — Faiz reviews). ADR-074, ADR-034
+addendum. Patch: no public API, no default change, no migration.
 
 Found in Atelier (one of Faiz's apps) on the iPhone 18 Pro simulator: the
 gallery's native card drew as a **16 × 376 pt strip** while its ad loaded, then
@@ -31,25 +32,48 @@ Files: `lib/src/widgets/ad_flow_native_ad.dart` (fix + dartdoc),
 `CHANGELOG.md`, `pubspec.yaml` 5.3.1, README pins, `doc/NATIVE_ADS_SETUP.md`,
 DECISIONS ADR-074, SKILL §6 (+3 traps).
 
+**Also in 5.3.1 — analyzer-clean on Dart 3.13** (branch
+**`fix/analyzer-dart-3-13`**, on top of `fix/native-placeholder-width`
+`7d91ab9`; NOT pushed). Dart 3.13's `unawaited_return_in_try_block` flagged the
+five `return rejectAndRollBack();` inside `showEngine`'s post-claim `try`
+(`full_screen_ad_controller_base.dart`, on `origin/main` too), failing CI's
+Analyze (`channel: stable`, unpinned) on every PR and warning in the publish
+dry-run.
+
+- **CAUSE.** A Future returned without `await` completes after the `try` is
+  left, so a throw from the rollback itself skipped the `catch`: `show()` threw
+  and the slot stayed at `AdShowing` with its claim flag set.
+- **FIX.** `return await rejectAndRollBack();` at the five sites; the `catch`
+  then re-runs the rollback. Why that repeat is safe, and its one-microtask
+  caveat: ADR-034 addendum. Through `AdFlow` the rollback throws only when an
+  app `FlutterError.onError` rethrows a listener's error; a hand-built graph
+  with its own throwing coordinator could also wedge the slot.
+- **TESTS.** `error_containment_test.dart` +7, with a coordinator whose
+  `exit()` throws once: each refusal after the claim (consent, cap, pacing,
+  intro skipped, revoked after the intro) returns `false`, retries the rollback
+  once, frees the claim and rolls back to `AdLoaded`; plus a first `exit()`
+  that kept the claim, and coordinator balance for the next ad. All 7 fail
+  first (`Bad state: coordinator exit failed` escaped `show()`); removing any
+  one `await` fails exactly its refusal's test(s).
+
+Files: `lib/src/controllers/full_screen_ad_controller_base.dart` (5 × `await` +
+comment), `test/controllers/error_containment_test.dart`, `CHANGELOG.md` (+1
+bullet in 5.3.1), DECISIONS ADR-034 addendum, SKILL §6 (+1 trap).
+
 ## How to verify (Phase 31)
 `dart format --output=none --set-exit-if-changed .` && `flutter analyze` &&
-`flutter test` → **573 tests** green (569 + 4); `example/` analyzes clean and
-its test passes. `flutter analyze` finds no issue in the changed files; the 5
-warnings it reports are pre-existing (see below), and they are also the only
-`dart pub publish --dry-run` warning besides the expected uncommitted-changes
-one. Run on Flutter 3.47.7 / Dart 3.13.5. Widget-level change; not run on a
-device here (Atelier's simulator check of the symptom is in its own repo).
+`flutter test` → **580 tests** green (569 + 4 native + 7 rollback);
+`flutter analyze` **No issues found**; `dart pub publish --dry-run` on the
+committed tree: **0 warnings**; `example/` test passes. Run on Flutter 3.47.7 /
+Dart 3.13.5. Not run on a device here (Atelier's simulator check of the native
+symptom is in its own repo).
 
 ## Open items for Faiz (5.3.1)
-- Review + merge `fix/native-placeholder-width`; release 5.3.1 when ready.
-- **CI's Analyze step fails on today's stable, before and after this change.**
-  Dart 3.13 adds `unawaited_return_in_try_block`, which flags the five
-  `return rejectAndRollBack();` inside the `try` of `showEngine` in
-  `full_screen_ad_controller_base.dart` (lines 507–544, on `origin/main` too).
-  `ci.yml` uses `channel: stable` unpinned, and the publish dry-run reports the
-  same warnings (a pana static-analysis deduction). Fix it on its own before
-  releasing — most likely `return await …`; the `catch` then sees a throw from
-  the rollback, so review that path.
+- Review + merge **`fix/analyzer-dart-3-13`** (it contains
+  `fix/native-placeholder-width`; `flutter analyze` is clean with it on
+  today's stable, 3.47.7 — CI itself not run); release 5.3.1 when ready.
+- `ci.yml` still tracks `stable` unpinned, so a later Dart can add a warning
+  again on unchanged code (that is how the Dart 3.13 one landed).
 - `flutter pub get` on 3.47 rewrites both `analysis_options.yaml` files (adds
   `build/**` excludes); left out of this change.
 - The local, unpushed branch `web-9-stabilize` (`8b416ac`: `*OrNull`
