@@ -27,9 +27,17 @@ class RetryPolicy {
 
   /// The backoff delay after [attempt] failures (1-based): `baseDelay *
   /// 2^(attempt-1)`, jittered by ±`jitterFactor`, capped at `maxDelay`.
+  ///
+  /// Holds for any [attempt], however large: the gate re-check's counter
+  /// grows for as long as the gate stays closed (see [gateRecheckDelay]).
   Duration nextDelay(int attempt) {
     assert(attempt >= 1, 'nextDelay is defined for attempt >= 1');
-    final base = _config.baseDelay.inMilliseconds * math.pow(2, attempt - 1);
+    // In double, with the exponent clamped. In `int` the product overflowed
+    // (from attempt 52 with the default 5 s base) and wrapped to zero or
+    // below, which the clamp further down turned into a 0 ms delay. Clamping
+    // at 63 changes nothing else: 2^63 ms is longer than any Duration.
+    final doublings = math.min(attempt - 1, 63);
+    final base = _config.baseDelay.inMilliseconds * math.pow(2.0, doublings);
     final capped = math.min(base, _config.maxDelay.inMilliseconds.toDouble());
     // random() in [0,1) → jitter multiplier in [1-j, 1+j).
     final jittered = capped * (1 + _config.jitterFactor * (2 * _random() - 1));
@@ -59,6 +67,9 @@ class RetryPolicy {
   /// Backs off exponentially from [RetryConfig.baseDelay] and caps at
   /// [RetryConfig.maxDelay] (never at the far longer [cooldown]), so a
   /// permanently closed gate (the user bought Remove-Ads, or declined consent)
-  /// settles into a cheap once-a-minute check rather than spinning.
+  /// settles into a cheap once-a-minute check rather than spinning. The
+  /// controllers reset [attempt] only on a successful load, so it keeps
+  /// growing while the gate stays shut — hours of re-checks still get
+  /// [RetryConfig.maxDelay], never a zero delay.
   Duration gateRecheckDelay(int attempt) => nextDelay(attempt);
 }

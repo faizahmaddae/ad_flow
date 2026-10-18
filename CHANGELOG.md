@@ -51,6 +51,16 @@ before. See ADR-074.
   `dispose()`. The ad is now dropped and its replacement requested in the
   same step: `state` goes from `AdShowing` straight to `AdLoading`, and the
   slot loads once. See ADR-075.
+- **A slot whose ads stay off keeps checking once a minute, however long.**
+  While ads may not load (Remove-Ads bought, consent declined), a banner,
+  native or full-screen slot checks again about once a minute, so it loads
+  soon after ads are allowed again. The delay overflowed after about 50
+  checks: within about an hour the slot started checking with no delay at
+  all, over and over, for as long as ads stayed off (a busy loop, with an
+  `onAdBlocked` call each time; present since 2.1.0). The delay now stays at
+  `RetryConfig.maxDelay` (one minute by default) for as long as ads stay off.
+  Failure retries had the same overflow, but only with `maxAttempts` set
+  above 51. See the ADR-035 addendum.
 
 ## 5.3.0
 

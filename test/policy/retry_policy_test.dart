@@ -108,4 +108,93 @@ void main() {
     // a cheap once-a-minute check — never the 5-minute failure cooldown.
     expect(policy.gateRecheckDelay(50), const Duration(minutes: 1));
   });
+
+  group('large attempt counts never wrap to a zero delay', () {
+    // `baseDelay * 2^(attempt - 1)` used to be computed in `int`, which
+    // overflows. With the defaults it gave gateRecheckDelay(51) = 60 s,
+    // (52) = 0, (53) = 60 s, (55) = 0, and 0 for every attempt from 62 on: a
+    // gate closed for about an hour (Remove-Ads bought, consent declined) was
+    // then re-checked on a zero-delay timer, over and over.
+    const config = RetryConfig(); // 5 s base, 1 min cap, ±25% jitter
+    const attempts = [52, 53, 55, 61, 62, 64, 100, 10000, 1000000];
+
+    test('stay at maxDelay once capped (jitter neutral)', () {
+      final policy = noJitter(config);
+      for (final attempt in attempts) {
+        expect(
+          policy.nextDelay(attempt),
+          config.maxDelay,
+          reason: 'nextDelay($attempt)',
+        );
+        expect(
+          policy.gateRecheckDelay(attempt),
+          config.maxDelay,
+          reason: 'gateRecheckDelay($attempt)',
+        );
+      }
+    });
+
+    test('stay within [maxDelay * (1 - jitter), maxDelay] at the jitter '
+        'extremes', () {
+      final low = RetryPolicy(config, random: () => 0.0);
+      final high = RetryPolicy(config, random: () => 0.999999);
+      for (final attempt in attempts) {
+        expect(
+          low.nextDelay(attempt),
+          const Duration(seconds: 45), // 60 s * 0.75
+          reason: 'low nextDelay($attempt)',
+        );
+        expect(
+          low.gateRecheckDelay(attempt),
+          const Duration(seconds: 45),
+          reason: 'low gateRecheckDelay($attempt)',
+        );
+        expect(
+          high.nextDelay(attempt),
+          config.maxDelay, // 60 s * ~1.25, clamped
+          reason: 'high nextDelay($attempt)',
+        );
+        expect(
+          high.gateRecheckDelay(attempt),
+          config.maxDelay,
+          reason: 'high gateRecheckDelay($attempt)',
+        );
+      }
+    });
+
+    test('never shrink as attempts grow, 1 to 10000 (jitter neutral)', () {
+      final policy = noJitter(config);
+      var previous = Duration.zero;
+      for (var attempt = 1; attempt <= 10000; attempt++) {
+        final delay = policy.gateRecheckDelay(attempt);
+        expect(
+          delay,
+          greaterThanOrEqualTo(previous),
+          reason: 'gateRecheckDelay($attempt) after $previous',
+        );
+        previous = delay;
+      }
+      expect(previous, config.maxDelay);
+    });
+
+    test('a long baseDelay cannot overflow the product either', () {
+      // 1 day = 86,400,000 ms: in `int` the product overflowed from attempt
+      // 38, no matter how the power itself was computed.
+      final policy = noJitter(
+        const RetryConfig(
+          baseDelay: Duration(days: 1),
+          maxDelay: Duration(days: 7),
+        ),
+      );
+      expect(policy.nextDelay(1), const Duration(days: 1));
+      expect(policy.nextDelay(3), const Duration(days: 4));
+      for (final attempt in [38, 40, ...attempts]) {
+        expect(
+          policy.nextDelay(attempt),
+          const Duration(days: 7),
+          reason: 'nextDelay($attempt)',
+        );
+      }
+    });
+  });
 }

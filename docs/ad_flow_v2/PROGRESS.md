@@ -3,12 +3,13 @@
 ## Current phase
 **Phase 31 — 5.3.1 native ad placeholder width (2026-10-18)** — ✅ implemented
 on branch **`fix/native-placeholder-width`** (off `origin/main` `a5bb58b`), with
-the Dart 3.13 analyzer fix on **`fix/analyzer-dart-3-13`** on top of it, and the
+the Dart 3.13 analyzer fix on **`fix/analyzer-dart-3-13`** on top of it, the
 show engine's drop-branch race fix on **`fix/show-engine-rollback-race`** on
-top of that (`fix/analyzer-dart-3-13` is pushed as PR #17; the race fix is
+top of that, and the retry-delay overflow fix on **`fix/retry-delay-overflow`**
+on top of that (`fix/analyzer-dart-3-13` is pushed as PR #17; the last two are
 local only; nothing tagged / merged / published — Faiz reviews). ADR-074,
-ADR-034 addendum, ADR-075. Patch: no public API, no default change, no
-migration.
+ADR-034 addendum, ADR-075, ADR-035 addendum. Patch: no public API, no default
+change, no migration.
 
 Found in Atelier (one of Faiz's apps) on the iPhone 18 Pro simulator: the
 gallery's native card drew as a **16 × 376 pt strip** while its ad loaded, then
@@ -110,36 +111,63 @@ Files: `lib/src/controllers/full_screen_ad_controller_base.dart`
 `test/controllers/state_machine_fuzz_test.dart`, `CHANGELOG.md` (+1 bullet in
 5.3.1), DECISIONS ADR-075, SKILL §6 (+1 trap, 1 corrected).
 
+**Also in 5.3.1 — a closed gate is re-checked once a minute, however long**
+(branch **`fix/retry-delay-overflow`**, on top of `fix/show-engine-rollback-race`
+`84f8764`; NOT pushed). Found while fuzzing the race fix above (it was an open
+item there). ADR-035 addendum, plus a pointer in ADR-008.
+
+- **CAUSE.** `RetryPolicy.nextDelay` computed `baseDelay * math.pow(2,
+  attempt - 1)` in `int`, which overflows; the clamp to `[0, maxDelay]` made
+  each wrap below zero a 0 ms delay. Measured (defaults, neutral jitter):
+  51 → 60 s, 52 → 0, 55–57 → 0, and 0 from 61 on. `_gateAttempts` (banner,
+  native, full-screen) resets only on a successful load, so a gate closed for
+  about an hour (Remove-Ads, declined consent) re-checked on a zero-delay timer
+  from about 53 minutes on: a busy loop with an `onAdBlocked` per spin (read
+  from the code, not seen on a device). In every release since 2.1.0.
+- **FIX.** The product in `double`, the exponent clamped at 63: 2^63 ms is
+  longer than any `Duration`, so the clamp changes no result and only keeps
+  the arithmetic finite. `_gateAttempts` gets no cap: the policy now answers
+  every attempt, the counter cannot overflow, and a cap would duplicate the
+  policy in three controllers.
+- **TESTS.** `retry_policy_test.dart` +4 (attempts 52 to 10^6 give `maxDelay`;
+  45 s / 60 s at the jitter extremes; never shrinking from 1 to 10,000; a
+  1-day base). New `closed_gate_recheck_test.dart` +3 (banner, native,
+  interstitial: Remove-Ads for three hours gives 62, 60 and 60 re-checks per
+  hour and no load; with ads back, loaded within the minute). A breaker opens
+  the gate at 300 `onAdBlocked` calls, so a spin FAILS instead of hanging. All
+  7 fail first (0 ms delays; `[299, 0, 0]` per hour). Neuter: the old line and
+  an `int` with a clamped exponent fail the same 7; `double` without the clamp
+  passes (the clamp is not pinned: it matters only for a zero base). A scratch
+  200-op fuzz passes all 48 runs with the fix; the old code still hangs on
+  seed 7 (killed by PID after 90 s).
+
+Files: `lib/src/policy/retry_policy.dart` (fix + dartdoc),
+`test/policy/retry_policy_test.dart`,
+`test/controllers/closed_gate_recheck_test.dart` (new), `CHANGELOG.md` (+1
+bullet in 5.3.1), DECISIONS ADR-035 addendum + ADR-008 pointer, SKILL §6 (the
+"elapse of hours" trap rewritten).
+
 ## How to verify (Phase 31)
 `dart format --output=none --set-exit-if-changed .` && `flutter analyze` &&
-`flutter test` → **586 tests** green (569 + 4 native + 7 rollback + 6 drop);
-`flutter analyze` **No issues found**; `dart pub publish --dry-run` on the
-committed tree: **0 warnings**; `example/` test passes; pana 160/160 (local
-0.23.10). Run on Flutter 3.47.7 / Dart 3.13.5, with the latest resolution
+`flutter test` → **593 tests** green (569 + 4 native + 7 rollback + 6 drop + 7
+overflow); `flutter analyze` **No issues found**; `dart pub publish --dry-run`
+on the committed tree: **0 warnings**; `example/` test passes; pana 160/160
+(local 0.23.10). Run on Flutter 3.47.7 / Dart 3.13.5, with the latest resolution
 (`flutter pub upgrade` → google_mobile_ads 9.1.0, which is what CI gets) as
 well as the old 9.0.0 lock. Not run on a device here (Atelier's simulator
 check of the native symptom is in its own repo).
 
 ## Open items for Faiz (5.3.1)
-- Review + merge **`fix/show-engine-rollback-race`**: it sits on
+- Review + merge **`fix/retry-delay-overflow`**: it sits on
+  **`fix/show-engine-rollback-race`**, which sits on
   **`fix/analyzer-dart-3-13`** (PR #17), which contains
-  `fix/native-placeholder-width`; release 5.3.1 when ready.
-- **Found while fuzzing, NOT fixed (pre-existing, separate bug):** the
-  closed-gate recheck stops backing off after about an hour.
-  `RetryPolicy.nextDelay` computes `baseDelay * math.pow(2, attempt - 1)` in
-  `int`, and `_gateAttempts` (banner, native, full-screen) only resets on a
-  successful load. With the defaults `gateRecheckDelay(52)` is **0 ms**, and
-  from attempt 62 on it is always 0 ms (measured: 51 → 60000, 52 → 0,
-  53 → 60000, 55 → 0, 62+ → 0). A gate closed for ~an hour (Remove-Ads bought,
-  consent declined) then re-checks on a zero-delay timer: a CPU spin, plus an
-  `onAdBlocked` callback per spin (read from the code; not run on a device).
-  In `fakeAsync` the elapse never ends: a scratch copy of the extended
-  interstitial fuzz hung on seed 7 at 200 ops, during settle's 10-minute
-  elapse with ads disabled (the committed 120-op run stays below attempt 52).
-  Fix: clamp the exponent (or cap `_gateAttempts`) and test a large attempt
-  count.
-  The SKILL §6 "elapse of hours against a CLOSED gate" trap was most likely
-  this, not dense churn.
+  `fix/native-placeholder-width`; release 5.3.1 when ready. The overflow fix
+  is written up as a 5.3.1 bullet; moving it to a later patch is Faiz's call.
+- **Found, NOT fixed (config-induced):** a `RetryConfig` whose `baseDelay` or
+  `maxDelay` is zero (or under 1 ms) still re-checks a closed gate on a
+  zero-delay timer: the overflow's spin, by configuration. Nothing validates
+  these Durations (a const constructor cannot assert on them, SKILL §6); a
+  use-time floor in `gateRecheckDelay` would close it. The defaults are fine.
 - **Found, NOT fixed (design question):** an app listener that calls `show()`
   on every `AdLoaded`, with nothing else guarding it, loops forever on a
   persistent refusal (cap, pacing, Remove-Ads, consent): each refusal rolls
