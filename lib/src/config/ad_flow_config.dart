@@ -107,6 +107,9 @@ class RetryConfig {
   final Duration maxDelay;
 
   /// How long to wait after [maxAttempts] failures before auto re-arming.
+  ///
+  /// The re-arm repeats for as long as loads keep failing, so it never waits
+  /// less than one second, whatever this says.
   final Duration cooldown;
 
   /// Random jitter applied to each delay, as a fraction of the delay

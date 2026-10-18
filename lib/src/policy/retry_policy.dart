@@ -49,7 +49,22 @@ class RetryPolicy {
 
   /// How long to back off after the attempt budget is exhausted, before
   /// auto re-arming.
-  Duration get cooldown => _config.cooldown;
+  ///
+  /// Never shorter than one second, whatever the config says (ADR-077). The
+  /// re-arm resets the attempts and loads again, for as long as loads keep
+  /// failing, and each turn is a real SDK load request. `AdFlowConfig.validate`
+  /// rejects only a negative cooldown, so with a zero one and nothing to wait
+  /// between the attempts (`maxAttempts` 0 or 1, or a [nextDelay] of 0 ms)
+  /// every turn would run on a zero-delay timer: a busy loop. The retries
+  /// between attempts keep the configured delays: they stop at `maxAttempts`.
+  Duration get cooldown {
+    final cooldown = _config.cooldown;
+    return cooldown < _minCooldown ? _minCooldown : cooldown;
+  }
+
+  /// The shortest [cooldown]: far below the default (5 minutes), so no
+  /// default schedule moves.
+  static const _minCooldown = Duration(seconds: 1);
 
   /// The per-load watchdog bound (null = disabled) — see
   /// [RetryConfig.loadTimeout].

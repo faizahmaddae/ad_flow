@@ -282,4 +282,61 @@ void main() {
       expect(low.gateRecheckDelay(1), second);
     });
   });
+
+  group('a failing load re-arms at most once a second (ADR-077)', () {
+    // After maxAttempts failures the controllers wait `cooldown`, reset the
+    // attempt counter and load again, for as long as loads keep failing: a
+    // loop with no end. validate() rejects only a NEGATIVE cooldown, so
+    // RetryConfig(maxAttempts: 0, cooldown: Duration.zero) passes
+    // AdFlow.initialize, and a load that kept failing re-armed on a zero-delay
+    // timer: a busy loop of SDK load requests.
+    const second = Duration(seconds: 1);
+
+    test('cooldown is 1 s when the configured one is shorter', () {
+      const cooldowns = [
+        Duration.zero,
+        Duration(microseconds: 500),
+        Duration(milliseconds: 1),
+        Duration(milliseconds: 999),
+      ];
+      for (final cooldown in cooldowns) {
+        for (final maxAttempts in [0, 1, 3]) {
+          expect(
+            noJitter(
+              RetryConfig(maxAttempts: maxAttempts, cooldown: cooldown),
+            ).cooldown,
+            second,
+            reason: 'maxAttempts: $maxAttempts, cooldown: $cooldown',
+          );
+        }
+      }
+    });
+
+    test('a cooldown of 1 s or more is unchanged, and failure retries keep '
+        'the configured delays', () {
+      expect(noJitter(const RetryConfig(cooldown: second)).cooldown, second);
+      expect(
+        noJitter(
+          const RetryConfig(cooldown: Duration(milliseconds: 1001)),
+        ).cooldown,
+        const Duration(milliseconds: 1001),
+      );
+      expect(
+        noJitter(const RetryConfig()).cooldown,
+        const Duration(minutes: 5),
+      );
+      // Between attempts the retries stop at maxAttempts, so a zero base still
+      // retries at once; only the re-arm after the last attempt waits.
+      final zero = noJitter(
+        const RetryConfig(
+          baseDelay: Duration.zero,
+          maxDelay: Duration.zero,
+          cooldown: Duration.zero,
+        ),
+      );
+      expect(zero.nextDelay(1), Duration.zero);
+      expect(zero.nextDelay(2), Duration.zero);
+      expect(zero.cooldown, second);
+    });
+  });
 }

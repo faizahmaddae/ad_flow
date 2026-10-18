@@ -70,6 +70,16 @@ before. See ADR-074.
   given its own `RetryPolicy` is never validated. That check now waits at
   least one second, whatever the config says. The defaults (5 s, doubling up
   to one minute) and failure retries are unchanged. See ADR-076.
+- **A slot whose loads keep failing waits at least a second before it starts
+  over.** After its retries, a banner, native or full-screen slot whose loads
+  fail (no network, no fill) waits `RetryConfig.cooldown` and tries again, for
+  as long as the loads keep failing. `AdFlow.initialize` accepts a zero
+  cooldown, and with no retries (`maxAttempts` 0 or 1), or with retries that
+  came out as 0 ms (a `baseDelay` under 1 ms), the slot then requested a new
+  ad with no delay at all, over and over: a busy loop of ad requests. A banner
+  whose refreshes kept failing did the same. That wait is now at least one
+  second, whatever the config says. The default cooldown (5 minutes) and the
+  retries before it are unchanged. See ADR-077.
 
 ## 5.3.0
 

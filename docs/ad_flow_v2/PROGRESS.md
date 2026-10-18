@@ -6,11 +6,13 @@ on branch **`fix/native-placeholder-width`** (off `origin/main` `a5bb58b`), with
 the Dart 3.13 analyzer fix on **`fix/analyzer-dart-3-13`** on top of it, the
 show engine's drop-branch race fix on **`fix/show-engine-rollback-race`** on
 top of that, the retry-delay overflow fix on **`fix/retry-delay-overflow`** on
-top of that, and the gate re-check floor on **`fix/gate-recheck-zero-delay`**
-on top of that (`fix/analyzer-dart-3-13` is pushed as PR #17; the last three
-are local only; nothing tagged / merged / published — Faiz reviews). ADR-074,
-ADR-034 addendum, ADR-075, ADR-035 addendum, ADR-076. Patch: no public API, no
-default change, no migration.
+top of that, the gate re-check floor on **`fix/gate-recheck-zero-delay`** on
+top of that, and the failure-path cooldown floor on
+**`fix/failure-retry-zero-cooldown`** on top of that. `fix/analyzer-dart-3-13`
+is PR #17, since fast-forwarded to the gate re-check floor (`a5e70e5`) and
+pushed; the cooldown floor is local only. Nothing tagged / merged / published —
+Faiz reviews. ADR-074, ADR-034 addendum, ADR-075, ADR-035 addendum, ADR-076,
+ADR-077. Patch: no public API, no default change, no migration.
 
 Found in Atelier (one of Faiz's apps) on the iPhone 18 Pro simulator: the
 gallery's native card drew as a **16 × 376 pt strip** while its ad loaded, then
@@ -190,10 +192,55 @@ Files: `lib/src/policy/retry_policy.dart` (floor + dartdoc),
 bullet in 5.3.1), DECISIONS ADR-076 + ADR-035 addendum note corrected + ADR-053
 addendum, SKILL §6 (+1 trap).
 
+**Also in 5.3.1 (Faiz decides) — a load that keeps failing re-arms at most once
+a second, whatever the config** (branch **`fix/failure-retry-zero-cooldown`**,
+on top of `fix/gate-recheck-zero-delay` `a5e70e5`; NOT pushed). ADR-076's open
+item. ADR-077, plus pointers in ADR-008, ADR-053 and ADR-076. The CHANGELOG has
+it as a 5.3.1 bullet by default; moving it to a later patch is Faiz's call.
+
+- **CAUSE.** After `maxAttempts` failures the controllers wait `cooldown`,
+  reset the attempts and load again (a banner's failing refresh does the
+  same), for as long as the loads fail: a loop with no end, each turn a real
+  SDK load request. `validate()` rejects only a negative cooldown. With a zero
+  one and no retries (`maxAttempts` 0 or 1), or retries of 0 ms (a base under
+  1 ms), every turn ran on a zero-delay timer: a busy loop of load requests.
+  Reproduced with `FakeAdSdk.alwaysLoadError` through `AdFlow.initialize`
+  (`maxAttempts: 0, cooldown: Duration.zero`), and for hand-built banner,
+  native and interstitial controllers and a banner's failing refreshes.
+- **FIX.** `RetryPolicy.cooldown` is the configured cooldown, raised to 1 s
+  when shorter: a private constant in the policy, read by all four re-arm
+  sites. Far below the 5-minute default, so no default moves; the retries
+  inside a turn (`nextDelay`) and `validate()` are unchanged. Rejected:
+  rejecting a zero cooldown in `validate()` (misses hand-built policies, adds
+  an init throw in a patch, no threshold fits), a floor at the four sites,
+  zero read as "the default" or as "never re-arm", flooring `nextDelay` too,
+  a 1 ms floor.
+- **TESTS.** `retry_policy_test.dart` +2 (cooldowns under 1 s give exactly
+  1 s for `maxAttempts` 0, 1 and 3; 1 s and longer unchanged; a zero base
+  still retries at 0 ms inside a turn). New `failing_load_rearm_test.dart` +12
+  (`maxAttempts` 0 or 1 with a zero cooldown, and a 500 µs base with a zero
+  cooldown, each for banner, native and interstitial loads and for a banner's
+  refreshes: 1 or 3 requests at once, then 60 or 180 a minute, recovered
+  within a second; the refreshing banner keeps its ad). New
+  `test/facade/zero_cooldown_retry_config_test.dart` +1 (the config passes
+  `AdFlow.initialize`; `[1, 60, 60]`). The breakers count load requests in a
+  `FakeAdSdk` subclass, inside the loop, and stop failing them at a ceiling.
+  All 15 fail first (`[1000, 0, 0]`, refreshes `[999, 2, 2]`, in under a
+  second, no hang). Neuter: the old line, a 1 ms floor and zero read as the
+  default each fail all 15; flooring `nextDelay` too fails 7.
+
+Files: `lib/src/policy/retry_policy.dart` (floor + dartdoc),
+`lib/src/config/ad_flow_config.dart` (`cooldown` dartdoc),
+`test/policy/retry_policy_test.dart`,
+`test/controllers/failing_load_rearm_test.dart` (new),
+`test/facade/zero_cooldown_retry_config_test.dart` (new), `CHANGELOG.md` (+1
+bullet in 5.3.1), DECISIONS ADR-077 + ADR-008 and ADR-053 addenda + ADR-076's
+open item closed, SKILL §6 (+1 trap).
+
 ## How to verify (Phase 31)
 `dart format --output=none --set-exit-if-changed .` && `flutter analyze` &&
-`flutter test` → **600 tests** green (569 + 4 native + 7 rollback + 6 drop + 7
-overflow + 7 floor); `flutter analyze` **No issues found**;
+`flutter test` → **615 tests** green (569 + 4 native + 7 rollback + 6 drop + 7
+overflow + 7 floor + 15 cooldown); `flutter analyze` **No issues found**;
 `dart pub publish --dry-run` on the committed tree: **0 warnings**; `example/`
 test passes; pana 160/160 (local 0.23.10). Run on Flutter 3.47.7 / Dart 3.13.5, with the latest resolution
 (`flutter pub upgrade` → google_mobile_ads 9.1.0, which is what CI gets) as
@@ -201,23 +248,16 @@ well as the old 9.0.0 lock. Not run on a device here (Atelier's simulator
 check of the native symptom is in its own repo).
 
 ## Open items for Faiz (5.3.1)
-- Review + merge **`fix/gate-recheck-zero-delay`**: it sits on
+- Review + merge **`fix/failure-retry-zero-cooldown`** (local only): it sits
+  on **`fix/gate-recheck-zero-delay`** (`a5e70e5`), which sits on
   **`fix/retry-delay-overflow`**, which sits on
   **`fix/show-engine-rollback-race`**, which sits on
   **`fix/analyzer-dart-3-13`** (PR #17), which contains
-  `fix/native-placeholder-width`; release 5.3.1 when ready. The overflow fix
-  and the floor are each written up as a 5.3.1 bullet; moving either to a
-  later patch is Faiz's call.
-- **Found, NOT fixed (config-induced, failure path):** `cooldown` may be zero
-  (`validate()` only rejects a negative one). `RetryConfig(maxAttempts: 0,
-  cooldown: Duration.zero)` validates, and against a load that keeps failing
-  it re-arms on a zero-delay timer after every failure (a scratch probe with
-  an interstitial hung: `flutter_tester` at about 190% CPU, killed by its own
-  PID tree). Read from the code, not probed: `maxAttempts: 1` does the same,
-  and so does a zero or sub-millisecond base with a zero cooldown. Every
-  iteration there is a real SDK load request. Floor the re-arm like ADR-076,
-  or reject a zero cooldown in `validate()`: Faiz's call (ADR-076, "Not
-  changed").
+  `fix/native-placeholder-width`. PR #17's branch has since been
+  fast-forwarded to `a5e70e5` and pushed, so the PR carries everything but the
+  cooldown floor. Release 5.3.1 when ready. The overflow fix, the gate floor
+  and the cooldown floor are each written up as a 5.3.1 bullet; moving any of
+  them to a later patch is Faiz's call.
 - **Found, NOT fixed (design question):** an app listener that calls `show()`
   on every `AdLoaded`, with nothing else guarding it, loops forever on a
   persistent refusal (cap, pacing, Remove-Ads, consent): each refusal rolls
