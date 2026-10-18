@@ -1,10 +1,70 @@
 # PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
-**Phase 30 — 5.3.0 banner sizing (issue #15) (2026-08-07)** — ✅ implemented on
-branch **`fix/banner-adaptive-sizing`**; NOT pushed / tagged / merged /
-published. ADR-073. Backward-compatible **minor**: additive API only, no
-removals, no signature changes, no migration.
+**Phase 31 — 5.3.1 native ad placeholder width (2026-10-18)** — ✅ implemented
+on branch **`fix/native-placeholder-width`** (off `origin/main` `a5bb58b`; NOT
+pushed / tagged / merged / published — Faiz reviews). ADR-074. Patch: no public
+API, no default change, no migration.
+
+Found in Atelier (one of Faiz's apps) on the iPhone 18 Pro simulator: the
+gallery's native card drew as a **16 × 376 pt strip** while its ad loaded, then
+jumped to full width. Atelier worked around it in its own commit `3b1fbb7` (the
+card sets its own width); this removes the cause, so no caller needs to.
+
+- **CAUSE.** `AdFlowNativeAd` returned `SizedBox(height: h)` — no width, no
+  child — until `AdLoaded`: 0 wide under any loose parent. The loaded
+  `AdWidget` is a platform view (`constraints.biggest`), so the slot jumped to
+  full width. Masked in tests: `FakeNativeHandle` renders a fixed 320×90 box
+  and the native widget tests checked heights only.
+- **FIX.** One box in every non-disabled state:
+  `LimitedBox(maxWidth: 0) → SizedBox(width: ∞, height: h, child: ad or null)`.
+  It fills a bounded width before and after the load, and is zero wide (no
+  throw) under an unbounded one, like `AdFlowBanner`'s placeholder. The
+  Remove-Ads `SizedBox.shrink()` and the `ObjectKey(handle)` keying are
+  unchanged.
+- **NOT a `LayoutBuilder`** (the banner's tool, and the first fix suggested):
+  it cannot report intrinsics and throws under `IntrinsicWidth`, i.e. inside an
+  `AlertDialog` — verified with a neutered variant.
+
+Files: `lib/src/widgets/ad_flow_native_ad.dart` (fix + dartdoc),
+`test/widgets/ad_flow_native_ad_test.dart` (+4 tests, 2 strengthened),
+`CHANGELOG.md`, `pubspec.yaml` 5.3.1, README pins, `doc/NATIVE_ADS_SETUP.md`,
+DECISIONS ADR-074, SKILL §6 (+3 traps).
+
+## How to verify (Phase 31)
+`dart format --output=none --set-exit-if-changed .` && `flutter analyze` &&
+`flutter test` → **573 tests** green (569 + 4); `example/` analyzes clean and
+its test passes. `flutter analyze` finds no issue in the changed files; the 5
+warnings it reports are pre-existing (see below), and they are also the only
+`dart pub publish --dry-run` warning besides the expected uncommitted-changes
+one. Run on Flutter 3.47.7 / Dart 3.13.5. Widget-level change; not run on a
+device here (Atelier's simulator check of the symptom is in its own repo).
+
+## Open items for Faiz (5.3.1)
+- Review + merge `fix/native-placeholder-width`; release 5.3.1 when ready.
+- **CI's Analyze step fails on today's stable, before and after this change.**
+  Dart 3.13 adds `unawaited_return_in_try_block`, which flags the five
+  `return rejectAndRollBack();` inside the `try` of `showEngine` in
+  `full_screen_ad_controller_base.dart` (lines 507–544, on `origin/main` too).
+  `ci.yml` uses `channel: stable` unpinned, and the publish dry-run reports the
+  same warnings (a pana static-analysis deduction). Fix it on its own before
+  releasing — most likely `return await …`; the `catch` then sees a throw from
+  the rollback, so review that path.
+- `flutter pub get` on 3.47 rewrites both `analysis_options.yaml` files (adds
+  `build/**` excludes); left out of this change.
+- The local, unpushed branch `web-9-stabilize` (`8b416ac`: `*OrNull`
+  slot-getter tests + example metadata) is separate from this one. If both
+  land, its `example/pubspec.yaml` (`version: 5.3.0`, "tracks the package
+  version") needs 5.3.1.
+- Nit: `test/widgets/ad_flow_banner_test.dart` "an adopted controller swap
+  remounts the native ad subtree too" drives `AdFlowBanner`, not the native
+  widget; the native keyed remount is now pinned in the native adoption test.
+
+## Previous phase
+**Phase 30 — 5.3.0 banner sizing (issue #15) (2026-08-07)** — ✅ shipped:
+merged to `main` as #16 (`a5bb58b`), tagged `v5.3.0`, on pub.dev. ADR-073.
+Backward-compatible **minor**: additive API only, no removals, no signature
+changes, no migration.
 
 Issue #15 reported an anchored banner reserving far more height than the ad it
 showed, with the app surface visible around a narrow, short creative. **The

@@ -1,3 +1,32 @@
+## 5.3.1
+
+A **native ad layout** patch. **No public API changes, no default changes, no
+migration** — every existing call site compiles unchanged.
+
+### FIXED
+
+- **`AdFlowNativeAd` is as wide before its ad comes as once it has.** Until
+  the ad loaded, the widget reserved only a height — a `SizedBox` with no width
+  and no child, which is **0 wide** under a loose parent: a `Center`, an
+  `Align`, a centred `Column`, a padded card. The loaded ad is a platform view,
+  which takes the biggest size its constraints allow, so the slot then jumped
+  to full width: the layout shift the widget's own documentation promised not
+  to make. In one app the gallery's native card drew as a 16 pt strip — only
+  its padding — while its ad loaded. The slot now takes the full width it is
+  given, at the reserved height, in every state (loading, failed, loaded), so
+  the ad's arrival moves nothing and callers no longer need to give the widget
+  a width of their own. Remove-Ads still collapses it to nothing.
+- **An unbounded width no longer throws.** Under an unbounded width (a `Row`
+  child without `Expanded`, a horizontal list) the loaded platform view was
+  given an infinite size and threw. There is no width to fill there, so the
+  slot now takes the least width it is allowed (zero), as `AdFlowBanner`'s
+  placeholder does; give such a slot a width (a `SizedBox`, an `Expanded`) to
+  show the ad.
+
+The slot still works under intrinsic sizing (`IntrinsicWidth`, which
+`AlertDialog` wraps its content in), so a native ad in a dialog lays out as
+before. See ADR-074.
+
 ## 5.3.0
 
 A **banner sizing** release. Fixes issue #15: an anchored adaptive banner

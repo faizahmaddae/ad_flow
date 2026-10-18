@@ -8,9 +8,15 @@ import '../facade/ad_flow.dart';
 
 /// Drop-in native ad widget.
 ///
-/// Reserves a fixed height from the first frame (no layout shift), triggers
-/// the load, hosts the ad once loaded, and disposes the controller it owns
-/// when unmounted.
+/// Reserves its slot from the first frame — the full width it is given, at a
+/// fixed height — and hosts the loaded ad in that same box, so the ad's
+/// arrival shifts nothing. Triggers the load and disposes the controller it
+/// owns when unmounted.
+///
+/// Give it a bounded width. Under an unbounded one (a `Row` child without
+/// `Expanded`, a horizontal list) there is no width to fill, so the slot lays
+/// out zero wide instead of throwing; wrap it in a `SizedBox` with a width, or
+/// an `Expanded`, there.
 ///
 /// The recommended usage (3.0) creates and owns the controller internally —
 /// the "fresh controller minted inside build()" footgun (ADR-029, a
@@ -57,8 +63,10 @@ class AdFlowNativeAd extends StatefulWidget {
   /// a self-created controller is always owned).
   final bool ownsController;
 
-  /// Height reserved for the ad during ordinary loading states. Defaults to
-  /// the controller's estimate (template minimums, 100 for factory rendering).
+  /// Height of the slot: reserved from the first frame and kept once the ad
+  /// is in. Defaults to the controller's estimate (template minimums, 100 for
+  /// factory rendering). The width is always the full width the widget is
+  /// given.
   ///
   /// Ignored while ads are disabled ([AdFlow.disableAds]): a Remove-Ads native
   /// ad always collapses to a zero footprint.
@@ -135,18 +143,41 @@ class _AdFlowNativeAdState extends State<AdFlowNativeAd> {
             (state is AdBlocked && state.reason == AdBlockReason.adsDisabled);
         if (adsDisabled) return const SizedBox.shrink();
         final handle = _controller.handle;
-        return SizedBox(
-          height: height,
-          // Keyed by handle identity so a handle replacement (reload, adopted
-          // controller) remounts the plugin's AdWidget instead of updating it
-          // in place — see AdFlowBanner for the full mechanism (the plugin's
-          // AdWidget cannot re-point its platform view at a new ad).
-          child: state is AdLoaded && handle != null
-              ? KeyedSubtree(
-                  key: ObjectKey(handle),
-                  child: handle.buildWidget(),
-                )
-              : null,
+        // ONE box in every state: the full width the slot is given, at the
+        // reserved height. The loaded ad is a platform view, which takes the
+        // biggest size its constraints allow, so a placeholder with no width
+        // of its own was 0 wide under a loose parent (Center, Align, a centred
+        // Column, a padded card) and the slot jumped to full width when the ad
+        // came.
+        //
+        // A LimitedBox around an infinite width, deliberately not a
+        // LayoutBuilder:
+        // - bounded width: the SizedBox fills it, before and after the load;
+        // - unbounded width (a Row child without Expanded, a horizontal list):
+        //   LimitedBox caps it, so the box takes the least width it is allowed
+        //   instead of throwing on an infinite one, as AdFlowBanner's
+        //   placeholder does;
+        // - intrinsic sizing keeps working: a LayoutBuilder cannot report
+        //   intrinsic dimensions and throws under IntrinsicWidth, which is
+        //   what AlertDialog wraps its content in (a native ad in an exit
+        //   dialog).
+        return LimitedBox(
+          maxWidth: 0,
+          child: SizedBox(
+            width: double.infinity,
+            height: height,
+            // Keyed by handle identity so a handle replacement (reload,
+            // adopted controller) remounts the plugin's AdWidget instead of
+            // updating it in place — see AdFlowBanner for the full mechanism
+            // (the plugin's AdWidget cannot re-point its platform view at a
+            // new ad).
+            child: state is AdLoaded && handle != null
+                ? KeyedSubtree(
+                    key: ObjectKey(handle),
+                    child: handle.buildWidget(),
+                  )
+                : null,
+          ),
         );
       },
     );
