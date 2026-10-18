@@ -36,6 +36,11 @@ before. See ADR-074.
   check before it: `show()` returns `false` and the ad stays loaded. This also
   makes the package analyzer-clean on Dart 3.13, which flags the pattern
   (`unawaited_return_in_try_block`).
+- **Analyzer-clean with google_mobile_ads 9.1.0 too.** 9.1.0 deprecates the
+  child-directed and under-age-of-consent tags in favour of
+  `ageRestrictedTreatment`, which 9.0.0 does not have. ad_flow still supports
+  `^9.0.0`, so it keeps setting both tags, and 9.1.0 still applies them on
+  Android and iOS: no behaviour change.
 
 ## 5.3.0
 

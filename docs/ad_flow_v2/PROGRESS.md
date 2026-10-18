@@ -55,25 +55,39 @@ dry-run.
   that kept the claim, and coordinator balance for the next ad. All 7 fail
   first (`Bad state: coordinator exit failed` escaped `show()`); removing any
   one `await` fails exactly its refusal's test(s).
+- **CI also caught google_mobile_ads 9.1.0 (PR #17).** CI has no lockfile, so
+  it resolved 9.1.0, which deprecates the two age tags. That produced six
+  `deprecated_member_use` infos: Analyze failed and pana scored 150/160. The
+  tags stay, behind per-line ignores, because 9.1.0 still applies them and
+  9.0.0 lacks the replacement (ADR-003 addendum). Verified clean on 9.1.0, on
+  the old 9.0.0 lock, and after `pub downgrade`.
 
 Files: `lib/src/controllers/full_screen_ad_controller_base.dart` (5 × `await` +
 comment), `test/controllers/error_containment_test.dart`, `CHANGELOG.md` (+1
-bullet in 5.3.1), DECISIONS ADR-034 addendum, SKILL §6 (+1 trap).
+bullet in 5.3.1), DECISIONS ADR-034 addendum, SKILL §6 (+1 trap). The 9.1.0
+follow-up: `lib/src/seam/gma_ad_sdk.dart`, `test/seam/gma_mappers_test.dart`,
+CHANGELOG (+1 bullet), DECISIONS ADR-003 addendum, RESEARCH §1, SKILL §6 (+1
+trap).
 
 ## How to verify (Phase 31)
 `dart format --output=none --set-exit-if-changed .` && `flutter analyze` &&
 `flutter test` → **580 tests** green (569 + 4 native + 7 rollback);
 `flutter analyze` **No issues found**; `dart pub publish --dry-run` on the
-committed tree: **0 warnings**; `example/` test passes. Run on Flutter 3.47.7 /
-Dart 3.13.5. Not run on a device here (Atelier's simulator check of the native
-symptom is in its own repo).
+committed tree: **0 warnings**; `example/` test passes; pana 160/160 (local
+0.23.10). Run on Flutter 3.47.7 / Dart 3.13.5, with the latest resolution
+(`flutter pub upgrade` → google_mobile_ads 9.1.0, which is what CI gets) as
+well as the old 9.0.0 lock. Not run on a device here (Atelier's simulator
+check of the native symptom is in its own repo).
 
 ## Open items for Faiz (5.3.1)
-- Review + merge **`fix/analyzer-dart-3-13`** (it contains
-  `fix/native-placeholder-width`; `flutter analyze` is clean with it on
-  today's stable, 3.47.7 — CI itself not run); release 5.3.1 when ready.
+- Review + merge **`fix/analyzer-dart-3-13`** (PR #17; it contains
+  `fix/native-placeholder-width`); release 5.3.1 when ready.
 - `ci.yml` still tracks `stable` unpinned, so a later Dart can add a warning
   again on unchanged code (that is how the Dart 3.13 one landed).
+- Decide when to move to `ageRestrictedTreatment`. It is a minor: raise the
+  floor to `^9.1.0` and add a config field (ADR-003 addendum). 9.1.0 also
+  adds ad preloading APIs (RESEARCH §1), so the "no preload API" trap in SKILL
+  §6 now holds only up to 9.0.0.
 - `flutter pub get` on 3.47 rewrites both `analysis_options.yaml` files (adds
   `build/**` excludes); left out of this change.
 - The local, unpushed branch `web-9-stabilize` (`8b416ac`: `*OrNull`
