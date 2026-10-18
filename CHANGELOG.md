@@ -1,7 +1,10 @@
 ## 5.3.1
 
-A **native ad layout** patch. **No public API changes, no default changes, no
-migration** — every existing call site compiles unchanged.
+A **native ad layout and reliability** patch: the native ad's slot keeps its
+width before its ad comes, the full-screen show engine no longer leaks an ad or
+throws past its own clean-up, and no slot re-checks or retries in a busy loop
+any more. **No public API changes, no default changes, no migration** — every
+existing call site compiles unchanged.
 
 ### FIXED
 
