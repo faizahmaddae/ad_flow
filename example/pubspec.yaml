@@ -1,5 +1,5 @@
 name: ad_flow_example
-description: "Demonstrates every ad_flow v2 format with Google's test ads."
+description: "Demonstrates every ad_flow format with Google's test ads."
 publish_to: 'none'
 version: 2.0.0
 

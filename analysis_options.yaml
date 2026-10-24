@@ -2,8 +2,7 @@ include: package:flutter_lints/flutter.yaml
 
 analyzer:
   exclude:
-    # v1 sources kept only as a porting reference (see DECISIONS ADR-015).
-    - legacy/**
+    - build/**
 
 linter:
   rules:
