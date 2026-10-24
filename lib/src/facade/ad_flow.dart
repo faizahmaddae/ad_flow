@@ -135,7 +135,7 @@ class AdFlow {
           AdFlowErrorKind.invalidConfig,
           'rewardedInterstitial is configured but no rewardedIntroPresenter '
           'was provided. Pass e.g. '
-          '(content) => RewardedIntroScreen.show(navigatorKey.currentContext!, content).',
+          'rewardedIntroPresenter: RewardedIntroScreen.presenter(navigatorKey).',
         );
       }
       _rewardedInterstitial = RewardedInterstitialAdController(

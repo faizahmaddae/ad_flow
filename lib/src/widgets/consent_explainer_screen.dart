@@ -7,9 +7,10 @@ import 'explainer_body.dart';
 /// explains, in the app's own words, why consent is about to be requested.
 ///
 /// A pure primer — both buttons simply dismiss it, and the real consent form
-/// always follows. Use [show] as the `consentExplainer` presenter of
-/// `AdFlow.initialize`, or embed the widget in a custom route yourself.
-/// Mirrors the shape of `RewardedIntroScreen`.
+/// always follows. Pass [presenter] as `consentExplainer` to
+/// `AdFlow.initialize`, use [show] from your own presenter, or embed the
+/// widget in a custom route yourself. Mirrors the shape of
+/// `RewardedIntroScreen`.
 class ConsentExplainerScreen extends StatelessWidget {
   /// Creates the consent primer rendering [content].
   const ConsentExplainerScreen({required this.content, super.key});
@@ -31,6 +32,28 @@ class ConsentExplainerScreen extends StatelessWidget {
       ),
     );
   }
+
+  /// A ready-made `consentExplainer` for `AdFlow.initialize` that shows this
+  /// primer on [navigatorKey]'s navigator (the key of your `MaterialApp`).
+  ///
+  /// ```dart
+  /// AdFlow.initialize(
+  ///   config,
+  ///   consentExplainer: ConsentExplainerScreen.presenter(navigatorKey),
+  /// );
+  /// ```
+  ///
+  /// It only appears when a GDPR form is about to show. The key is read when
+  /// the primer is due, so the package never holds a `BuildContext`; when the
+  /// navigator is not mounted the primer is skipped and the form still
+  /// follows.
+  static ConsentExplainerPresenter presenter(
+    GlobalKey<NavigatorState> navigatorKey,
+  ) => (content) async {
+    final context = navigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    await show(context, content);
+  };
 
   @override
   Widget build(BuildContext context) {

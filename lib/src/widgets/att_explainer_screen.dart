@@ -8,9 +8,10 @@ import 'explainer_body.dart';
 /// what the next system dialog will ask.
 ///
 /// A pure primer — the single button just dismisses it, and Apple's system
-/// prompt always follows. Use [show] as the `attExplainer` presenter of
-/// `AdFlow.initialize`, or embed the widget in a custom route yourself.
-/// Mirrors the shape of `RewardedIntroScreen`.
+/// prompt always follows. Pass [presenter] as `attExplainer` to
+/// `AdFlow.initialize`, use [show] from your own presenter, or embed the
+/// widget in a custom route yourself. Mirrors the shape of
+/// `RewardedIntroScreen`.
 class AttExplainerScreen extends StatelessWidget {
   /// Creates the ATT primer rendering [content].
   const AttExplainerScreen({required this.content, super.key});
@@ -28,6 +29,28 @@ class AttExplainerScreen extends StatelessWidget {
       ),
     );
   }
+
+  /// A ready-made `attExplainer` for `AdFlow.initialize` that shows this
+  /// primer on [navigatorKey]'s navigator (the key of your `MaterialApp`).
+  ///
+  /// ```dart
+  /// AdFlow.initialize(
+  ///   config,
+  ///   attExplainer: AttExplainerScreen.presenter(navigatorKey),
+  /// );
+  /// ```
+  ///
+  /// Passing an `attExplainer` opts into client-driven ATT (see
+  /// `AdFlow.initialize`). The key is read when the primer is due, so the
+  /// package never holds a `BuildContext`; when the navigator is not mounted
+  /// the primer is skipped and Apple's prompt still follows.
+  static AttExplainerPresenter presenter(
+    GlobalKey<NavigatorState> navigatorKey,
+  ) => (content) async {
+    final context = navigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    await show(context, content);
+  };
 
   @override
   Widget build(BuildContext context) {

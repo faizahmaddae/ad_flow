@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import '../config/ad_flow_config.dart';
@@ -20,6 +23,10 @@ import '../facade/ad_flow.dart';
 /// ```dart
 /// AdFlowBanner(adFlow: ads)                       // global banner config
 /// AdFlowBanner(adFlow: ads, config: BannerConfig(...)) // per-placement
+///
+/// // The usual bottom bar: clear of the home indicator, and gone entirely
+/// // (inset included) when ads are disabled.
+/// Scaffold(bottomNavigationBar: AdFlowBanner(adFlow: ads, safeArea: true))
 /// ```
 ///
 /// Advanced: pass your own [controller] instead (with [ownsController] to
@@ -39,6 +46,7 @@ class AdFlowBanner extends StatefulWidget {
     this.ownsController = false,
     this.placeholderHeight,
     this.backgroundColor,
+    this.safeArea = false,
     super.key,
   }) : assert(
          (controller != null) ^ (adFlow != null),
@@ -106,6 +114,24 @@ class AdFlowBanner extends StatefulWidget {
   /// ([AdFlow.disableAds]): a Remove-Ads banner paints nothing at all.
   final Color? backgroundColor;
 
+  /// Whether to keep the banner clear of the system insets (the home
+  /// indicator, a notch), like wrapping it in a `SafeArea` — except that the
+  /// inset collapses together with the banner.
+  ///
+  /// Meant for the common bottom-bar placement:
+  ///
+  /// ```dart
+  /// Scaffold(bottomNavigationBar: AdFlowBanner(adFlow: ads, safeArea: true))
+  /// ```
+  ///
+  /// A `SafeArea` of your own around the banner keeps reserving its inset
+  /// after Remove-Ads ([AdFlow.disableAds]) collapses the banner to zero,
+  /// leaving an empty strip at the bottom of the screen; with this flag the
+  /// banner's whole footprint, inset included, is zero while ads are
+  /// disabled. The width the ad is requested at already excludes the side
+  /// insets, so a landscape notch never gets an ad wider than its slot.
+  final bool safeArea;
+
   @override
   State<AdFlowBanner> createState() => _AdFlowBannerState();
 }
@@ -158,6 +184,18 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
     super.dispose();
   }
 
+  /// Whether ads are disabled for this slot right now (Remove-Ads). Two
+  /// independent signals, either sufficient: the facade's [adsEnabled]
+  /// notifier (widget-first mode — synchronous, on the very frame
+  /// disableAds() is called) and the AdBlocked(adsDisabled) state the
+  /// controller's recheckGate lands on (the only signal available in advanced
+  /// controller mode).
+  bool _adsDisabled(ValueListenable<bool>? adsEnabled) {
+    final state = _controller.state.value;
+    return (adsEnabled != null && !adsEnabled.value) ||
+        (state is AdBlocked && state.reason == AdBlockReason.adsDisabled);
+  }
+
   @override
   Widget build(BuildContext context) {
     // In widget-first mode, listen to the facade's Remove-Ads notifier so the
@@ -168,6 +206,16 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
     final adsEnabled = widget.adFlow?.adsEnabled;
     return LayoutBuilder(
       builder: (context, constraints) {
+        // [AdFlowBanner.safeArea]: the system insets, read only when asked
+        // for and only if there is a MediaQuery — a banner pumped under a bare
+        // Directionality (an app's own widget test) must keep working, so this
+        // is not a SafeArea (which requires one).
+        final insets = widget.safeArea
+            ? MediaQuery.maybePaddingOf(context) ?? EdgeInsets.zero
+            : EdgeInsets.zero;
+        // The width the ad itself gets once the side insets are taken out, so
+        // a landscape notch never gets an ad wider than its slot.
+        final slotWidth = constraints.maxWidth - insets.horizontal;
         // A slot with no usable width must never request an ad. A zero-width
         // (or unbounded) placement still resolves to a VALID adaptive AdSize
         // natively — `AdSize(0, 100)`, not `AdSize.INVALID` — so nothing
@@ -179,8 +227,8 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
         // A slot that later gains a width loads then, because `_loadRequested`
         // is still false; one that shrinks to zero keeps its ad and its last
         // requested width, so growing back does not re-request.
-        final width = constraints.maxWidth.isFinite
-            ? constraints.maxWidth.truncate()
+        final width = slotWidth.isFinite && slotWidth > 0
+            ? slotWidth.truncate()
             : 0;
         if (width > 0) {
           if (!_loadRequested) {
@@ -215,69 +263,61 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
           builder: (context, _) {
             final state = _controller.state.value;
             // Remove-Ads must reclaim ALL layout space: a disabled banner has a
-            // zero footprint, overriding any explicit placeholderHeight. This
-            // is checked before the loaded/placeholder branches so it wins in
-            // every state. Two independent signals, either sufficient: the
-            // facade's adsEnabled notifier (widget-first mode — synchronous, on
-            // the very frame disableAds() is called) and the
-            // AdBlocked(adsDisabled) state the controller's recheckGate lands on
-            // (the only signal available in advanced controller mode).
-            final adsDisabled =
-                (adsEnabled != null && !adsEnabled.value) ||
-                (state is AdBlocked &&
-                    state.reason == AdBlockReason.adsDisabled);
-            if (adsDisabled) return const SizedBox.shrink();
-            final handle = _controller.handle;
-            if (state is AdLoaded && handle != null) {
-              // The box follows `handle.dimensions`, not a one-shot size
-              // read: AdMob's server-side auto-refresh can resolve a
-              // DIFFERENT inline adaptive height for the SAME handle, and
-              // without a subscription the new creative would render in the
-              // old box (2026-07 audit). ValueListenableBuilder re-subscribes
-              // whenever the handle (and so the listenable) changes.
-              return ValueListenableBuilder(
-                valueListenable: handle.dimensions,
-                // Keyed by HANDLE IDENTITY, so a refresh swap (ADR-041)
-                // unmounts the old AdWidget element and mounts a fresh one.
-                // The plugin's AdWidget has no didUpdateWidget: its platform
-                // view captures the ad id at creation and the framework only
-                // recreates a platform view when its viewType changes (it
-                // never does — one constant per plugin). Without the key, a
-                // rebuild with a NEW handle updates the old element in place
-                // and the screen keeps hosting the platform view of the
-                // just-DISPOSED ad — a permanently dead slot that still
-                // requests and pays for fresh ads it never displays
-                // (2026-07 audit).
-                // backgroundColor paints UNDER the ad, inside the same box: an
-                // adaptive slot is anchored to its WIDTH, so a creative smaller
-                // than the slot is centred by the SDK and the surround is left
-                // unpainted (the app's own surface shows through). Deliberately
-                // a ColoredBox BEHIND the child, never a Stack on top of it —
-                // occluding a creative is a policy violation.
-                child: _paint(
-                  KeyedSubtree(
-                    key: ObjectKey(handle),
-                    child: handle.buildWidget(),
-                  ),
-                ),
-                builder: (context, size, child) => SizedBox(
-                  width: size.width,
-                  height: size.height,
-                  child: child,
-                ),
-              );
-            }
-            return _paint(
-              SizedBox(
-                width: constraints.maxWidth.isFinite
-                    ? constraints.maxWidth
-                    : null,
-                height: widget.placeholderHeight ?? _placeholderHeight,
-              ),
-            );
+            // zero footprint, overriding any explicit placeholderHeight — and
+            // the safeArea inset, which lives inside this branch for exactly
+            // that reason. Checked before the loaded/placeholder branches so it
+            // wins in every state (see _adsDisabled for the two signals).
+            if (_adsDisabled(adsEnabled)) return const SizedBox.shrink();
+            // A Padding in EVERY enabled state — zero when safeArea is off —
+            // so toggling safeArea only changes a value and never changes the
+            // tree shape above the hosted AdWidget (see _paint for why a
+            // re-inflation is fatal to the slot).
+            return Padding(padding: insets, child: _slot(state, slotWidth));
           },
         );
       },
+    );
+  }
+
+  /// The enabled slot: the loaded ad in its exact box, or the placeholder.
+  Widget _slot(AdLoadState state, double slotWidth) {
+    final handle = _controller.handle;
+    if (state is AdLoaded && handle != null) {
+      // The box follows `handle.dimensions`, not a one-shot size read: AdMob's
+      // server-side auto-refresh can resolve a DIFFERENT inline adaptive
+      // height for the SAME handle, and without a subscription the new
+      // creative would render in the old box (2026-07 audit).
+      // ValueListenableBuilder re-subscribes whenever the handle (and so the
+      // listenable) changes.
+      return ValueListenableBuilder(
+        valueListenable: handle.dimensions,
+        // Keyed by HANDLE IDENTITY, so a refresh swap (ADR-041) unmounts the
+        // old AdWidget element and mounts a fresh one. The plugin's AdWidget
+        // has no didUpdateWidget: its platform view captures the ad id at
+        // creation and the framework only recreates a platform view when its
+        // viewType changes (it never does — one constant per plugin). Without
+        // the key, a rebuild with a NEW handle updates the old element in
+        // place and the screen keeps hosting the platform view of the
+        // just-DISPOSED ad — a permanently dead slot that still requests and
+        // pays for fresh ads it never displays (2026-07 audit).
+        // backgroundColor paints UNDER the ad, inside the same box: an
+        // adaptive slot is anchored to its WIDTH, so a creative smaller than
+        // the slot is centred by the SDK and the surround is left unpainted
+        // (the app's own surface shows through). Deliberately a ColoredBox
+        // BEHIND the child, never a Stack on top of it — occluding a creative
+        // is a policy violation.
+        child: _paint(
+          KeyedSubtree(key: ObjectKey(handle), child: handle.buildWidget()),
+        ),
+        builder: (context, size, child) =>
+            SizedBox(width: size.width, height: size.height, child: child),
+      );
+    }
+    return _paint(
+      SizedBox(
+        width: slotWidth.isFinite ? math.max(0, slotWidth) : null,
+        height: widget.placeholderHeight ?? _placeholderHeight,
+      ),
     );
   }
 

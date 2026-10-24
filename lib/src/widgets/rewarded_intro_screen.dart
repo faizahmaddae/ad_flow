@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../config/ad_flow_config.dart';
+import '../controllers/rewarded_interstitial_ad_controller.dart';
 import 'explainer_body.dart';
 
 /// The mandatory intro screen shown before a rewarded interstitial:
 /// clear reward messaging plus a skip option (AdMob policy — ADR-013).
 ///
-/// Use [show] as the `showIntro` presenter of
-/// `RewardedInterstitialAdController`, or embed the widget in a custom
-/// route and pop `true` (continue) / `false` (skip) yourself.
+/// Pass [presenter] as `rewardedIntroPresenter` to `AdFlow.initialize`, use
+/// [show] from your own presenter, or embed the widget in a custom route and
+/// pop `true` (continue) / `false` (skip) yourself.
 class RewardedIntroScreen extends StatelessWidget {
   /// Creates the intro screen rendering [content].
   const RewardedIntroScreen({required this.content, super.key});
@@ -31,6 +32,28 @@ class RewardedIntroScreen extends StatelessWidget {
     );
     return result ?? false;
   }
+
+  /// A ready-made `rewardedIntroPresenter` for `AdFlow.initialize` that shows
+  /// this screen on [navigatorKey]'s navigator (the key of your `MaterialApp`).
+  ///
+  /// ```dart
+  /// AdFlow.initialize(
+  ///   config,
+  ///   rewardedIntroPresenter: RewardedIntroScreen.presenter(navigatorKey),
+  /// );
+  /// ```
+  ///
+  /// The key is read each time the intro is needed, so the package still
+  /// never holds a `BuildContext`. When the navigator is not mounted the
+  /// presenter resolves to `false`: the ad is not shown (reported as
+  /// `introSkipped`) and nothing throws.
+  static RewardedIntroPresenter presenter(
+    GlobalKey<NavigatorState> navigatorKey,
+  ) => (content) async {
+    final context = navigatorKey.currentContext;
+    if (context == null || !context.mounted) return false;
+    return show(context, content);
+  };
 
   @override
   Widget build(BuildContext context) {
