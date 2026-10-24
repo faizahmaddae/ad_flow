@@ -1,6 +1,132 @@
 # PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
+**Phase 32 — 5.4.0 simpler integration + large banners (2026-10-24)** — ✅
+implemented on branch **`claude/project-review-optimization-e4c726`** (9 commits,
+from `47eb4c6`, on top of `a155e5c`), **NOT pushed, NOT released**. Minor: additive API, one
+dependency floor raise, no migration required. ADR-078, ADR-079, ADR-080.
+
+Started from Faiz's request (in Persian) to review the package for weak spots
+and make it simpler, easier to integrate, extensible and better for revenue.
+The core (state machines, gates, consent) is heavily audited (77 ADRs) and was
+NOT redesigned; the work went where integrators feel it.
+
+- **`47eb4c6` chore — repo hygiene.** `legacy/` (only 8 tracked Gradle cache
+  files) deleted with its analysis exclude and `.pubignore` line (ADR-015's
+  planned cleanup); `START_HERE_ad_flow_v2.md` and
+  `ad-flow-production-hardening-prompt.md` moved from the public repo root into
+  `docs/ad_flow_v2/`; both `analysis_options.yaml` now COMMIT the `build/**`
+  (+ example `android/**`, `ios/**`) excludes Flutter 3.47 adds on every
+  `pub get` — this reverses Phase 31's "revert them, never publish" note: they
+  are harmless and committing them stops the tool rewriting the files; CI also
+  runs weekly (`schedule`) + on demand (`workflow_dispatch`).
+- **`7beb3f2` build — `google_mobile_ads: ^9.2.0`** (ADR-078). 9.2.0
+  (2026-10-21) carries `isLarge` through the codec, so anchored banners are
+  finally Google's LARGE format (~100–150dp on a phone, was ~60dp) — ADR-073's
+  upstream limitation; fixes an iOS crash (`FLTAppStateNotifier` called a nil
+  sink after the last Dart listener cancelled; ad_flow never calls
+  `stopListening()`, so `AdFlow.dispose()` with app-open configured could crash
+  on the next background/foreground); presents UMP forms from the registrar's
+  view controller (scene-based iOS apps). Same platform floors. Verified in
+  pub-cache source; RESEARCH §1/§3 updated. The failed-load `AppOpenAd` leak is
+  still there in 9.2.0. MEDIATION_SETUP's "Unity cannot be combined with
+  ad_flow" note was stale (`gma_mediation_unity` 1.11.1 supports `^9.1.0`;
+  every current adapter does) — rewritten.
+- **`d12d5d9` feat(banner) — `BannerHeightMemory`** (ADR-079). Each new
+  `AdFlowBanner(adFlow:)` reserved the 50dp floor and then jumped to the
+  (now large) loaded height on EVERY screen. The facade shares one
+  width → rendered-height memory across the banners it mints; the controller
+  records the platform height on install and on a refresh swap (anchored only)
+  and `reservedHeight` returns it for the current width. First banner of a
+  width per process still grows once. Rejected: a Dart port of the decompiled
+  size formula, a pre-gate `AdSize` query (ADR-028 deadlock class), a new
+  `AdSdk` member, persistence. 7 tests, neuter-verified.
+- **`296fc42` feat — one-argument presenters + `AdFlowBanner(safeArea:)`**
+  (ADR-080). `RewardedIntroScreen/AttExplainerScreen/ConsentExplainerScreen
+  .presenter(navigatorKey)` return the guarded closure every app hand-wrote
+  (the old README Quick start even used `currentContext!`). `safeArea: true`
+  applies `MediaQuery.maybePaddingOf` (only when on) INSIDE the enabled branch
+  — Remove-Ads collapses inset + banner together — subtracts the side insets
+  from the requested width, and is a constant `Padding` so toggling it never
+  re-inflates the `AdWidget`. The first attempt (a listener above the
+  `LayoutBuilder`) failed 56 tests and was first misdiagnosed — SKILL §6 +2
+  traps. 13 tests, neuter-verified.
+- **`27c3125` docs — README/example/CHANGELOG/MIGRATION, version 5.4.0.**
+  Quick start = initialize + one presenter + `AdFlowBanner(adFlow: ads,
+  safeArea: true)`; version-history noise out of the running text; the 4.x/5.0
+  "what's new" list folded into its sections. Example uses the helpers; its
+  Remove-Ads test now asserts a zero footprint with a real 34dp inset (the
+  banner stays mounted at zero size instead of leaving the tree).
+
+- **`e919b60` fix(example) — iOS `Podfile.lock` → GMA SDK 13.11.** The
+  committed lock pinned 13.3.0 (plugin 9.0.0) and 9.2.0 needs `~> 13.11`, so
+  `pod install` failed (Flutter's message blames the deployment target — it is
+  the lock). Main's CI iOS job would hit it on its next run (no pub lock in
+  CI). MIGRATION/CHANGELOG give users the one-line `pod update`.
+
+- **Classic anchored option (ADR-081, Faiz's decision after seeing the large
+  banner).** `AnchoredBannerSize { large, classic }` + `BannerConfig.anchoredSize`
+  (default `large`): classic = full width, ~60dp, through the plugin's
+  deprecated-but-working classic queries (`isLarge = false` on the wire);
+  carried on load and refresh; `BannerHeightMemory` keyed by (width, size).
+  +10 tests (6 controller/widget, 4 seam), neuter-verified. Simulator (iPhone
+  18 Pro, temporary probe, reverted): classic renders **63pt** full width
+  (+34 inset = 97), against 126pt for large.
+
+- **Docs pass.** README: contents line, Quick start imports, install notes
+  (Flutter's own iOS floor, the `pod update` fix), a "Choosing a banner" table
+  (large / classic / inline / fixed). NATIVE_ADS_SETUP: expiry reload stated.
+  MEDIATION_SETUP: Unity wrappers re-verified fire-and-forget in 1.11.1.
+  ARCHITECTURE.md: a status block listing where the v2 sketch no longer
+  matches the code, and the init / app-open / full-screen sequences corrected
+  (the sketch's "init + config in parallel" was the ADR-028 freeze).
+
+## How to verify (Phase 32)
+`dart format --output=none --set-exit-if-changed .` && `flutter analyze` &&
+`flutter test` → **645 tests** green (615 + 7 height memory + 6 presenters + 7
+safeArea + 10 classic anchored); example `flutter analyze` clean and its test green; `dart pub
+publish --dry-run` **0 warnings**; pana **160/160** (0.23.10); `cd example &&
+flutter build apk --debug` ✓ and `flutter build ios --simulator --debug` ✓
+(after the lock update). Flutter 3.47.7 / Dart 3.13.5, google_mobile_ads 9.2.0.
+
+**Simulator check (iPhone 18 Pro, 402×874pt, iOS simulator, Google test ads),
+2026-10-24**, with a temporary size probe in the example (logged the bottom
+banner's measured height on every change; reverted, not committed) and a
+temporary second screen with its own `AdFlowBanner(adFlow: ads, safeArea: true)`:
+- large anchored banner = **126pt** (the large formula for a 402pt width;
+  classic would be ~63pt), + 34pt home-indicator inset → 160pt bar;
+- first banner of the session: 84 (50 floor + 34) → 160 when the ad loads —
+  the expected one-time growth;
+- second screen: **160 from its first frame**, its own ad then loaded (second
+  banner impression) with **no size change** — ADR-079 confirmed;
+- Remove-Ads off → **0** (inset collapsed with the banner, no empty strip);
+  back on → **0 → 160 directly**, the reloaded ad landed without a change.
+UMP showed its own IDFA explainer + Apple's ATT prompt (UMP-driven mode,
+`useExplainer = false` for the run). Not run on a physical device.
+
+Each `flutter build ios` on 3.47 migrates the example's
+deployment target 13.0 → 15.0 (Flutter's own iOS floor) in `Podfile` and
+`project.pbxproj`; that tool churn was reverted, not committed.
+
+## Open items for Faiz (5.4.0)
+- Review, then push the branch / open the PR, merge (admin bypass as before),
+  tag `v5.4.0` to publish (tag-triggered workflow). Nothing was pushed.
+- **Look at your own apps once:** the bottom banner is now ~2× taller on
+  phones (126pt on a 402pt-wide iPhone, measured in the simulator). Check
+  your apps' layouts; use `kind: BannerKind.fixed` where a screen cannot
+  spare it.
+- The classic anchored option rests on a plugin API deprecated since 8.0; on
+  every plugin bump check it still exists (`getCurrentOrientationAnchoredAdaptiveBannerAdSize`,
+  `getAnchoredAdaptiveBannerAdSize`). Its removal makes ADR-081's option a
+  breaking change to plan for.
+- Still open from 5.3.1: the show-on-every-`AdLoaded` listener loop (design
+  question); `ageRestrictedTreatment` (now available at the 9.2.0 floor, still
+  a separate decision); the plugin's own `AdPreloader` (9.1.0+) deliberately
+  unused (ADR-011/078).
+- The other local branch `web-9-stabilize` (`example/pubspec.yaml` version
+  bump) is still separate; this branch did not touch the example version.
+
+## Previous phase
 **Phase 31 — 5.3.1 native ad layout and reliability patch (2026-10-18)** — ✅
 **SHIPPED & PUBLISHED (2026-10-18).** Merged, tagged, on pub.dev. Patch: no
 public API, no default change, no migration. ADR-074, ADR-034 addendum,

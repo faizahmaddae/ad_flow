@@ -35,18 +35,16 @@ spells out exactly what is automatic and what remains your job.
 `gma_mediation_unity`, `gma_mediation_meta`). Add the ones for your
 networks to `pubspec.yaml`; they bundle the correct native adapter on both
 platforms and usually expose the network's privacy APIs as Dart calls.
-Check each package's compatibility with `google_mobile_ads` 9.x first.
 
-> **Unity Ads specifically — not resolvable with ad_flow 5.0.0 yet.** The
-> latest *published* `gma_mediation_unity` (**1.8.1**) requires
-> `google_mobile_ads: ^8.0.0`, while ad_flow 5.0.0 requires
-> `google_mobile_ads: ^9.0.0` — the two **cannot resolve together**. Google's
-> `main` branch carries an in-progress **1.9.0** adapter that targets
-> `google_mobile_ads: ^9.0.0`, but it is **unpublished**; pulling it in via a
-> git dependency or `dependency_overrides` is **not recommended for
-> production** (unversioned, may change or break without notice). Until a
-> `gma_mediation_unity` release supporting `google_mobile_ads` 9.x ships on
-> pub.dev, Unity mediation cannot be combined with ad_flow 5.0.0.
+The current adapters all require `google_mobile_ads: ^9.1.0` (checked
+2026-10-24: `gma_mediation_applovin` 2.6.5, `gma_mediation_unity` 1.11.1,
+`gma_mediation_meta` 1.7.1, `gma_mediation_ironsource` 2.7.0,
+`gma_mediation_mintegral` 2.1.5, `gma_mediation_pangle` 4.2.1,
+`gma_mediation_liftoffmonetize` 1.5.5), and ad_flow requires `^9.2.0`, so
+they resolve together. Use a current adapter release: older ones pin
+`google_mobile_ads` 8.x and will not resolve. (Earlier ad_flow docs said
+Unity could not be combined with ad_flow 5.0 — that was true until
+`gma_mediation_unity` shipped 9.x support, and is no longer.)
 
 **Fallback (no Flutter package for the network):** add the native adapter
 yourself —
@@ -104,7 +102,7 @@ not propagated for you):
     `GmaMediationUnity().setGDPRConsent(...)` / `setCCPAConsent(...)` (note:
     Google's guide currently shows a *static* `GmaMediationUnity.setGDPRConsent`
     call, which does not match the published instance API). **Caveat, verified
-    against the adapter source (1.8.x and the in-progress 1.9.0):** both
+    against the adapter source (1.8.x through 1.11.1, 2026-10-24):** both
     wrappers are **fire-and-forget** — the method body calls the generated
     platform API *without* `await`ing or returning its `Future`, so the
     `Future<void>` you get back completes on the next microtask **whether or not

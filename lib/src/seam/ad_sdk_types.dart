@@ -448,19 +448,46 @@ sealed class BannerSizeSpec {
   const BannerSizeSpec();
 }
 
+/// Which of Google's anchored adaptive banner sizes to request.
+enum AnchoredBannerSize {
+  /// Google's **large** anchored adaptive banner — the default, and Google's
+  /// recommendation for banners pinned to the top or bottom of the screen:
+  /// full width, about 100–150dp tall on a phone in portrait.
+  large,
+
+  /// The **classic** anchored adaptive banner: full width, but shorter —
+  /// 50–90dp, typically about 60dp on a phone in portrait. For screens that
+  /// cannot spare the large size.
+  ///
+  /// Google deprecated the plugin API behind it
+  /// (`getCurrentOrientationAnchoredAdaptiveBannerAdSize`) in google_mobile_ads
+  /// 8.0 in favour of the large size; it still works in 9.x, but a later
+  /// plugin major may remove it, and a smaller banner usually earns less
+  /// (ADR-081).
+  classic,
+}
+
 /// Anchored adaptive banner (the recommended default).
 ///
 /// Resolved via `AdSize.getLargeAnchoredAdaptiveBannerAdSize` (or the
-/// `WithOrientation` variant when [orientation] is set).
+/// `WithOrientation` variant when [orientation] is set) — or, for
+/// [AnchoredBannerSize.classic], via the classic anchored adaptive query.
 class AnchoredAdaptiveSizeSpec extends BannerSizeSpec {
   /// Creates a spec for an anchored adaptive banner of [width] logical px.
-  const AnchoredAdaptiveSizeSpec({required this.width, this.orientation});
+  const AnchoredAdaptiveSizeSpec({
+    required this.width,
+    this.orientation,
+    this.size = AnchoredBannerSize.large,
+  });
 
   /// Available width in logical pixels (truncated screen width, typically).
   final int width;
 
   /// Lock the size to an orientation instead of the current one.
   final AdOrientation? orientation;
+
+  /// Large (the default) or classic anchored adaptive.
+  final AnchoredBannerSize size;
 }
 
 /// Inline adaptive banner (for placement within scrolling content).

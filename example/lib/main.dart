@@ -16,7 +16,7 @@ import 'package:flutter/material.dart';
 //     ATT, iOS) and your own consent primer before the UMP GDPR form (EEA).
 //     Recommended for EEA audiences and iOS: a soft explainer lifts opt-in rates.
 //
-// BOTH modes are NON-BLOCKING (ADR-032): AdFlow.initialize() builds the graph
+// BOTH modes are NON-BLOCKING: AdFlow.initialize() builds the graph
 // and returns immediately; consent, ATT and SDK init all run in the BACKGROUND.
 // We render HomeScreen on the first frame and the consent / ATT / explainer
 // screens appear OVER the already-visible app — never a splash gate.
@@ -25,9 +25,9 @@ import 'package:flutter/material.dart';
 // helpers stay referenced and the example analyzes clean either way.)
 bool useExplainer = true;
 
-/// Global navigator key so the consent/ATT/rewarded-intro presenters can push
-/// screens from outside the widget tree (the package never holds a
-/// BuildContext).
+/// The app's navigator key. The ready-made presenters
+/// (`RewardedIntroScreen.presenter(navigatorKey)` and friends) show their
+/// screens on it — the package itself never holds a BuildContext.
 final navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
@@ -41,8 +41,8 @@ Future<void> main() async {
 
   // Impression-level revenue (allowlisted AdMob accounts only). Assignable any
   // time — set it right after init so no paid event is missed. `slot` and
-  // `adSourceName` (3.0.0) carry the format and the winning mediation network,
-  // ready for an analytics ad_impression event.
+  // `adSourceName` carry the format and the winning mediation network, ready
+  // for an analytics ad_impression event.
   ads.onPaidEvent = (event) => debugPrint(
     '[ad_flow] paid: ${event.slot}/${event.adUnitId} '
     '${event.valueMicros / 1e6} ${event.currencyCode} '
@@ -52,7 +52,7 @@ Future<void> main() async {
 
   // "Why aren't my ads showing?" — every refused load/show reports its reason
   // (consent pending, Remove-Ads, frequency cap, expiry…). Most reasons are
-  // NORMAL; wire this to your logger during rollout (2.1.0, ADR-045).
+  // NORMAL; wire this to your logger during rollout.
   ads.onAdBlocked = (slot, reason) =>
       debugPrint('[ad_flow] $slot blocked: ${reason.name}');
 
@@ -76,17 +76,12 @@ Future<AdFlow> _initSimple() {
     // Google sample ads everywhere. Replace with your production config:
     //   AdFlowConfig(banner: BannerConfig(adUnitId: PlatformAdUnitId(...)), ...)
     AdFlowConfig.test(appOpenTriggerMode: _appOpenTriggerMode),
-    rewardedIntroPresenter: (content) async {
-      final context = navigatorKey.currentContext;
-      if (context == null || !context.mounted) return false;
-      return RewardedIntroScreen.show(context, content);
-    },
+    rewardedIntroPresenter: RewardedIntroScreen.presenter(navigatorKey),
   );
 }
 
 /// WITH-EXPLAINER mode — everything in [_initSimple], PLUS opt-in priming
-/// screens. Each presenter resolves the navigatorKey's context itself, so the
-/// package never holds a BuildContext.
+/// screens, shown on the navigatorKey by the ready-made presenters.
 ///
 /// - `attExplainer` shows your ATT primer, then (after a 200 ms delay) Apple's
 ///   system tracking prompt — client-driven ATT (iOS; a no-op elsewhere). In
@@ -98,21 +93,9 @@ Future<AdFlow> _initSimple() {
 Future<AdFlow> _initWithExplainer() {
   return AdFlow.initialize(
     AdFlowConfig.test(appOpenTriggerMode: _appOpenTriggerMode),
-    rewardedIntroPresenter: (content) async {
-      final context = navigatorKey.currentContext;
-      if (context == null || !context.mounted) return false;
-      return RewardedIntroScreen.show(context, content);
-    },
-    attExplainer: (content) async {
-      final context = navigatorKey.currentContext;
-      if (context == null || !context.mounted) return;
-      await AttExplainerScreen.show(context, content);
-    },
-    consentExplainer: (content) async {
-      final context = navigatorKey.currentContext;
-      if (context == null || !context.mounted) return;
-      await ConsentExplainerScreen.show(context, content);
-    },
+    rewardedIntroPresenter: RewardedIntroScreen.presenter(navigatorKey),
+    attExplainer: AttExplainerScreen.presenter(navigatorKey),
+    consentExplainer: ConsentExplainerScreen.presenter(navigatorKey),
   );
 }
 
@@ -137,7 +120,7 @@ class ExampleApp extends StatelessWidget {
 }
 
 /// A real loading/startup screen — the correct place to take the one-shot
-/// cold-launch app-open opportunity (5.1).
+/// cold-launch app-open opportunity.
 ///
 /// It renders its own UI immediately (never a blank/blocked first frame), does
 /// the app's genuine startup work, then — right before entering main content —
@@ -272,11 +255,10 @@ class _HomeScreenState extends State<HomeScreen> {
             state: ads.appOpenController.state,
           ),
           // Remove-Ads hides the WHOLE decorated Card — title, padding and
-          // border — not just the ad inside it. A parent decoration wrapped
-          // around a child that collapses to zero stays visible otherwise (an
-          // empty bordered card), which is exactly the residual-surface bug
-          // this release fixes. The leading spacer is inside the conditional so
-          // it disappears with the card.
+          // border — not just the ad inside it: AdFlowNativeAd collapses to
+          // zero, but a parent decoration around it would stay visible (an
+          // empty bordered card). The leading spacer is inside the conditional
+          // so it disappears with the card.
           ValueListenableBuilder(
             valueListenable: ads.adsEnabled,
             builder: (context, enabled, _) => !enabled
@@ -291,11 +273,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             children: [
                               const Text('Native (medium template)'),
                               const SizedBox(height: 8),
-                              // Widget-first (3.0): the widget creates AND owns
-                              // its controller internally, so the classic
-                              // footgun — minting a fresh controller inside
-                              // build(), restarting the load (and blanking the
-                              // ad) on every setState — cannot happen.
+                              // The widget creates AND owns its controller, so
+                              // a setState here can never restart (and blank)
+                              // the ad.
                               AdFlowNativeAd(adFlow: ads),
                             ],
                           ),
@@ -321,29 +301,21 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       // Reserved height from the first frame, then sized to exactly what the
-      // SDK rendered. Widget-first (3.0): AdFlowBanner owns its controller.
+      // SDK rendered; the widget owns its controller.
       //
-      // `backgroundColor` (5.3.0) is the anchored-adaptive companion: the slot
-      // is anchored to its WIDTH, so a creative narrower or shorter than the
-      // slot is centred by the SDK and the surround is left unpainted. An
-      // opaque colour (Google's own guidance) keeps that reading as a frame
-      // rather than a hole. It paints strictly BEHIND the ad.
+      // `safeArea: true` keeps the banner clear of the home indicator, and the
+      // inset collapses WITH the banner when ads are disabled — a SafeArea of
+      // our own around it would leave an empty strip behind after Remove-Ads.
       //
-      // Remove-Ads must remove the COMPLETE bottom ad surface. Returning
-      // SizedBox.shrink() BEFORE constructing SafeArea is the point: if the
-      // banner merely collapsed to zero height INSIDE a retained SafeArea, the
-      // safe-area inset would still reserve a strip of empty space at the
-      // bottom. The parent surface has to go too.
-      bottomNavigationBar: ValueListenableBuilder(
-        valueListenable: ads.adsEnabled,
-        builder: (context, enabled, _) => !enabled
-            ? const SizedBox.shrink()
-            : SafeArea(
-                child: AdFlowBanner(
-                  adFlow: ads,
-                  backgroundColor: Theme.of(context).colorScheme.surface,
-                ),
-              ),
+      // `backgroundColor` is the anchored-adaptive companion: the slot is
+      // anchored to its WIDTH, so a creative narrower or shorter than the slot
+      // is centred by the SDK and the surround is left unpainted. An opaque
+      // colour (Google's own guidance) keeps that reading as a frame rather
+      // than a hole. It paints strictly BEHIND the ad.
+      bottomNavigationBar: AdFlowBanner(
+        adFlow: ads,
+        safeArea: true,
+        backgroundColor: Theme.of(context).colorScheme.surface,
       ),
     );
   }
@@ -381,9 +353,8 @@ class _StateTile extends StatelessWidget {
                   AdLoading() => 'loading…',
                   AdLoaded() => 'ready',
                   AdShowing() => 'showing',
-                  // 3.0: a refused load is a first-class state — consent
-                  // pending, Remove-Ads on, cap active… no more guessing
-                  // from a bare 'idle'.
+                  // A refused load is a state of its own — consent pending,
+                  // Remove-Ads on, cap active… — not a bare 'idle'.
                   AdBlocked(:final reason) => 'blocked (${reason.name})',
                   AdFailed(:final error) => 'failed (${error.message})',
                 }}',

@@ -1,11 +1,12 @@
 # ad_flow example
 
-Demonstrates every ad_flow v2 format using **Google's official test ads**
+Demonstrates every ad_flow format using **Google's official test ads**
 (`AdFlowConfig.test()`): anchored adaptive banner, interstitial (with
 user-action pacing), rewarded, rewarded interstitial (with the mandatory
-intro/skip screen), native (medium template), app open (warm starts only),
-plus the privacy-options entry point, Remove-Ads toggle, paid-event
-logging and the Ad Inspector.
+intro/skip screen), native (medium template), app open (warm returns, plus
+the one-shot cold-launch opportunity on the startup screen), the
+privacy-options entry point, the Remove-Ads toggle, paid-event logging and
+the Ad Inspector.
 
 ## Run
 
@@ -28,4 +29,4 @@ flutter build apk --dart-define=USE_NEXT_GEN_SDK=true
 ```
 
 iOS ignores the flag. Keep it off in production until Flutter support is GA
-(see DECISIONS ADR-010).
+(see the package README, *Next-Gen SDK*).

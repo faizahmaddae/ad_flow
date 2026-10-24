@@ -9,7 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 // ignore: implementation_imports
 import 'package:google_mobile_ads/src/ad_containers.dart'
-    show AdSize, LoadAdError, RewardItem;
+    show AdSize, AnchoredAdaptiveBannerAdSize, LoadAdError, RewardItem;
 import 'package:google_mobile_ads/src/ad_instance_manager.dart';
 
 /// Drives the real `google_mobile_ads` plugin's platform channel against
@@ -61,6 +61,10 @@ void main() {
   /// Dart resolves the anchored slot from). Null makes the resolver fail.
   Object? anchoredAdaptiveHeight;
 
+  /// What the mock handler answers for the CLASSIC
+  /// `AdSize#getAnchoredAdaptiveBannerAdSize` query (ADR-081).
+  Object? classicAnchoredHeight;
+
   /// If set, the mock handler throws this on `setServerSideVerificationOptions`
   /// — simulates the one SSV-attach failure the plugin can actually surface
   /// (a channel-level error; the native handlers ack success unconditionally).
@@ -74,6 +78,7 @@ void main() {
     platformAdSizeRejectsWith = null;
     platformAdSizeHangs = false;
     anchoredAdaptiveHeight = null;
+    classicAnchoredHeight = null;
     ssvAttachRejectsWith = null;
     instanceManager = AdInstanceManager('plugins.flutter.io/google_mobile_ads');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -95,6 +100,8 @@ void main() {
               return platformAdSizeResult;
             case 'AdSize#getLargeAnchoredAdaptiveBannerAdSize':
               return anchoredAdaptiveHeight;
+            case 'AdSize#getAnchoredAdaptiveBannerAdSize':
+              return classicAnchoredHeight;
             case 'setServerSideVerificationOptions'
                 when ssvAttachRejectsWith != null:
               throw ssvAttachRejectsWith!;
@@ -228,15 +235,15 @@ void main() {
     });
   });
 
-  // ADR-073 / issue #15. google_mobile_ads 9.0.0 cannot round-trip the "large"
-  // bit of an anchored adaptive size: `AnchoredAdaptiveBannerAdSize` has no
-  // `isLarge` field, the Dart encoder writes only (orientation, width), and
-  // both native decoders rebuild it with `isLarge = false`. So Dart holds the
-  // LARGE height while the AdView the ad renders in is the CLASSIC one — on a
-  // 426x952dp phone, 67dp of ad inside a 133dp box, with the remainder showing
-  // the app's own surface through the transparent platform view. The seam must
-  // size the handle from the platform's own post-load answer, not from the
-  // AdSize it asked for.
+  // ADR-073 / issue #15. Up to google_mobile_ads 9.1 the plugin could not
+  // round-trip the "large" bit of an anchored adaptive size: the Dart encoder
+  // wrote only (orientation, width), and both native decoders rebuilt it with
+  // `isLarge = false`. So Dart held the LARGE height while the AdView the ad
+  // rendered in was the CLASSIC one — on a 426x952dp phone, 67dp of ad inside
+  // a 133dp box, with the remainder showing the app's own surface through the
+  // transparent platform view. 9.2.0 (the floor since ADR-078) encodes the bit,
+  // but the seam still sizes the handle from the platform's own post-load
+  // answer, never from the AdSize it asked for — these tests keep it that way.
   group('anchored adaptive size reconciliation (ADR-073)', () {
     Future<BannerHandle> loadAnchored(GmaAdSdk sdk, {int width = 426}) async {
       final future = sdk.loadBanner(
@@ -421,6 +428,113 @@ void main() {
         expect(log.map((c) => c.method), isNot(contains('getAdSize')));
       },
     );
+  });
+
+  // ADR-081. The opt-in classic anchored size goes through the classic query
+  // and reaches the platform with `isLarge = false`, so the native view is
+  // built classic; the default stays the large query with `isLarge = true`.
+  group('classic anchored size (ADR-081)', () {
+    Future<(BannerHandle, MethodCall)> load(
+      AnchoredAdaptiveSizeSpec spec,
+    ) async {
+      final sdk = GmaAdSdk();
+      final future = sdk.loadBanner(
+        BannerLoadSpec(adUnitId: 'unit-b', size: spec),
+      );
+      await pumpEventQueue();
+      await sendAdEvent(0, 'onAdLoaded');
+      await pumpEventQueue();
+      final handle = await future;
+      return (handle, log.singleWhere((c) => c.method == 'loadBannerAd'));
+    }
+
+    AnchoredAdaptiveBannerAdSize wireSize(MethodCall call) =>
+        (call.arguments as Map)['size'] as AnchoredAdaptiveBannerAdSize;
+
+    test('classic: the classic query, isLarge false on the wire, the box '
+        'sized from the platform', () async {
+      classicAnchoredHeight = 63;
+      platformAdSizeResult = AdSize(width: 402, height: 63);
+
+      final (handle, call) = await load(
+        const AnchoredAdaptiveSizeSpec(
+          width: 402,
+          size: AnchoredBannerSize.classic,
+        ),
+      );
+
+      final methods = log.map((c) => c.method);
+      expect(methods, contains('AdSize#getAnchoredAdaptiveBannerAdSize'));
+      expect(
+        methods,
+        isNot(contains('AdSize#getLargeAnchoredAdaptiveBannerAdSize')),
+      );
+      expect(wireSize(call).isLarge, isFalse);
+      // The codec carries (orientation, width, isLarge) only — no height.
+      expect(wireSize(call).width, 402);
+      expect(handle.size, const AdDimensions(width: 402, height: 63));
+    });
+
+    test(
+      'large, the default: the large query, isLarge true on the wire',
+      () async {
+        anchoredAdaptiveHeight = 126;
+        platformAdSizeResult = AdSize(width: 402, height: 126);
+
+        final (handle, call) = await load(
+          const AnchoredAdaptiveSizeSpec(width: 402),
+        );
+
+        expect(
+          log.map((c) => c.method),
+          isNot(contains('AdSize#getAnchoredAdaptiveBannerAdSize')),
+        );
+        expect(wireSize(call).isLarge, isTrue);
+        expect(handle.size, const AdDimensions(width: 402, height: 126));
+      },
+    );
+
+    test('classic with a locked orientation uses the classic orientation '
+        'query', () async {
+      classicAnchoredHeight = 63;
+      platformAdSizeResult = AdSize(width: 402, height: 63);
+
+      final (_, call) = await load(
+        const AnchoredAdaptiveSizeSpec(
+          width: 402,
+          size: AnchoredBannerSize.classic,
+          orientation: AdOrientation.portrait,
+        ),
+      );
+
+      final query = log.singleWhere(
+        (c) => c.method == 'AdSize#getAnchoredAdaptiveBannerAdSize',
+      );
+      expect((query.arguments as Map)['orientation'], 'portrait');
+      expect(wireSize(call).isLarge, isFalse);
+    });
+
+    test('classic: a query that answers nothing fails the load cleanly', () {
+      classicAnchoredHeight = null;
+      expect(
+        GmaAdSdk().loadBanner(
+          const BannerLoadSpec(
+            adUnitId: 'unit-b',
+            size: AnchoredAdaptiveSizeSpec(
+              width: 402,
+              size: AnchoredBannerSize.classic,
+            ),
+          ),
+        ),
+        throwsA(
+          isA<AdFlowError>().having(
+            (e) => e.kind,
+            'kind',
+            AdFlowErrorKind.loadFailed,
+          ),
+        ),
+      );
+    });
   });
 
   group('inline adaptive refresh (2026-07 audit)', () {

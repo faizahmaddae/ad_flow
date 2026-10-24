@@ -27,7 +27,7 @@ dart pub publish --dry-run                        # publish check (docs/ + .clau
 pana --no-warning .                               # package score (target 160/160)
 ```
 
-Lints (in `analysis_options.yaml`, on top of `flutter_lints`): `unawaited_futures`, `close_sinks`, `cancel_subscriptions`, `avoid_print`, `prefer_final_locals`. `legacy/**` is excluded from analysis (and pubignored).
+Lints (in `analysis_options.yaml`, on top of `flutter_lints`): `unawaited_futures`, `close_sinks`, `cancel_subscriptions`, `avoid_print`, `prefer_final_locals`. `build/**` is excluded from analysis (Flutter ≥3.47 adds that exclude itself on `pub get`; it is committed so the tooling stops rewriting the file).
 
 Workflow: **verify by running** — after each change, `flutter analyze` clean + `flutter test` green before continuing. Ship small vertical slices; commit per slice; keep the tree green. Update `PROGRESS.md` at session end (skill §4 handoff protocol). Commit messages end with the `Co-Authored-By` trailer.
 

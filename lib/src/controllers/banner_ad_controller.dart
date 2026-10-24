@@ -15,6 +15,45 @@ import '../policy/retry_policy.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
 
+/// Remembers how tall anchored adaptive banners actually rendered, per
+/// requested width.
+///
+/// An anchored adaptive banner's height is only known once the platform has
+/// built it (ADR-073), so a banner that has never loaded reserves the 50dp
+/// floor and then grows into its real size — about 100–150dp for Google's
+/// large anchored format (ADR-078). Without a memory that jump repeats on
+/// every screen that mounts a new banner. With one, the first banner to load
+/// at a width records its height, and every later banner at that width
+/// reserves it before its own ad arrives: no layout shift, which is also what
+/// AdMob's accidental-click guidance asks for (ADR-079).
+///
+/// `AdFlow.banner()` shares one per `AdFlow`; a [BannerAdController] built
+/// without one remembers only its own loads. In memory only (a new process
+/// starts empty) and keyed by width alone: the height also depends on the
+/// screen height, so a slot resized vertically at the same width can be a few
+/// dp off until its own ad loads and the box takes the exact size.
+final class BannerHeightMemory {
+  final _heights = <(int, AnchoredBannerSize), double>{};
+
+  /// The height an anchored adaptive banner of [size] last rendered at when
+  /// requested at [width], or null if none has loaded at that width yet. The
+  /// large and classic sizes are remembered apart.
+  double? heightFor(
+    int width, {
+    AnchoredBannerSize size = AnchoredBannerSize.large,
+  }) => _heights[(width, size)];
+
+  /// Records that a banner of [size] requested at [width] rendered [height]
+  /// tall. A non-positive [height] is ignored.
+  void remember(
+    int width,
+    double height, {
+    AnchoredBannerSize size = AnchoredBannerSize.large,
+  }) {
+    if (height > 0) _heights[(width, size)] = height;
+  }
+}
+
 /// Loads and refreshes one banner slot.
 ///
 /// - Every load is gate-checked (invariant 1).
@@ -32,6 +71,10 @@ class BannerAdController implements AdController {
   /// banner to it, so the app-open manager knows the foreground event that
   /// follows is a return FROM AN AD and does not stack an app-open ad on it
   /// (ADR-042). `AdFlow.banner()` passes the shared coordinator for you.
+  /// [heightMemory] — shared with other banner controllers so a banner
+  /// reserves the height earlier banners of its width rendered at (see
+  /// [BannerHeightMemory]); `AdFlow.banner()` passes its own. Without one this
+  /// controller remembers only its own loads.
   BannerAdController({
     required AdSdk sdk,
     required AdGate gate,
@@ -42,6 +85,7 @@ class BannerAdController implements AdController {
     void Function(AdPaidEvent event)? onPaid,
     void Function(String slotName, AdBlockReason reason)? onBlocked,
     void Function()? onDisposed,
+    BannerHeightMemory? heightMemory,
   }) : _sdk = sdk,
        _gate = gate,
        _config = config,
@@ -50,7 +94,8 @@ class BannerAdController implements AdController {
        _retry = retry ?? RetryPolicy(const RetryConfig()),
        _onPaid = onPaid,
        _onBlocked = onBlocked,
-       _onDisposed = onDisposed;
+       _onDisposed = onDisposed,
+       _heightMemory = heightMemory ?? BannerHeightMemory();
 
   /// The gate/cap slot name for banners.
   static const slotName = 'banner';
@@ -67,6 +112,7 @@ class BannerAdController implements AdController {
   final RetryPolicy _retry;
   final void Function(AdPaidEvent event)? _onPaid;
   final void Function(String slotName, AdBlockReason reason)? _onBlocked;
+  final BannerHeightMemory _heightMemory;
 
   /// Notified exactly once, when [dispose] runs — lets the minting `AdFlow`
   /// drop this controller from its recheck registry (2026-07 audit).
@@ -142,18 +188,19 @@ class BannerAdController implements AdController {
   AdResponseSummary? get response => _handle?.response;
 
   /// This slot's sizing strategy — lets [AdFlowBanner] pick the right pre-load
-  /// placeholder per kind (exact for fixed, the 50dp floor for anchored
-  /// adaptive, zero for inline adaptive).
+  /// placeholder per kind (exact for fixed, the remembered height or the 50dp
+  /// floor for anchored adaptive, zero for inline adaptive).
   BannerKind get kind => _config.kind;
 
   /// Height to reserve before the ad loads, avoiding layout shift: exact for
-  /// fixed sizes. For **anchored adaptive** this is the documented **50dp
-  /// floor** — the documented minimum, and the only figure that is safe to
-  /// assume client-side: the height the platform actually renders is resolved
-  /// after load and cannot be pre-computed (ADR-073). A loaded ad grows the box
-  /// to its exact `handle.dimensions`. **Inline adaptive** also returns 50 here, but
-  /// [AdFlowBanner] reserves `0` for it (its real height is unknown until the
-  /// ad loads) unless an explicit `placeholderHeight` is passed.
+  /// fixed sizes. For **anchored adaptive** it is the height a banner at the
+  /// current width already rendered at, from the [BannerHeightMemory]
+  /// (ADR-079), and otherwise the documented **50dp floor** — the only figure
+  /// safe to assume before anything has loaded, because the height the
+  /// platform renders is resolved after load (ADR-073). A loaded ad always
+  /// sizes the box to its exact `handle.dimensions`. **Inline adaptive** also
+  /// returns 50 here, but [AdFlowBanner] reserves `0` for it (its real height
+  /// varies per creative) unless an explicit `placeholderHeight` is passed.
   double get reservedHeight => switch (_config.kind) {
     BannerKind.fixed => switch (_config.fixedSize) {
       FixedBannerSize.banner => 50,
@@ -162,8 +209,30 @@ class BannerAdController implements AdController {
       FixedBannerSize.fullBanner => 60,
       FixedBannerSize.leaderboard => 90,
     },
-    BannerKind.anchoredAdaptive || BannerKind.inlineAdaptive => 50,
+    BannerKind.anchoredAdaptive => _rememberedHeight ?? 50,
+    BannerKind.inlineAdaptive => 50,
   };
+
+  /// What [BannerHeightMemory] knows for the current width, if anything.
+  double? get _rememberedHeight {
+    final width = _width;
+    return width == null
+        ? null
+        : _heightMemory.heightFor(width, size: _config.anchoredSize);
+  }
+
+  /// Teaches [BannerHeightMemory] the height [handle] rendered at, requested at
+  /// [width]. Anchored adaptive only: a fixed slot's height is already exact,
+  /// and an inline adaptive height varies per creative, so remembering it
+  /// would be a guess (ADR-070).
+  void _rememberHeight(BannerHandle handle, int? width) {
+    if (_config.kind != BannerKind.anchoredAdaptive || width == null) return;
+    _heightMemory.remember(
+      width,
+      handle.dimensions.value.height,
+      size: _config.anchoredSize,
+    );
+  }
 
   /// The width the currently loaded ad was actually REQUESTED at, or null if
   /// nothing is loaded. [AdFlowBanner] compares this to its layout width to
@@ -259,7 +328,10 @@ class BannerAdController implements AdController {
           );
           return;
         case BannerKind.anchoredAdaptive:
-          size = AnchoredAdaptiveSizeSpec(width: _width!);
+          size = AnchoredAdaptiveSizeSpec(
+            width: _width!,
+            size: _config.anchoredSize,
+          );
         case BannerKind.inlineAdaptive:
           size = InlineAdaptiveSizeSpec(
             width: _width!,
@@ -321,6 +393,7 @@ class BannerAdController implements AdController {
       _gateAttempts = 0;
       _lastBlockReason = null;
       _loadedWidth = requestWidth;
+      _rememberHeight(handle, requestWidth);
       _loadedGeneration = requestGeneration;
       _state.value = const AdLoaded();
       _scheduleRefresh();
@@ -482,6 +555,7 @@ class BannerAdController implements AdController {
       _eventSub = handle.events.listen(_onViewEvent);
       _loadedWidth = requestWidth;
       _loadedGeneration = requestGeneration;
+      _rememberHeight(handle, requestWidth);
       safeUnawaited(oldPaidSub?.cancel(), debugName: 'subscription');
       safeUnawaited(oldEventSub?.cancel(), debugName: 'subscription');
       if (old != null) safeUnawaited(old.dispose(), debugName: 'handle');
@@ -532,7 +606,7 @@ class BannerAdController implements AdController {
     final width = _width;
     return switch (_config.kind) {
       BannerKind.anchoredAdaptive when width != null =>
-        AnchoredAdaptiveSizeSpec(width: width),
+        AnchoredAdaptiveSizeSpec(width: width, size: _config.anchoredSize),
       BannerKind.inlineAdaptive when width != null => InlineAdaptiveSizeSpec(
         width: width,
         maxHeight: _config.maxInlineHeight,

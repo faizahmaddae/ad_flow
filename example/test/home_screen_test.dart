@@ -5,8 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // E12: Remove-Ads must remove the COMPLETE ad surfaces in the example — not
-// just blank the ads. The banner's SafeArea bar and the native ad's decorated
-// Card (title, padding, border) are conditionally hidden, so a disabled state
+// just blank the ads. The banner (`safeArea: true`) collapses to a zero
+// footprint, its home-indicator inset included, and the native ad's decorated
+// Card (title, padding, border) is conditionally hidden, so a disabled state
 // leaves no empty inset bar and no blank bordered card behind.
 void main() {
   late FakeAdSdk sdk;
@@ -42,14 +43,19 @@ void main() {
       // off-screen children and the native widget would never mount.
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPadding);
       tester.view.devicePixelRatio = 1.0;
       tester.view.physicalSize = const Size(1000, 3000);
+      // A home indicator, so the banner's inset is real.
+      tester.view.padding = const FakeViewPadding(bottom: 34);
 
       await tester.pumpWidget(MaterialApp(home: HomeScreen(ads: ads)));
       await tester.pumpAndSettle();
 
-      // Enabled: both surfaces present.
+      // Enabled: both surfaces present; the banner sits above the inset
+      // (FakeAdSdk's banners are 50dp tall).
       expect(find.byType(AdFlowBanner), findsOneWidget);
+      expect(tester.getSize(find.byType(AdFlowBanner)).height, 50 + 34);
       expect(find.byType(AdFlowNativeAd), findsOneWidget);
       expect(find.text('Native (medium template)'), findsOneWidget);
       expect(find.byType(SwitchListTile), findsOneWidget);
@@ -58,18 +64,20 @@ void main() {
       ads.disableAds();
       await tester.pumpAndSettle();
 
-      // The COMPLETE surfaces are gone — banner (and its SafeArea bar), native
-      // widget, and the native Card's title/decoration.
-      expect(find.byType(AdFlowBanner), findsNothing);
+      // The COMPLETE surfaces are gone — the banner takes no space at all (no
+      // inset strip either: the body reaches the bottom of the screen), and
+      // the native widget and the native Card's title/decoration are gone.
+      expect(tester.getSize(find.byType(AdFlowBanner)).height, 0);
+      expect(tester.getBottomLeft(find.byType(ListView)).dy, 3000);
       expect(find.byType(AdFlowNativeAd), findsNothing);
       expect(find.text('Native (medium template)'), findsNothing);
       // The Remove-Ads switch remains accessible so ads can be re-enabled.
       expect(find.byType(SwitchListTile), findsOneWidget);
 
-      // Re-enable: both placements reconstruct.
+      // Re-enable: both placements come back.
       ads.enableAds();
       await tester.pumpAndSettle();
-      expect(find.byType(AdFlowBanner), findsOneWidget);
+      expect(tester.getSize(find.byType(AdFlowBanner)).height, 50 + 34);
       expect(find.byType(AdFlowNativeAd), findsOneWidget);
       expect(find.text('Native (medium template)'), findsOneWidget);
 

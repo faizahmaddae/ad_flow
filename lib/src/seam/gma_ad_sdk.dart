@@ -162,8 +162,8 @@ class GmaAdSdk implements AdSdk {
     completer.complete(buildHandle());
   }
 
-  /// Known upstream limitation (plugin 9.0.0, verified in
-  /// `ad_instance_manager.dart`'s `_invokeOnAdFailedToLoad`): on a FAILED
+  /// Known upstream limitation (plugin 9.0.0, still present in 9.2.0; verified
+  /// in `ad_instance_manager.dart`'s `_invokeOnAdFailedToLoad`): on a FAILED
   /// load the plugin auto-disposes interstitial/rewarded/rewarded-
   /// interstitial ads but NOT `AppOpenAd`, and the failure callback carries
   /// no ad reference — so each failed app-open load leaks one plugin-side ad
@@ -302,17 +302,19 @@ class GmaAdSdk implements AdSdk {
     //   constructed with HEIGHT 0 and is only resolved by `getPlatformAdSize()`
     //   (see `AdSize.getInlineAdaptiveBanner…` in the plugin — "an AdSize with
     //   the given width and 0 height").
-    // - **anchored adaptive** — corrective: `handle._ad.size` is the height
-    //   Dart resolved through `AdSize#getLargeAnchoredAdaptiveBannerAdSize`,
-    //   but the plugin's codec cannot carry the "large" bit back down —
-    //   `AnchoredAdaptiveBannerAdSize` has no `isLarge` field, the encoder
-    //   writes only (orientation, width), and BOTH native decoders rebuild it
-    //   with `isLarge = false`. So the AdView/GADBannerView the ad actually
-    //   renders in is the CLASSIC size while Dart holds the LARGE one — on a
-    //   426x952dp phone, 67dp rendered inside a 133dp box, with the ~66dp
-    //   remainder showing the app's own surface through the transparent
-    //   platform view (issue #15). `getPlatformAdSize()` returns the size the
-    //   native view was really built with, which closes that gap.
+    // - **anchored adaptive** — authoritative: `handle._ad.size` is the
+    //   height Dart resolved through `AdSize#getLargeAnchoredAdaptiveBannerAdSize`,
+    //   and up to plugin 9.1 the codec could not carry the "large" bit down
+    //   (`AnchoredAdaptiveBannerAdSize` had no `isLarge` field and BOTH native
+    //   decoders rebuilt it with `isLarge = false`). The AdView/GADBannerView
+    //   was then the CLASSIC size while Dart held the LARGE one — on a
+    //   426x952dp phone, 67dp rendered inside a 133dp box, the ~66dp remainder
+    //   showing the app's own surface through the transparent platform view
+    //   (issue #15). Plugin 9.2.0 (this package's floor) encodes `isLarge`, so
+    //   the two now agree and the platform builds the large size; the box is
+    //   still sized from `getPlatformAdSize()` — the size the native view was
+    //   really built with — so no Dart/platform disagreement can ever paint
+    //   that band again (ADR-073, ADR-078).
     final inlineAdaptive = spec.size is InlineAdaptiveSizeSpec;
     if (inlineAdaptive || spec.size is AnchoredAdaptiveSizeSpec) {
       AdDimensions? resolved;
@@ -409,11 +411,44 @@ class GmaAdSdk implements AdSdk {
 
   Future<gma.AdSize> _resolveBannerAdSize(BannerSizeSpec spec) async {
     switch (spec) {
-      case AnchoredAdaptiveSizeSpec(:final width, :final orientation):
+      case AnchoredAdaptiveSizeSpec(
+        :final width,
+        :final orientation,
+        size: AnchoredBannerSize.large,
+      ):
         final gma.AdSize? size = orientation == null
             ? await gma.AdSize.getLargeAnchoredAdaptiveBannerAdSize(width)
             : await gma
                   .AdSize.getLargeAnchoredAdaptiveBannerAdSizeWithOrientation(
+                toGmaOrientation(orientation),
+                width,
+              );
+        if (size == null) {
+          throw const AdFlowError(
+            AdFlowErrorKind.loadFailed,
+            'Could not resolve an anchored adaptive banner size for this '
+            'device/width.',
+          );
+        }
+        return size;
+      // The opt-in classic size (ADR-081). Both queries are deprecated upstream
+      // in favour of the large size (plugin 8.0) but still supported in 9.x,
+      // and they encode `isLarge = false`, so the platform builds the classic
+      // view. Per-line ignores, not file-wide, so a NEW deprecation still
+      // shows. Goes when the plugin removes them.
+      case AnchoredAdaptiveSizeSpec(
+        :final width,
+        :final orientation,
+        size: AnchoredBannerSize.classic,
+      ):
+        final gma.AdSize? size = orientation == null
+            ? await gma
+                  // ignore: deprecated_member_use
+                  .AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
+                width,
+              )
+            // ignore: deprecated_member_use
+            : await gma.AdSize.getAnchoredAdaptiveBannerAdSize(
                 toGmaOrientation(orientation),
                 width,
               );
@@ -679,10 +714,12 @@ Map<String, String>? mergeCollapsibleExtras(
 /// Maps the seam request configuration to the plugin's.
 ///
 /// google_mobile_ads 9.1.0 deprecates both age tags in favour of
-/// `ageRestrictedTreatment` (child / teen), which 9.0.0 — still inside this
-/// package's `^9.0.0` range — does not have. 9.1.0 still sends and applies
-/// both tags on Android (both SDK variants) and iOS, verified in its source,
-/// so they stay until the floor moves (ADR-003 addendum).
+/// `ageRestrictedTreatment` (child / teen). 9.1.0 and 9.2.0 still send and
+/// apply both tags on Android (both SDK variants) and iOS, verified in their
+/// source, so they stay. The floor (9.2.0) now HAS `ageRestrictedTreatment`,
+/// but moving to it is not a rename — it folds two signals into one child/teen
+/// enum with its own certification wording — so it is a separate, deliberate
+/// change (ADR-003 addendum, ADR-078).
 gma.RequestConfiguration toGmaRequestConfiguration(AdRequestConfig config) {
   return gma.RequestConfiguration(
     testDeviceIds: config.testDeviceIds,

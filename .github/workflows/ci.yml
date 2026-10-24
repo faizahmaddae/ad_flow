@@ -7,6 +7,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Weekly as well: CI has no lockfile and tracks Flutter stable, so a new
+  # google_mobile_ads release or a new Dart lint can break an unchanged tree.
+  # Better to hear about it on Monday than on the next release PR.
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
 
 jobs:
   ci:

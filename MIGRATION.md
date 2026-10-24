@@ -1,3 +1,59 @@
+# Upgrading 5.3.x → 5.4.0
+
+**Nothing in your Dart code has to change — 5.4.0 is additive.** Two things to
+know, and two optional cleanups:
+
+1. **google_mobile_ads `^9.2.0` is now required** (was `^9.0.0`). Same Flutter,
+   Dart, Android and iOS minimums. If you pin `google_mobile_ads` yourself, raise
+   it; if you use mediation, use current `gma_mediation_*` releases (they all
+   need `^9.1.0` already).
+
+   **iOS:** if `flutter build ios` then stops with *"The pod
+   "Google-Mobile-Ads-SDK" required by the plugin "google_mobile_ads" requires
+   a higher minimum iOS deployment version than the plugin's reported minimum
+   version"*, the message is misleading: your committed `ios/Podfile.lock`
+   still pins the SDK the old plugin used (13.3), and 9.2.0 needs `~> 13.11`.
+   Run `cd ios && pod update Google-Mobile-Ads-SDK google_mobile_ads` and
+   commit the new lock.
+2. **Anchored banners get taller.** Plugin 9.2.0 finally serves Google's
+   *large* anchored adaptive banner — the size ad_flow has always requested —
+   so a bottom banner is about 100–150dp on a phone instead of ~60dp. More
+   pixels, Google's recommended format. To keep the old look — full width,
+   about 60dp — set `anchoredSize: AnchoredBannerSize.classic` in that
+   placement's `BannerConfig` (or in `AdFlowConfig.banner` for every banner).
+   It usually earns less, and the plugin API behind it is deprecated upstream.
+3. *(Optional)* **Replace hand-written presenters** with the ready-made ones:
+
+   ```dart
+   rewardedIntroPresenter: RewardedIntroScreen.presenter(navigatorKey),
+   attExplainer: AttExplainerScreen.presenter(navigatorKey),
+   consentExplainer: ConsentExplainerScreen.presenter(navigatorKey),
+   ```
+
+   They do exactly what the closures in the old README did (resolve the key's
+   context, skip when the navigator is not mounted), without the
+   `currentContext!` crash some copies had.
+4. *(Optional)* **Replace the bottom-bar wrapper** with one widget:
+
+   ```dart
+   // before
+   bottomNavigationBar: ValueListenableBuilder(
+     valueListenable: ads.adsEnabled,
+     builder: (context, enabled, _) => !enabled
+         ? const SizedBox.shrink()
+         : SafeArea(child: AdFlowBanner(adFlow: ads)),
+   ),
+   // after
+   bottomNavigationBar: AdFlowBanner(adFlow: ads, safeArea: true),
+   ```
+
+   The inset collapses with the banner on Remove-Ads, so nothing is left
+   behind. The banner widget stays mounted (at zero size) while ads are off,
+   so a test that expected `find.byType(AdFlowBanner)` to find nothing should
+   check its size instead.
+
+---
+
 # Upgrading 5.0.x → 5.1.0
 
 **Nothing required — 5.1.0 is fully additive and backward-compatible.** Every

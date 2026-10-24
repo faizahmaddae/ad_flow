@@ -11,7 +11,7 @@ console setup.)
 [![google_mobile_ads](https://img.shields.io/badge/google__mobile__ads-9.x-green.svg)](https://pub.dev/packages/google_mobile_ads)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Built on `google_mobile_ads ^9.0.0` (Android + iOS). Upgrading from an older
+Built on `google_mobile_ads ^9.2.0` (Android + iOS). Upgrading from an older
 ad_flow? Read [MIGRATION](MIGRATION.md).
 
 **What you get for free:**
@@ -22,15 +22,23 @@ ad_flow? Read [MIGRATION](MIGRATION.md).
   `launchOnly` / `launchAndResume` trigger modes) and the 4-hour expiry;
   interstitials frequency-capped and action-paced; the rewarded
   interstitial intro/skip screen is mandatory by construction; banners
-  reserve their height so layouts never shift, and collapse to a zero
+  reserve their height so layouts do not jump, and collapse to a zero
   footprint when ads are disabled (Remove-Ads).
-- **Revenue-minded plumbing.** Every full-screen format keeps one ad warm
-  (load → show → reload on dismiss); failed loads retry with exponential
-  backoff + jitter and re-arm after a cooldown; `onPaidEvent` reports
-  impression-level revenue.
+- **Revenue-minded plumbing.** Google's large anchored adaptive banner by
+  default; every full-screen format keeps one ad warm (load → show → reload
+  on dismiss); failed loads retry with exponential backoff + jitter and
+  re-arm after a cooldown; `onPaidEvent` reports impression-level revenue.
 - **Testable.** Everything runs behind an `AdSdk` seam;
   `package:ad_flow/ad_flow_testing.dart` ships `FakeAdSdk` so you can unit
   test your integration without a device.
+
+**Contents:** [Install](#1-install) · [Platform setup](#2-platform-setup) ·
+[Quick start](#3-quick-start) · [Formats](#4-formats) ·
+[Consent & privacy](#5-consent--privacy) ·
+[Remove-Ads & revenue](#6-remove-ads-kill-switch-revenue-inspector) ·
+[Testing](#7-testing-your-integration) ·
+[Next-Gen SDK](#8-next-gen-sdk-experimental-android-only) ·
+[Mediation](#9-mediation) · [Policy checklist](#10-policy-compliance-checklist)
 
 ---
 
@@ -50,13 +58,16 @@ Set up the ad_flow Flutter package (AdMob) in my project. Do it idiomatically �
    • If you find any: show me what it is, then REPLACE it with ad_flow equivalents and remove the
      old implementation (and the direct google_mobile_ads dependency if nothing else uses it).
    • If none: do a clean fresh integration.
-3. Add ad_flow: ^5.3.1 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
+3. Add ad_flow: ^5.4.0 to pubspec and meet its min versions (Flutter >=3.38.1, iOS 13,
    Android minSdk 24 / compileSdk 36). Platform setup: Android APPLICATION_ID meta-data, iOS
-   GADApplicationIdentifier + NSUserTrackingUsageDescription. Remind me to publish & verify app-ads.txt.
+   GADApplicationIdentifier + NSUserTrackingUsageDescription + SKAdNetworkItems. Remind me to
+   publish & verify app-ads.txt.
 4. Ask me which formats I want and for my ad unit IDs (or use AdFlowConfig.test() for now).
 5. Follow the README best practices EXACTLY: non-blocking init (never gate the first frame / a
-   splash on it), use the widget-first ad widgets (AdFlowBanner(adFlow: ads) — they own their controllers), consent-first, and —
-   if I want the consent/ATT priming screens — wire the explainer presenters.
+   splash on it), a navigatorKey on MaterialApp with the ready-made presenters
+   (RewardedIntroScreen.presenter(navigatorKey) etc.), the widget-first ad widgets
+   (AdFlowBanner(adFlow: ads, safeArea: true) for a bottom bar — they own their controllers),
+   and consent-first.
 6. Verify: flutter analyze is clean and the app builds; show me where each ad renders.
 
 Ask me anything you need (formats, IDs, EEA/iOS) before writing code. Keep changes minimal and explained.
@@ -69,18 +80,22 @@ Upgrade my project's ad_flow to the latest release. Be careful — older majors 
 
 1. FIRST read ad_flow's MIGRATION.md plus the current README and public API
    (package:ad_flow/ad_flow.dart). Use only symbols that exist there.
-2. Bump ad_flow to ^5.3.1 and meet its min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
+2. Bump ad_flow to ^5.4.0 and meet its min versions (Flutter >=3.38.1, Dart >=3.10, iOS 13,
    Android minSdk 24 / compileSdk 36; adopt the iOS UISceneDelegate lifecycle if I have a custom AppDelegate).
 3. Find EVERY older ad_flow usage (legacy AdFlow.instance/initializeWithExplainer/EasyBannerAd, old
    managers/widgets, a broad google_mobile_ads re-export). List them, then migrate each per MIGRATION.md.
 4. Apply the current best practices: non-blocking init (drop any FutureBuilder/await that gates the UI
    on init), the widget-first ad widgets (AdFlowBanner(adFlow: ads) — they own their controllers), the
-   presenter-based consent/ATT explainer, and ValueListenable state.
+   ready-made presenters (RewardedIntroScreen.presenter(navigatorKey) and friends) instead of
+   hand-written presenter closures, AdFlowBanner(safeArea: true) instead of a SafeArea +
+   adsEnabled builder around a bottom banner, and ValueListenable state.
 5. Remove whatever is now dead; keep my ad unit IDs and behavior intact.
 6. Verify: flutter analyze is clean and the app builds.
 
 Show me the mapping before large edits, and flag any behavior change (e.g. EEA users now see the GDPR
-consent form even if they denied ATT; native ads now expire after ~55 min by default).
+consent form even if they denied ATT; native ads expire after ~55 min by default; anchored banners
+are now Google's large format, so a bottom banner is taller — ask me before switching any placement
+to anchoredSize: AnchoredBannerSize.classic to keep the old ~60dp height).
 ```
 
 > These prompts intentionally defer to the package's own README / MIGRATION for exact symbols, so they stay correct as the package evolves.
@@ -91,11 +106,18 @@ consent form even if they denied ATT; native ads now expire after ~55 min by def
 
 ```yaml
 dependencies:
-  ad_flow: ^5.3.1
+  ad_flow: ^5.4.0
 ```
 
-Requirements (from `google_mobile_ads` 9.x): Flutter ≥ 3.38.1, Dart ≥ 3.10,
-iOS 13+, Android `minSdk 24` / `compileSdk 36`.
+Requirements (from `google_mobile_ads` 9.2): Flutter ≥ 3.38.1, Dart ≥ 3.10,
+iOS 13+, Android `minSdk 24` / `compileSdk 36`. Those are the plugin's floors;
+your Flutter version may require more (Flutter 3.47 itself needs iOS 15).
+
+**Upgrading an iOS app?** If `pod install` then fails with a message about a
+"higher minimum iOS deployment version", the message is misleading: your
+`ios/Podfile.lock` still pins the old Google Mobile Ads SDK. Run
+`cd ios && pod update Google-Mobile-Ads-SDK google_mobile_ads` once and commit
+the new lock.
 
 ## 2. Platform setup
 
@@ -168,38 +190,41 @@ returns immediately; consent, ATT and ad loading all run in the **background**.
 Render your UI on the first frame — **never `await`-block it behind a splash**.
 
 ```dart
+import 'package:ad_flow/ad_flow.dart';
+import 'package:flutter/material.dart';
+
 final navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // The await resolves on the next microtask (graph construction only) — it
-  // NEVER waits on the network, so the first frame is instant.
+  // Resolves on the next microtask (graph construction only) — it NEVER
+  // waits on the network, so the first frame is instant.
   final ads = await AdFlow.initialize(
     AdFlowConfig.test(), // dev: Google sample ads. Swap for your production config.
-    rewardedIntroPresenter: (c) =>
-        RewardedIntroScreen.show(navigatorKey.currentContext!, c),
+    rewardedIntroPresenter: RewardedIntroScreen.presenter(navigatorKey),
   );
-  runApp(MyApp(ads: ads, navigatorKey: navigatorKey)); // renders immediately
+  runApp(MaterialApp(
+    navigatorKey: navigatorKey, // the presenters show their screens on it
+    home: Home(ads: ads),
+  ));
 }
 
-class _HomeState extends State<Home> {
+class Home extends StatelessWidget {
+  const Home({super.key, required this.ads});
+  final AdFlow ads;
+
   @override
   Widget build(BuildContext context) => Scaffold(
-        // Remove-Ads reclaims the WHOLE bottom bar: return SizedBox.shrink()
-        // BEFORE constructing SafeArea, or its inset would still reserve an
-        // empty strip once the banner collapses to zero (5.1.1).
-        bottomNavigationBar: ValueListenableBuilder(
-          valueListenable: ads.adsEnabled,
-          builder: (context, enabled, _) => !enabled
-              ? const SizedBox.shrink()
-              // Widget-first (3.0): the widget creates AND owns its controller,
-              // so the "fresh controller minted in build()" footgun (a blank ad
-              // on every setState) cannot happen.
-              : SafeArea(child: AdFlowBanner(adFlow: ads)),
-        ),
+        body: const Center(child: Text('Hello')),
+        // Clear of the home indicator, and gone entirely — inset included —
+        // once ads are disabled (Remove-Ads).
+        bottomNavigationBar: AdFlowBanner(adFlow: ads, safeArea: true),
       );
 }
 ```
+
+That is the whole integration. The widget creates and owns its controller,
+reserves its height from the first frame and disposes everything on unmount.
 
 Nothing loads before request configuration is applied **and** the consent gate
 opens — this holds even for a first-frame banner/native. Do **not** wrap your
@@ -207,18 +232,23 @@ app in a `FutureBuilder<AdFlow>` splash gate (that was v1's hang). Need the
 consent result? `await ads.whenReady` (`Future<bool>`) — optional, never gate
 UI on it.
 
+`rewardedIntroPresenter` is required because `AdFlowConfig.test()` includes
+the rewarded interstitial, whose intro + skip screen must show first (AdMob
+policy). Leave that slot out of your production config and you can leave the
+presenter out too.
+
 ### Add consent + ATT priming (recommended for EEA / iOS)
 
 Show your own soft primer before the UMP GDPR form and Apple's ATT prompt —
-opt-in, additive, better opt-in rates. Add two presenters (details + copy
+opt-in, additive, better opt-in rates. Two more presenters (details and copy
 localization in [§5](#5-consent--privacy)):
 
 ```dart
 await AdFlow.initialize(
   AdFlowConfig.test(),
-  rewardedIntroPresenter: (c) => RewardedIntroScreen.show(navigatorKey.currentContext!, c),
-  attExplainer:     (c) => AttExplainerScreen.show(navigatorKey.currentContext!, c),
-  consentExplainer: (c) => ConsentExplainerScreen.show(navigatorKey.currentContext!, c),
+  rewardedIntroPresenter: RewardedIntroScreen.presenter(navigatorKey),
+  attExplainer: AttExplainerScreen.presenter(navigatorKey),
+  consentExplainer: ConsentExplainerScreen.presenter(navigatorKey),
 );
 ```
 
@@ -261,7 +291,8 @@ should degrade rather than crash. `initialize` also validates the config
 `AdFlowError(invalidConfig)` instead of silently no-filling in production.
 
 Set `testMode: true` (or use `AdFlowConfig.test()`) during development —
-it swaps every **configured** slot to Google's sample IDs. Never ship it.
+it swaps every **configured** slot to Google's sample IDs, picking the sample
+unit that matches each banner's kind. Never ship it.
 
 ## 4. Formats
 
@@ -269,45 +300,68 @@ it swaps every **configured** slot to Google's sample IDs. Never ship it.
 
 ```dart
 Scaffold(
-  // Collapse the WHOLE bar (SafeArea included) when ads are disabled, so
-  // Remove-Ads leaves no empty inset behind (5.1.1).
-  bottomNavigationBar: ValueListenableBuilder(
-    valueListenable: ads.adsEnabled,
-    builder: (context, enabled, _) => !enabled
-        ? const SizedBox.shrink()
-        : SafeArea(
-            child: AdFlowBanner(adFlow: ads), // creates + owns its controller (3.0)
-          ),
+  bottomNavigationBar: AdFlowBanner(adFlow: ads, safeArea: true),
+)
+```
+
+`AdFlowBanner(adFlow:)` creates and owns its controller, so the classic
+footgun — minting a fresh controller inside `build()` and restarting
+(blanking) the load on every `setState` — cannot happen. Pass
+`config: BannerConfig(...)` for a per-placement override. Advanced:
+`ads.banner()` mints a standalone `BannerAdController` you can pass via
+`controller:` when you need to inspect its `state`/`response` elsewhere —
+create it ONCE, as a field.
+
+`safeArea: true` keeps the banner clear of the home indicator and notches —
+use it for a bottom bar instead of wrapping the banner in your own `SafeArea`,
+which would keep reserving its inset after Remove-Ads collapses the banner.
+The ad is requested at the width left between the side insets.
+
+### Choosing a banner
+
+| Banner | Height on a phone | Best for | Set in `BannerConfig` |
+| --- | --- | --- | --- |
+| Anchored adaptive, large *(default)* | ~100–150dp, full width | pinned to the top or bottom of a screen | — |
+| Anchored adaptive, classic | ~60dp, full width | the same, when a screen cannot spare the large one | `anchoredSize: AnchoredBannerSize.classic` |
+| Inline adaptive | decided per creative; cap it with `maxInlineHeight` | inside a list or any scrolling content | `kind: BannerKind.inlineAdaptive` |
+| Fixed | the exact IAB size (320×50, 300×250, …) | one guaranteed size | `kind: BannerKind.fixed, fixedSize: …` |
+
+Set it per placement, or on `AdFlowConfig.banner` for every banner:
+
+```dart
+AdFlowBanner(
+  adFlow: ads,
+  safeArea: true,
+  config: BannerConfig(
+    adUnitId: PlatformAdUnitId(android: '…', ios: '…'),
+    anchoredSize: AnchoredBannerSize.classic, // the shorter, ~60dp banner
   ),
 )
 ```
 
-> **Widget-first is the safe path (3.0).** The widget creates and owns its
-> controller internally, so the classic footgun — minting a fresh controller
-> inside `build()` and restarting (blanking) the load on every `setState` —
-> cannot happen. Advanced: `ads.banner()` still mints a standalone
-> `BannerAdController` you can pass via `controller:` when you need to
-> inspect its `state`/`response` elsewhere — create it ONCE, as a field.
+The **large** anchored size is Google's revenue recommendation, and the
+default. Before google_mobile_ads 9.2.0 the "large" flag was lost on the way to
+the platform, so these banners rendered at the classic ~60dp; ad_flow now
+requires 9.2.0, so they render at the real large size. The **classic** size
+usually earns less, and Google deprecated the plugin API behind it (in
+google_mobile_ads 8.0) — it works in 9.x, but a later plugin major may remove
+it. Adaptive banners size their slot from the SDK's own post-load answer, so
+the box always matches what was actually rendered.
 
-Anchored adaptive by default (Google's revenue recommendation); the widget
-reserves a minimal height from the first frame, then sizes the slot to exactly
-what the SDK rendered. Inline adaptive, fixed sizes and collapsible banners are
-configured via `BannerConfig(kind:, fixedSize:, collapsible:)`. Refresh is
-client-driven every `minRefresh` — **off by default** (`minRefresh: null`), because
-AdMob already auto-refreshes banner ad units server-side from the console; set the
-rate there instead. When opted in, values under 30s are
-clamped).
+Collapsible banners: `collapsible: CollapsiblePlacement.bottom` (Google demand
+only). Client-side refresh (`minRefresh`) is **off by default**, because AdMob
+already auto-refreshes banner ad units server-side — set the rate in the AdMob
+console instead. When opted in, values under 30s are clamped.
 
-**Pre-load placeholder height (5.1.1).** A loaded banner always uses the exact
-live SDK dimensions. Before the ad loads, `AdFlowBanner` reserves a minimal,
-deterministic height per kind:
+**Placeholder height.** A loaded banner always uses the exact live SDK
+dimensions. Before the ad loads, `AdFlowBanner` reserves:
 
 - **fixed** — the slot's exact configured height (no shift when it loads);
-- **large anchored adaptive** — the documented **50dp floor** (Google's large
-  anchored adaptive banners have a documented 50dp minimum), then the box takes
-  the exact height the SDK reports once the ad loads — typically 60–70dp on a
-  phone. See the upstream note below for why it is not the 100–150dp the
-  *large* format would imply;
+- **anchored adaptive** — the documented **50dp floor** for the first banner
+  of a width, then the exact height the SDK reports once the ad loads.
+  ad_flow remembers that height, so every later banner at the same width and
+  size — the next screen, a reload — reserves it from its first frame and its
+  ad lands without a layout shift;
 - **inline adaptive** — **0**, because the real height is unknown until
   `onAdLoaded`.
 
@@ -315,27 +369,6 @@ Pass `placeholderHeight` to reserve a publisher-chosen height for a placement
 whose size you know in advance (e.g. an inline banner). `placeholderHeight: 0`
 opts into fully collapsed pre-load behaviour — no reservation until the ad
 actually loads.
-
-### Choosing a banner kind
-
-| kind | slot height | best for |
-| --- | --- | --- |
-| `anchoredAdaptive` *(default)* | one height per width/device, but only the SDK can tell you it — read it after load, never pre-compute it | pinned to the top/bottom of a screen, outside scrolling content |
-| `inlineAdaptive` | decided per-creative by Google, known only after load; cap it with `maxInlineHeight` | inside a feed or any scrolling content |
-| `fixed` | the exact IAB size you name | you need one guaranteed size |
-
-Both adaptive kinds size their slot from the SDK's own post-load answer, so the
-box always matches what was actually rendered. For a bottom-bar placement,
-`anchoredAdaptive` is the right format; reach for
-`inlineAdaptive(maxInlineHeight: …)` when the banner lives in a list.
-
-> **Upstream limitation (google_mobile_ads 9.0.0).** Google's *large* anchored
-> adaptive format cannot currently be requested from Flutter at all: the
-> plugin's codec drops the "large" flag on its way to the platform, so every
-> anchored request degrades to the classic size. ad_flow sizes the slot from
-> what the platform really rendered, so the banner is correct either way — but
-> there is deliberately no standard-vs-large option, because it would be inert.
-> See ADR-073.
 
 ### Filling the slot (`backgroundColor`)
 
@@ -348,6 +381,7 @@ background:
 ```dart
 AdFlowBanner(
   adFlow: ads,
+  safeArea: true,
   backgroundColor: Theme.of(context).colorScheme.surface,
 )
 ```
@@ -355,12 +389,6 @@ AdFlowBanner(
 It paints strictly **behind** the ad (never over it — occluding a creative is a
 policy violation) and, like `placeholderHeight`, disappears entirely once ads
 are disabled.
-
-> **Test mode.** Google publishes a different sample ad unit per banner format,
-> and ad_flow now picks the one matching your `kind` automatically. Before 5.3.0
-> the Android sample unit was the fixed-size one, so adaptive test banners were
-> served creatives that could not fill the slot — if your test banners used to
-> look narrow with visible gaps, that is what you were seeing.
 
 ### Interstitial
 
@@ -384,7 +412,7 @@ await ads.rewarded.show(onReward: (reward) {
 ```
 
 High-value rewards: set `RewardedConfig.ssv` for server-side verification —
-and update it at runtime as your app learns more (3.0.0):
+and update it at runtime as your app learns more:
 
 ```dart
 // After login, and again right before showing (e.g. which mission this is):
@@ -396,8 +424,10 @@ await ads.rewarded.setServerSideVerification(
 The update applies to the already-loaded ad AND every future load, and
 **throws** if attaching fails — when you grant high-value rewards, you want to
 know your verification payload did not make it. The ad is never ready or
-showable until the latest payload has settled (5.1), so a `show()` right after
-`setServerSideVerification` can never race ahead of it with the old value.
+showable until the latest payload has settled, so a `show()` right after
+`setServerSideVerification` can never race ahead of it with the old value. A
+load whose configured verification cannot attach counts as a failed load —
+never a silently unverified ready ad.
 
 #### Verifying rewards server-side (SSV)
 
@@ -435,12 +465,12 @@ for the callback format, parameters and key rotation.
 
 Preloaded ads also **expire** (Google documents ~1 hour): ad_flow timestamps
 every load, proactively replaces a stale ad and never shows an expired one.
-`maxAdAge` defaults to 55 minutes for the full-screen formats **and native ads**
-(5.1), and 4 hours for app-open; set it `null` on a format to disable.
+`maxAdAge` defaults to 55 minutes for the full-screen formats **and native
+ads**, and 4 hours for app-open; set it `null` on a format to disable.
 
 A rewarded ad is one the user **asked for**, so the global frequency cap never
-blocks it (ADR-039) — a user who taps "watch an ad for 100 coins" must never be
-silently refused because an interstitial happened to fire moments earlier. Its
+blocks it — a user who taps "watch an ad for 100 coins" must never be silently
+refused because an interstitial happened to fire moments earlier. Its
 impression is still *recorded* globally, so an involuntary interstitial cannot
 fire straight after one. Both rewarded formats are uncapped by default; set
 `RewardedConfig.cap` / `RewardedInterstitialConfig.cap` if you want a per-format
@@ -455,33 +485,50 @@ await ads.rewardedInterstitial.show(onReward: grantReward);
 AdMob policy requires an intro screen with clear reward messaging and a
 skip option before the ad plays. ad_flow enforces this by construction:
 the `rewardedIntroPresenter` you pass to `initialize` runs first, and the
-ad shows only if the user didn't skip. `RewardedIntroScreen.show` is the
-ready-made presenter; customize copy via `RewardedInterstitialConfig.intro`.
+ad shows only if the user didn't skip. `RewardedIntroScreen.presenter`
+is the ready-made one; customize copy via `RewardedInterstitialConfig.intro`,
+or pass your own presenter for a custom screen (keep a skip option — it is
+policy).
 
 ### Native
 
 ```dart
-AdFlowNativeAd(adFlow: ads) // creates + owns its controller (3.0)
+AdFlowNativeAd(adFlow: ads) // creates + owns its controller
 // per-placement override: AdFlowNativeAd(adFlow: ads, config: NativeConfig(...))
 ```
 
 Template rendering (`NativeConfig(templateKind: NativeTemplateKind.small | .medium)`)
 needs no native code. For fully custom layouts register a platform
 `NativeAdFactory` (see the [official guide](https://developers.google.com/admob/flutter/native/platforms))
-and use `NativeConfig(factoryId: 'yourFactoryId')`.
+and use `NativeConfig(factoryId: 'yourFactoryId')`. Setup details:
+[doc/NATIVE_ADS_SETUP.md](doc/NATIVE_ADS_SETUP.md).
 
-Native ads **expire** too (`NativeConfig.maxAdAge`, default 55 min; 5.1): a
+Native ads **expire** too (`NativeConfig.maxAdAge`, default 55 min): a
 long-lived screen never renders stale inventory — the widget briefly shows its
 placeholder while a fresh ad loads, then swaps it in.
+
+`AdFlowNativeAd` collapses to a zero footprint while ads are disabled — but a
+surface you wrap it in (a decorated `Card`, a titled section) still renders
+its own padding and border around the now-empty child. Hide those parents too,
+keyed on `ads.adsEnabled`:
+
+```dart
+ValueListenableBuilder(
+  valueListenable: ads.adsEnabled,
+  builder: (context, enabled, _) => !enabled
+      ? const SizedBox.shrink()
+      : Card(child: AdFlowNativeAd(adFlow: ads)),
+)
+```
 
 ### App open
 
 App-open ads serve two legitimate moments — a genuine **warm return** and a
-**cold launch** — chosen per config with `AppOpenConfig.triggerMode` (5.1):
+**cold launch** — chosen per config with `AppOpenConfig.triggerMode`:
 
 | Mode | Warm return | Cold launch |
 | --- | --- | --- |
-| `resumeOnly` *(default — v5 behaviour)* | shows | — |
+| `resumeOnly` *(default)* | shows | — |
 | `launchOnly` | — | shows |
 | `launchAndResume` | shows | shows |
 
@@ -492,9 +539,8 @@ proactively replaced), never behind a banner/native click. It shows on the
 first genuine warm return of a session.
 
 **Cold launch is explicit**, because a cold launch emits no foreground event to
-hook (`AppOpenConfig.showOnColdStart` was removed in 3.0 for that reason). Call
-`showAtLaunchIfReady()` from your real loading screen, right before entering main
-content, when `triggerMode` is `launchOnly` or `launchAndResume`:
+hook. Call `showAtLaunchIfReady()` from your real loading screen, right before
+entering main content, when `triggerMode` is `launchOnly` or `launchAndResume`:
 
 ```dart
 // In your loading/startup screen, AFTER your startup work, BEFORE main content:
@@ -564,15 +610,18 @@ PrivacyOptionsButton(consent: ads.consent) // renders nothing when not required
 ```
 
 Consent failures never throw from `initialize` — the flow degrades to the
-SDK's own `canRequestAds()` answer and surfaces the failure on
-`ads.consent.lastError`.
+SDK's own `canRequestAds()` answer, surfaces the failure on
+`ads.consent.lastError`, and is retried in the background (an offline launch
+recovers once the network returns). After a consent change, an ad already
+loaded under the old answer is dropped and reloaded under the new one (a
+full-screen ad on screen is not interrupted).
 
 ### ATT (iOS App Tracking Transparency) — two modes
 
 - **UMP-driven (default).** Pass no `attExplainer`. On iOS, UMP drives the
   ATT explainer and system prompt for you — configure the IDFA message in
   AdMob's *Privacy & messaging*. `ad_flow` makes no ATT calls itself.
-- **Client-driven (opt-in, like v1).** Pass an `attExplainer` (below). Then
+- **Client-driven (opt-in).** Pass an `attExplainer` (below). Then
   `ad_flow` runs your own ATT primer → a short delay (200 ms, Apple's
   guidance) → Apple's system prompt, **before** the GDPR flow. In this mode
   do **not** also configure the UMP IDFA message in the AdMob console — that
@@ -582,13 +631,11 @@ Either way, add `NSUserTrackingUsageDescription` to `Info.plist`.
 
 ### Consent & ATT explainers (priming)
 
-Opt-in priming screens — the v2 equivalent of v1's `initializeWithExplainer`,
-decoupled from `BuildContext` via the same presenter pattern as the
-rewarded-interstitial intro. Show your own localizable screen explaining what
-the next system dialog will ask; the real UMP form / ATT prompt always
-follows. The consent primer appears **only when a form will actually show**
-(non-EEA users never see it). Everything is additive — pass nothing and
-behaviour is exactly as before.
+Opt-in priming screens: your own localizable screen explaining what the next
+system dialog will ask; the real UMP form / ATT prompt always follows. The
+consent primer appears **only when a form will actually show** (non-EEA users
+never see it). Everything is additive — pass nothing and behaviour is exactly
+as before.
 
 ```dart
 final navigatorKey = GlobalKey<NavigatorState>();
@@ -597,29 +644,24 @@ final navigatorKey = GlobalKey<NavigatorState>();
 final ads = await AdFlow.initialize(
   myConfig,
   // iOS: your ATT primer → 200 ms → Apple's system prompt, before GDPR.
-  attExplainer: (content) async {
-    final context = navigatorKey.currentContext;
-    if (context == null || !context.mounted) return;
-    await AttExplainerScreen.show(context, content);
-  },
+  attExplainer: AttExplainerScreen.presenter(navigatorKey),
   // Shown before the GDPR form (EEA only).
-  consentExplainer: (content) async {
-    final context = navigatorKey.currentContext;
-    if (context == null || !context.mounted) return;
-    await ConsentExplainerScreen.show(context, content);
-  },
+  consentExplainer: ConsentExplainerScreen.presenter(navigatorKey),
   // Optional: localize / customize the copy.
   // attExplainerContent: const AttExplainerContent(title: 'Autoriser le suivi ?'),
 );
 ```
 
-`AttExplainerScreen` and `ConsentExplainerScreen` are ready-made; pass your
-own presenter to use custom UI, keeping it context-safe (the package never
-holds a `BuildContext` — the callback resolves it). `skipConsentPrimerIfAttDenied`
-(default true) skips the optional consent *primer* when the user just denied
-ATT. It never suppresses the GDPR form itself: a required consent form
-(EEA/UK/CH) is always shown, because ATT (Apple) and GDPR (EU) are independent
-regimes — denying tracking does not satisfy GDPR consent.
+The ready-made presenters show their screen on the navigator of
+`navigatorKey`, read when the screen is due — the package never holds a
+`BuildContext` — and skip the primer (the real prompt still follows) if no
+navigator is mounted. For custom UI, pass your own presenter:
+`(content) async { /* resolve a context, show your screen */ }`.
+`skipConsentPrimerIfAttDenied` (default true) skips the optional consent
+*primer* when the user just denied ATT. It never suppresses the GDPR form
+itself: a required consent form (EEA/UK/CH) is always shown, because ATT
+(Apple) and GDPR (EU) are independent regimes — denying tracking does not
+satisfy GDPR consent.
 
 Testing EEA behavior:
 
@@ -635,36 +677,25 @@ await AdFlow.initialize(config, consentDebug: const ConsentDebugOptions(
 ```dart
 ads.disableAds();   // user bought Remove-Ads: live/warm ads are DROPPED,
                     // mounted AdFlowBanner/AdFlowNativeAd COLLAPSE to a zero
-                    // footprint (5.1.1), and every future load/show is blocked
+                    // footprint, and every future load/show is blocked
 ads.enableAds();    // re-warms inventory at once; the widgets render again
-ads.adsEnabled;     // ValueListenable<bool> — hide ad widgets reactively
-ads.canRequestAds;  // ValueListenable<bool> — LIVE consent answer (3.0):
+ads.adsEnabled;     // ValueListenable<bool> — hide ad surfaces reactively
+ads.canRequestAds;  // ValueListenable<bool> — the LIVE consent answer:
                     // follows a late consent grant AND a withdrawal, unlike
                     // the one-shot whenReady snapshot
 
 ads.onPaidEvent = (e) => analytics.logAdImpression(
   value: e.valueMicros / 1e6,
   currency: e.currencyCode,
-  adFormat: e.slot,          // 'banner', 'interstitial', … (3.0.0)
-  adSource: e.adSourceName,  // winning mediation network, when known (3.0.0)
+  adFormat: e.slot,          // 'banner', 'interstitial', …
+  adSource: e.adSourceName,  // winning mediation network, when known
 );
 
 ads.interstitial.response;   // AdResponseSummary? — which network filled the
-                             // warm ad (mediation diagnostics, 3.0.0)
+                             // warm ad (mediation diagnostics)
 
 await ads.openAdInspector(); // debug overlay on a test device
 ```
-
-> **Remove-Ads and parent surfaces (5.1.1).** `AdFlowBanner` and
-> `AdFlowNativeAd` collapse themselves to a zero footprint while ads are
-> disabled — but a surface you wrap them in (a `SafeArea` bottom bar, a
-> decorated `Card`, a titled section) will still render its own padding,
-> border and inset around the now-empty child. Hide those parents too, keyed on
-> `ads.adsEnabled`, so Remove-Ads reclaims the whole area. The example
-> (`example/lib/main.dart`) does exactly this: its `bottomNavigationBar`
-> returns `SizedBox.shrink()` before constructing `SafeArea`, and the native
-> `Card` (title, padding and border) is hidden entirely when `adsEnabled` is
-> false.
 
 ### Emergency kill switch
 
@@ -683,7 +714,7 @@ if (remoteConfig.getBool('ads_kill_switch')) {
 
 ### "Why aren't my ads showing?"
 
-A refused **load** is a first-class state (3.0): the slot reports
+A refused **load** is a first-class state: the slot reports
 `AdBlocked(reason)` instead of an ambiguous idle, so
 `ValueListenableBuilder` UIs can react to it directly. Refused **shows**
 (a frequency cap, user-action pacing) never change the load state — they
@@ -699,57 +730,32 @@ ads.interstitial.lastBlockReason; // AdBlockReason? — per-slot snapshot
 `AdBlockReason` is one of `adsDisabled` (Remove-Ads on), `consentNotGranted`
 (the user declined, or consent hasn't succeeded yet — e.g. offline),
 `frequencyCapped`, `otherAdShowing`, `notReady` (nothing warm yet),
-`userActionPacing`, `expired` (a stale ad past its `maxAdAge`), `introSkipped` (the user
-skipped the rewarded intro), `requestConfigNotApplied` (request configuration
-not yet applied under a fail-closed policy — recovers when the retried apply
-succeeds, 4.0), `internalError` (a collaborator/gate fault — blocks new
-loads on a backoff but never drops a live ad, 4.0), and `consentNotForwarded`
-(you supplied `forwardConsent` and it has not succeeded yet — the GMA SDK is
-not initialized and mediation-capable loads are blocked fail-closed, all
-recovering on the retry, 5.0).
+`userActionPacing`, `expired` (a stale ad past its `maxAdAge`), `introSkipped`
+(the user skipped the rewarded intro), `requestConfigNotApplied` (request
+configuration not applied yet under a fail-closed policy — see below),
+`internalError` (a collaborator/gate fault — blocks new loads on a backoff but
+never drops a live ad), and `consentNotForwarded` (you supplied
+`forwardConsent` and it has not succeeded yet — see
+[Mediation](#9-mediation)).
 
 Most reasons are **normal** — a cap doing its job, a user declining an ad. This
 is a diagnostic channel, not an error channel. Wire it to your logger during a
 rollout and you can see, per app, exactly why a slot is quiet.
 
-### What's new (4.x / 5.0)
+### Reliability defaults worth knowing
 
-Hardening surfaces from the 4.0, 4.x and 5.0 production audits (all additive
-except the `consentNotForwarded` enum case and the fail-closed forwarding
-default):
-
-- **`RequestConfigFailurePolicy`** (`AdFlowConfig.requestConfigPolicy`,
-  default `auto`) — when `updateRequestConfiguration` fails and your config
-  carries policy-critical fields (COPPA/under-age tags, content rating, test
-  devices), loads block visibly (`AdBlocked(requestConfigNotApplied)`) and
-  recover when the retried apply succeeds, instead of silently sending
-  untagged requests.
-- **`RetryConfig.loadTimeout`** (default 60s) — a lost SDK load callback fails
-  the attempt into the normal retry path instead of pinning the slot forever.
-- **SSV is fail-closed** — a rewarded/rewarded-interstitial load whose
-  configured server-side verification cannot attach is a failed load, never a
-  silently-unverified ready ad. `setServerSideVerification` re-applies to an
-  ad that was loading when you called it, and drops a stale ad on failure.
-- **Consent forwarding for mediation** — `AdFlow.onConsentChanged` (a
-  fire-and-forget hook) and, for partners that need their privacy flag before
-  their adapter initializes or before the request, the **`forwardConsent`**
-  barrier on `initialize`. It runs **before `MobileAds.initialize()`**
-  (mediation adapters read their flag during GMA init), fail-closed by
-  default (`mediationConsentPolicy`): a failed forward leaves the SDK
-  uninitialized and loads blocked (`AdBlocked(consentNotForwarded)`) until it
-  succeeds, never quietly unsignalled; `initialize()` still returns
-  immediately (UI non-blocking). See
-  [doc/MEDIATION_SETUP.md](doc/MEDIATION_SETUP.md).
-- **Stale-consent invalidation** — after a consent/privacy change, an ad
-  already loaded under the old consent is dropped and reloaded under the fresh
-  one (a full-screen ad on screen is not interrupted).
-
-**5.1 (additive, no breaking changes):** App Open **trigger modes**
-(`AppOpenConfig.triggerMode`) + an explicit one-shot cold-launch path
-(`ads.appOpen.showAtLaunchIfReady()`); **native ad expiry**
-(`NativeConfig.maxAdAge`, default 55 min); and a **runtime-SSV readiness fix** —
-a rewarded ad is never showable until the latest SSV payload has settled. See
-the [App open](#app-open) and [rewarded](#rewarded) sections above.
+- **Request configuration fails closed when it matters**
+  (`AdFlowConfig.requestConfigPolicy`, default `auto`): if
+  `updateRequestConfiguration` fails and your config carries policy-critical
+  fields (COPPA/under-age tags, content rating, test devices), loads block
+  (`AdBlocked(requestConfigNotApplied)`) and recover when the retried apply
+  succeeds, instead of silently sending untagged requests.
+- **Every load has a watchdog** (`RetryConfig.loadTimeout`, default 60s): a
+  lost SDK load callback fails the attempt into the normal retry path instead
+  of pinning the slot forever.
+- **Nothing busy-loops.** Retries back off exponentially with jitter; a closed
+  gate is re-checked at most once a second and a failing load re-arms at most
+  once a second, whatever `RetryConfig` says.
 
 ## 7. Testing your integration
 
@@ -795,9 +801,10 @@ production until Google declares Flutter support GA.
 
 ## 9. Mediation
 
-Add the official `gma_mediation_*` adapter packages, select the partners in
-AdMob's *Privacy & messaging*, and — on iOS — add the partners'
-`SKAdNetworkItems` to `Info.plist`. Ads then flow with no ad_flow changes.
+Add the official `gma_mediation_*` adapter packages (current releases all
+support `google_mobile_ads` 9.x), select the partners in AdMob's *Privacy &
+messaging*, and — on iOS — add the partners' `SKAdNetworkItems` to
+`Info.plist`. Ads then flow with no ad_flow changes.
 
 **Consent forwarding is NOT automatic for every network** (Google's own
 partner pages say so explicitly). UMP collects consent and writes the IAB
@@ -805,9 +812,10 @@ TCF/AC/GPP strings; TCF-reading SDKs (e.g. AppLovin 12+) pick them up, but
 networks like Unity (MetaData calls) or Meta (Limited Data Use) need their
 own APIs called — some *before* their SDK initializes. ad_flow gives you
 the hooks: the **`forwardConsent`** barrier on `initialize` (runs before
-`MobileAds.initialize()`, fail-closed), `AdFlow.onConsentChanged` (a
-fire-and-forget hook), and per-slot `AdRequestOptions.mediationExtras`. The
-full per-network guide is
+`MobileAds.initialize()`, fail-closed by default: a failed forward keeps the
+SDK uninitialized and loads blocked as `AdBlocked(consentNotForwarded)` until
+it succeeds), `AdFlow.onConsentChanged` (a fire-and-forget hook), and per-slot
+`AdRequestOptions.mediationExtras`. The full per-network guide is
 [doc/MEDIATION_SETUP.md](doc/MEDIATION_SETUP.md) — read it before shipping
 mediation.
 

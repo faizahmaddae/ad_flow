@@ -135,7 +135,7 @@ class AdFlow {
           AdFlowErrorKind.invalidConfig,
           'rewardedInterstitial is configured but no rewardedIntroPresenter '
           'was provided. Pass e.g. '
-          '(content) => RewardedIntroScreen.show(navigatorKey.currentContext!, content).',
+          'rewardedIntroPresenter: RewardedIntroScreen.presenter(navigatorKey).',
         );
       }
       _rewardedInterstitial = RewardedInterstitialAdController(
@@ -1248,10 +1248,16 @@ class AdFlow {
       onPaid: _dispatchPaid,
       onBlocked: _dispatchBlocked,
       onDisposed: () => _mintedViewControllers.remove(controller),
+      heightMemory: _bannerHeights,
     );
     _mintedViewControllers.add(controller);
     return controller;
   }
+
+  /// Shared by every banner this graph mints, so a banner mounted on a new
+  /// screen reserves the height earlier banners of its width rendered at,
+  /// instead of growing from the 50dp floor each time (ADR-079).
+  final BannerHeightMemory _bannerHeights = BannerHeightMemory();
 
   /// Creates a fresh native controller (one per placement; give it to an
   /// `AdFlowNativeAd` with `ownsController: true`). [override] replaces

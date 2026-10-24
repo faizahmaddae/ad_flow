@@ -239,6 +239,7 @@ class BannerConfig {
   const BannerConfig({
     required this.adUnitId,
     this.kind = defaultKind,
+    this.anchoredSize = AnchoredBannerSize.large,
     this.fixedSize = FixedBannerSize.banner,
     this.maxInlineHeight,
     this.collapsible,
@@ -258,6 +259,16 @@ class BannerConfig {
 
   /// Sizing strategy. Prefer [BannerKind.anchoredAdaptive] over fixed sizes.
   final BannerKind kind;
+
+  /// Which anchored adaptive size to request when [kind] is
+  /// [BannerKind.anchoredAdaptive]; ignored for the other kinds.
+  ///
+  /// [AnchoredBannerSize.large] (the default) is Google's recommended size,
+  /// about 100–150dp tall on a phone. [AnchoredBannerSize.classic] keeps the
+  /// banner full width but about 60dp tall, for a screen that cannot spare
+  /// the large one — it usually earns less, and the plugin API behind it is
+  /// deprecated upstream (ADR-081).
+  final AnchoredBannerSize anchoredSize;
 
   /// The size used when [kind] is [BannerKind.fixed].
   final FixedBannerSize fixedSize;
@@ -298,6 +309,7 @@ class BannerConfig {
       other is BannerConfig &&
       other.adUnitId == adUnitId &&
       other.kind == kind &&
+      other.anchoredSize == anchoredSize &&
       other.fixedSize == fixedSize &&
       other.maxInlineHeight == maxInlineHeight &&
       other.collapsible == collapsible &&
@@ -308,6 +320,7 @@ class BannerConfig {
   int get hashCode => Object.hash(
     adUnitId,
     kind,
+    anchoredSize,
     fixedSize,
     maxInlineHeight,
     collapsible,
