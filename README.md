@@ -303,9 +303,12 @@ live SDK dimensions. Before the ad loads, `AdFlowBanner` reserves a minimal,
 deterministic height per kind:
 
 - **fixed** — the slot's exact configured height (no shift when it loads);
-- **anchored adaptive** — the documented **50dp floor**, then the exact height
-  the SDK reports once the ad loads (Google's *large* anchored format: about
-  100–150dp on a phone in portrait);
+- **anchored adaptive** — the documented **50dp floor** for the first banner
+  of a width, then the exact height the SDK reports once the ad loads
+  (Google's *large* anchored format: about 100–150dp on a phone in portrait).
+  ad_flow remembers that height, so every later banner at the same width — the
+  next screen, a reload — reserves it from its first frame and its ad lands
+  without a layout shift;
 - **inline adaptive** — **0**, because the real height is unknown until
   `onAdLoaded`.
 

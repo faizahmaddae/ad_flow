@@ -67,9 +67,11 @@ class AdFlowBanner extends StatefulWidget {
   /// When omitted, the default depends on the banner [kind]
   /// (see [_AdFlowBannerState._placeholderHeight]):
   /// - **fixed** — the slot's exact configured height (no shift when it loads);
-  /// - **large anchored adaptive** — the documented 50dp floor, then the exact
-  ///   loaded size once the ad arrives (loaded banners always follow the live
-  ///   `handle.dimensions`);
+  /// - **anchored adaptive** — the height an earlier banner of the same width
+  ///   rendered at in this `AdFlow` (so a banner on a new screen does not grow
+  ///   into its slot), otherwise the documented 50dp floor; the exact loaded
+  ///   size once the ad arrives either way (loaded banners always follow the
+  ///   live `handle.dimensions`);
   /// - **inline adaptive** — `0`, because its real height is unknown until
   ///   `onAdLoaded`; reserving a speculative height would be wrong more often
   ///   than right.
@@ -314,13 +316,12 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
   /// Deliberately simple and deterministic (no device-height guessing):
   /// - **fixed** — the slot's exact configured height, so loading causes no
   ///   shift at all;
-  /// - **large anchored adaptive** — the documented 50dp floor. Google's large
-  ///   anchored adaptive banners have a documented 50dp minimum, and the
-  ///   height the SDK actually renders is not knowable client-side (ADR-073);
-  ///   reserving the floor (not a
-  ///   speculative upper estimate) keeps the pre-load reservation minimal, and
-  ///   a loaded ad simply grows the box to its exact `handle.dimensions` (60,
-  ///   90, 100, 150…);
+  /// - **anchored adaptive** — the height a banner of this width already
+  ///   rendered at ([BannerHeightMemory], ADR-079), otherwise the documented
+  ///   50dp floor. The height the SDK renders is not knowable before anything
+  ///   has loaded (ADR-073), so the first banner reserves the floor (not a
+  ///   speculative upper estimate) and grows to its exact
+  ///   `handle.dimensions`; later ones at that width start at that size;
   /// - **inline adaptive** — `0`, because the real height is unknown until
   ///   `onAdLoaded` (the plugin resolves it from `getPlatformAdSize`), so any
   ///   pre-load reservation would be a guess; pass an explicit
