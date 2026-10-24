@@ -32,6 +32,14 @@ ad_flow? Read [MIGRATION](MIGRATION.md).
   `package:ad_flow/ad_flow_testing.dart` ships `FakeAdSdk` so you can unit
   test your integration without a device.
 
+**Contents:** [Install](#1-install) · [Platform setup](#2-platform-setup) ·
+[Quick start](#3-quick-start) · [Formats](#4-formats) ·
+[Consent & privacy](#5-consent--privacy) ·
+[Remove-Ads & revenue](#6-remove-ads-kill-switch-revenue-inspector) ·
+[Testing](#7-testing-your-integration) ·
+[Next-Gen SDK](#8-next-gen-sdk-experimental-android-only) ·
+[Mediation](#9-mediation) · [Policy checklist](#10-policy-compliance-checklist)
+
 ---
 
 ## Set up with AI (copy-paste)
@@ -101,8 +109,15 @@ dependencies:
   ad_flow: ^5.4.0
 ```
 
-Requirements (from `google_mobile_ads` 9.x): Flutter ≥ 3.38.1, Dart ≥ 3.10,
-iOS 13+, Android `minSdk 24` / `compileSdk 36`.
+Requirements (from `google_mobile_ads` 9.2): Flutter ≥ 3.38.1, Dart ≥ 3.10,
+iOS 13+, Android `minSdk 24` / `compileSdk 36`. Those are the plugin's floors;
+your Flutter version may require more (Flutter 3.47 itself needs iOS 15).
+
+**Upgrading an iOS app?** If `pod install` then fails with a message about a
+"higher minimum iOS deployment version", the message is misleading: your
+`ios/Podfile.lock` still pins the old Google Mobile Ads SDK. Run
+`cd ios && pod update Google-Mobile-Ads-SDK google_mobile_ads` once and commit
+the new lock.
 
 ## 2. Platform setup
 
@@ -175,6 +190,9 @@ returns immediately; consent, ATT and ad loading all run in the **background**.
 Render your UI on the first frame — **never `await`-block it behind a splash**.
 
 ```dart
+import 'package:ad_flow/ad_flow.dart';
+import 'package:flutter/material.dart';
+
 final navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
@@ -299,55 +317,16 @@ use it for a bottom bar instead of wrapping the banner in your own `SafeArea`,
 which would keep reserving its inset after Remove-Ads collapses the banner.
 The ad is requested at the width left between the side insets.
 
-Anchored adaptive by default (Google's revenue recommendation), in Google's
-*large* size unless you ask for the classic one (`anchoredSize`, below).
-Inline adaptive, fixed sizes and collapsible banners are configured via
-`BannerConfig(kind:, anchoredSize:, fixedSize:, collapsible:, maxInlineHeight:)`.
-Client-side refresh (`minRefresh`) is **off by default**, because AdMob
-already auto-refreshes banner ad units server-side — set the rate in the
-AdMob console instead. When opted in, values under 30s are clamped.
+### Choosing a banner
 
-**Placeholder height.** A loaded banner always uses the exact live SDK
-dimensions. Before the ad loads, `AdFlowBanner` reserves:
+| Banner | Height on a phone | Best for | Set in `BannerConfig` |
+| --- | --- | --- | --- |
+| Anchored adaptive, large *(default)* | ~100–150dp, full width | pinned to the top or bottom of a screen | — |
+| Anchored adaptive, classic | ~60dp, full width | the same, when a screen cannot spare the large one | `anchoredSize: AnchoredBannerSize.classic` |
+| Inline adaptive | decided per creative; cap it with `maxInlineHeight` | inside a list or any scrolling content | `kind: BannerKind.inlineAdaptive` |
+| Fixed | the exact IAB size (320×50, 300×250, …) | one guaranteed size | `kind: BannerKind.fixed, fixedSize: …` |
 
-- **fixed** — the slot's exact configured height (no shift when it loads);
-- **anchored adaptive** — the documented **50dp floor** for the first banner
-  of a width, then the exact height the SDK reports once the ad loads
-  (Google's *large* anchored format: about 100–150dp on a phone in portrait).
-  ad_flow remembers that height, so every later banner at the same width — the
-  next screen, a reload — reserves it from its first frame and its ad lands
-  without a layout shift;
-- **inline adaptive** — **0**, because the real height is unknown until
-  `onAdLoaded`.
-
-Pass `placeholderHeight` to reserve a publisher-chosen height for a placement
-whose size you know in advance (e.g. an inline banner). `placeholderHeight: 0`
-opts into fully collapsed pre-load behaviour — no reservation until the ad
-actually loads.
-
-### Choosing a banner kind
-
-| kind | slot height | best for |
-| --- | --- | --- |
-| `anchoredAdaptive` *(default)* | one height per width/device (about 100–150dp on a phone), reported by the SDK after load | pinned to the top/bottom of a screen, outside scrolling content |
-| `inlineAdaptive` | decided per-creative by Google, known only after load; cap it with `maxInlineHeight` | inside a feed or any scrolling content |
-| `fixed` | the exact IAB size you name | you need one guaranteed size |
-
-Both adaptive kinds size their slot from the SDK's own post-load answer, so the
-box always matches what was actually rendered. For a bottom-bar placement,
-`anchoredAdaptive` is the right format; reach for
-`BannerConfig(kind: BannerKind.inlineAdaptive, maxInlineHeight: …)` when the
-banner lives in a list.
-
-> **Large anchored banners (google_mobile_ads 9.2.0+).** The default kind is
-> Google's *large* anchored adaptive format — its revenue recommendation for
-> banners pinned to the top or bottom of the screen. Before plugin 9.2.0 the
-> "large" flag was lost on the way to the platform, so these banners rendered
-> at the classic ~60dp; ad_flow now requires 9.2.0, so they render at the real
-> large size.
-
-**Need a shorter banner?** Keep it full width with the classic anchored size,
-about 60dp on a phone:
+Set it per placement, or on `AdFlowConfig.banner` for every banner:
 
 ```dart
 AdFlowBanner(
@@ -355,16 +334,41 @@ AdFlowBanner(
   safeArea: true,
   config: BannerConfig(
     adUnitId: PlatformAdUnitId(android: '…', ios: '…'),
-    anchoredSize: AnchoredBannerSize.classic,
+    anchoredSize: AnchoredBannerSize.classic, // the shorter, ~60dp banner
   ),
 )
 ```
 
-Set it on `AdFlowConfig.banner` to make it every banner's default. Two costs:
-a smaller banner usually earns less, and Google deprecated the plugin API
-behind the classic size (in google_mobile_ads 8.0) — it works in 9.x, but a
-later plugin major may remove it. A fixed 320×50 (`kind: BannerKind.fixed`)
-is the other option; it does not fill the width.
+The **large** anchored size is Google's revenue recommendation, and the
+default. Before google_mobile_ads 9.2.0 the "large" flag was lost on the way to
+the platform, so these banners rendered at the classic ~60dp; ad_flow now
+requires 9.2.0, so they render at the real large size. The **classic** size
+usually earns less, and Google deprecated the plugin API behind it (in
+google_mobile_ads 8.0) — it works in 9.x, but a later plugin major may remove
+it. Adaptive banners size their slot from the SDK's own post-load answer, so
+the box always matches what was actually rendered.
+
+Collapsible banners: `collapsible: CollapsiblePlacement.bottom` (Google demand
+only). Client-side refresh (`minRefresh`) is **off by default**, because AdMob
+already auto-refreshes banner ad units server-side — set the rate in the AdMob
+console instead. When opted in, values under 30s are clamped.
+
+**Placeholder height.** A loaded banner always uses the exact live SDK
+dimensions. Before the ad loads, `AdFlowBanner` reserves:
+
+- **fixed** — the slot's exact configured height (no shift when it loads);
+- **anchored adaptive** — the documented **50dp floor** for the first banner
+  of a width, then the exact height the SDK reports once the ad loads.
+  ad_flow remembers that height, so every later banner at the same width and
+  size — the next screen, a reload — reserves it from its first frame and its
+  ad lands without a layout shift;
+- **inline adaptive** — **0**, because the real height is unknown until
+  `onAdLoaded`.
+
+Pass `placeholderHeight` to reserve a publisher-chosen height for a placement
+whose size you know in advance (e.g. an inline banner). `placeholderHeight: 0`
+opts into fully collapsed pre-load behaviour — no reservation until the ad
+actually loads.
 
 ### Filling the slot (`backgroundColor`)
 

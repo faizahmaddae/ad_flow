@@ -102,7 +102,7 @@ not propagated for you):
     `GmaMediationUnity().setGDPRConsent(...)` / `setCCPAConsent(...)` (note:
     Google's guide currently shows a *static* `GmaMediationUnity.setGDPRConsent`
     call, which does not match the published instance API). **Caveat, verified
-    against the adapter source (1.8.x and the in-progress 1.9.0):** both
+    against the adapter source (1.8.x through 1.11.1, 2026-10-24):** both
     wrappers are **fire-and-forget** — the method body calls the generated
     platform API *without* `await`ing or returning its `Future`, so the
     `Future<void>` you get back completes on the next microtask **whether or not

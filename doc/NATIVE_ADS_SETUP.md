@@ -21,8 +21,8 @@ final ads = await AdFlow.initialize(AdFlowConfig(
 ```
 
 ```dart
-// Recommended (widget-first, since 3.0): the widget creates and owns its
-// controller — the "controller minted inside build()" footgun cannot happen.
+// Recommended: the widget creates and owns its controller — the
+// "controller minted inside build()" footgun cannot happen.
 AdFlowNativeAd(adFlow: ads)
 
 // Advanced (share the controller with other widgets): create it ONCE, never
@@ -39,12 +39,13 @@ class _MyScreenState extends State<MyScreen> {
 `AdFlowNativeAd` reserves its slot up front — the full width it is given, at
 the template's minimum height (small ≈ 90, medium ≈ 320 logical px; override
 with `placeholderHeight`) — and hosts the loaded ad in that same box, so
-nothing shifts when it arrives (5.3.1). Give it a bounded width: under an
+nothing shifts when it arrives. Give it a bounded width: under an
 unbounded one (a `Row` child without `Expanded`, a horizontal list) it lays
 out zero wide. It loads through the consent/config gate like every other
 format, and disposes the controller with the widget when `ownsController` is
-true. Native ads never auto-refresh; call `controller.reload()` if you want a
-new one.
+true. Native ads are not auto-refreshed by AdMob; they do expire
+(`NativeConfig.maxAdAge`, default 55 min) and reload then, and you can call
+`controller.reload()` for a new one at any time.
 
 ## Path B — platform factories (custom layouts)
 

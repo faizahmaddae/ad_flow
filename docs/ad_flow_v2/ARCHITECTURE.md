@@ -1,5 +1,11 @@
 # ARCHITECTURE — ad_flow v2
 
+> **Status (5.4.0, 2026-10-24).** This is the original v2 contract sketch. Its *shape* — the layers, the seam, DI, `ValueListenable` state, the policy layer — still holds. Its *details* have moved on; where they differ, **the code and `DECISIONS.md` win**. The differences that matter most:
+> - **Init is non-blocking** (ADR-032): `initialize()` returns before consent; consent and SDK init run in the background; request configuration is applied only **after** `MobileAds.initialize()` completes (ADR-028 — never concurrently, it deadlocks), and no load goes out before config is applied **and** consent is open (ADR-033/035/061/071). `forwardConsent`, when given, runs before init (ADR-065).
+> - `AdLoadState` has `AdBlocked(reason)` (ADR-055). `AdGate` answers permission only (`loadBlockReason` / `showBlockReason`); show pacing lives in the controllers, with an atomic `FullScreenAdCoordinator.tryEnter()` (ADR-024/055).
+> - App open: no cold-start latch and no `showOnColdStart`; `AppOpenConfig.triggerMode` + `showAtLaunchIfReady()` (ADR-043/067).
+> - Widgets are widget-first (`AdFlowBanner(adFlow:)` owns its controller, ADR-055) with `safeArea` and ready-made presenters (ADR-080); banners have `BannerConfig.anchoredSize` (ADR-081) and a shared `BannerHeightMemory` (ADR-079); view handles build their own widget (ADR-016).
+
 The target design. Follow it unless you find a concrete reason not to — if you deviate, record why in `DECISIONS.md`. The Dart below is a **contract sketch**: the *shape* (layers, responsibilities, method signatures) is the contract; exact names/param lists may be refined during implementation, but changes to the public contract must be reflected here and in `MIGRATION.md`.
 
 ## Design principles
@@ -118,7 +124,7 @@ class InterstitialConfig { final PlatformAdUnitId adUnitId; final FrequencyCap c
 class RewardedConfig { final PlatformAdUnitId adUnitId; final ServerSideVerification? ssv; ... }
 class RewardedInterstitialConfig { final PlatformAdUnitId adUnitId; final RewardIntroContent intro; final ServerSideVerification? ssv; ... }
 class NativeConfig { final PlatformAdUnitId adUnitId; final NativeStyleSpec style; /* template or factoryId */ ... }
-class AppOpenConfig { final PlatformAdUnitId adUnitId; final FrequencyCap cap; final Duration expiry = const Duration(hours: 4); final bool showOnColdStart = false; ... }
+class AppOpenConfig { final PlatformAdUnitId adUnitId; final FrequencyCap cap; final Duration expiry = const Duration(hours: 4); final AppOpenTriggerMode triggerMode = AppOpenTriggerMode.resumeOnly; ... } // showOnColdStart removed in 3.0 (ADR-043/067)
 
 class PlatformAdUnitId { final String? android; final String? ios; String? resolve(AdPlatform p); }
 class FrequencyCap { final int maxPerSession; final Duration minGap; final int? maxPerHour; }
@@ -164,7 +170,7 @@ class FullScreenAdCoordinator { // single source of truth: is a full-screen ad o
 class AdGate { // composed check used before every load AND show
   AdGate(this._consent, this._enabled, this._caps);
   Future<bool> canLoad(String slot);
-  Future<bool> canShow(String slot);          // also checks coordinator for app-open
+  Future<bool> canShow(String slot);          // REMOVED in 3.0: the gate answers permission only — loadBlockReason/showBlockReason (ADR-055)
 }
 ```
 
@@ -226,8 +232,8 @@ A convenience singleton accessor (e.g. `AdFlow.instance` set after `initialize`)
 
 ## Key sequences
 
-**Init:** `AdFlow.initialize(config)` → build graph → `consent.ensureCanRequestAds()`, `sdk.initialize()` **and** `sdk.updateRequestConfiguration(...)` all run in parallel (`updateRequestConfiguration` sends no ad request, so it must NOT be gated on consent — see DECISIONS ADR-026/review finding #5) → start `AppOpenAdManager` → preload configured formats. No `load()` before the gate is true.
+**Init (current, ADR-028/032/033/061):** `AdFlow.initialize(config)` → build the graph synchronously and return (non-blocking) → in the background: `consent.ensureCanRequestAds()` and `sdk.initialize()` in parallel → **after** init completes, `sdk.updateRequestConfiguration(...)` (never concurrently with init — it deadlocks the platform thread; not gated on consent, it sends no ad request) → start `AppOpenAdManager` → preload configured formats. Every load first awaits the config gate and the consent gate. *(The original sketch ran all three in parallel — that was the ADR-028 freeze.)*
 
-**Full-screen load/show:** `controller.load()` (gate.canLoad → sdk.load → state=Loaded, keep warm) … later `controller.show()` (gate.canShow → sdk handle.show → state=Showing → coordinator.enter) → on dismiss (coordinator.exit, caps.recordImpression, dispose, reload next).
+**Full-screen load/show (current):** `controller.load()` (config gate → consent gate → permission → `sdk.load` under the load watchdog → finalize (SSV) → state=`AdLoaded`, keep warm, expiry timer) … later `controller.show()` (synchronous `coordinator.tryEnter()` FIRST → live permission/cap/pacing checks, rolling back on refusal → `handle.show` → state=`AdShowing`) → on dismiss (coordinator exit, impression recorded at DISMISS for the gap — ADR-040, dispose, reload next).
 
-**App-open on foreground:** `sdk.appForegroundEvents` → `AppOpenAdManager` checks loaded & <4h & gate.canShow & !coordinator.isFullScreenAdVisible & !coldStartSuppressed → show.
+**App-open on foreground:** `sdk.appForegroundEvents` → `AppOpenAdManager` (when `triggerMode` includes resume) → the controller's `show()` checks loaded & unexpired & permitted & caps & no other full-screen ad (atomic `tryEnter`) & not returning from a view-ad click → show. The first genuine warm return shows; there is no cold-start latch (ADR-043). Cold launch is the explicit, one-shot `showAtLaunchIfReady()` (ADR-067).

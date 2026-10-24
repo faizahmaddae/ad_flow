@@ -88,9 +88,14 @@ change: anchored banners are taller (below). Upgrade notes: MIGRATION.md.
   not be combined with ad_flow 5.0, because `gma_mediation_unity` required
   google_mobile_ads 8.x. Current releases (1.11.1) support 9.x — as do all the
   official adapters.
-- README: a shorter Quick start built on the helpers above, version-history
-  notes moved out of the running text, and the 4.x/5.0 "what's new" list folded
-  into the sections it belongs to.
+- README: a table of contents; a shorter, copy-pasteable Quick start (with
+  imports) built on the helpers above; a "Choosing a banner" table covering
+  large, classic, inline and fixed; an iOS upgrade note for the `pod update`;
+  version-history notes moved out of the running text, and the 4.x/5.0
+  "what's new" list folded into the sections it belongs to.
+- NATIVE_ADS_SETUP: native ads do expire and reload (`maxAdAge`) — the page
+  said they never refresh. MEDIATION_SETUP: the Unity consent-wrapper caveat
+  re-checked against `gma_mediation_unity` 1.11.1 (still fire-and-forget).
 - Example app: uses the presenters and `safeArea: true`.
 
 Implementer note: no change to the `AdSdk` or handle interfaces.

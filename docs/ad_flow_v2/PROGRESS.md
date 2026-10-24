@@ -73,6 +73,14 @@ NOT redesigned; the work went where integrators feel it.
   18 Pro, temporary probe, reverted): classic renders **63pt** full width
   (+34 inset = 97), against 126pt for large.
 
+- **Docs pass.** README: contents line, Quick start imports, install notes
+  (Flutter's own iOS floor, the `pod update` fix), a "Choosing a banner" table
+  (large / classic / inline / fixed). NATIVE_ADS_SETUP: expiry reload stated.
+  MEDIATION_SETUP: Unity wrappers re-verified fire-and-forget in 1.11.1.
+  ARCHITECTURE.md: a status block listing where the v2 sketch no longer
+  matches the code, and the init / app-open / full-screen sequences corrected
+  (the sketch's "init + config in parallel" was the ADR-028 freeze).
+
 ## How to verify (Phase 32)
 `dart format --output=none --set-exit-if-changed .` && `flutter analyze` &&
 `flutter test` → **645 tests** green (615 + 7 height memory + 6 presenters + 7
