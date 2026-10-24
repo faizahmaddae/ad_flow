@@ -2,8 +2,8 @@
 
 ## Current phase
 **Phase 32 — 5.4.0 simpler integration + large banners (2026-10-24)** — ✅
-implemented on branch **`claude/project-review-optimization-e4c726`** (5 commits
-on top of `a155e5c`), **NOT pushed, NOT released**. Minor: additive API, one
+implemented on branch **`claude/project-review-optimization-e4c726`** (9 commits,
+from `47eb4c6`, on top of `a155e5c`), **NOT pushed, NOT released**. Minor: additive API, one
 dependency floor raise, no migration required. ADR-078, ADR-079, ADR-080.
 
 Started from Faiz's request (in Persian) to review the package for weak spots
@@ -58,12 +58,22 @@ NOT redesigned; the work went where integrators feel it.
   Remove-Ads test now asserts a zero footprint with a real 34dp inset (the
   banner stays mounted at zero size instead of leaving the tree).
 
+- **`e919b60` fix(example) — iOS `Podfile.lock` → GMA SDK 13.11.** The
+  committed lock pinned 13.3.0 (plugin 9.0.0) and 9.2.0 needs `~> 13.11`, so
+  `pod install` failed (Flutter's message blames the deployment target — it is
+  the lock). Main's CI iOS job would hit it on its next run (no pub lock in
+  CI). MIGRATION/CHANGELOG give users the one-line `pod update`.
+
 ## How to verify (Phase 32)
 `dart format --output=none --set-exit-if-changed .` && `flutter analyze` &&
 `flutter test` → **635 tests** green (615 + 7 height memory + 6 presenters + 7
 safeArea); example `flutter analyze` clean and its test green; `dart pub
-publish --dry-run` **0 warnings**. Flutter 3.47.7 / Dart 3.13.5, google_mobile_ads
-9.2.0. Not run on a device.
+publish --dry-run` **0 warnings**; pana **160/160** (0.23.10); `cd example &&
+flutter build apk --debug` ✓ and `flutter build ios --simulator --debug` ✓
+(after the lock update). Flutter 3.47.7 / Dart 3.13.5, google_mobile_ads 9.2.0.
+Not run on a device. Each `flutter build ios` on 3.47 migrates the example's
+deployment target 13.0 → 15.0 (Flutter's own iOS floor) in `Podfile` and
+`project.pbxproj`; that tool churn was reverted, not committed.
 
 ## Open items for Faiz (5.4.0)
 - Review, then push the branch / open the PR, merge (admin bypass as before),
