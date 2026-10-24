@@ -2,9 +2,18 @@
 
 ## Current phase
 **Phase 32 — 5.4.0 simpler integration + large banners (2026-10-24)** — ✅
-implemented on branch **`claude/project-review-optimization-e4c726`** (9 commits,
-from `47eb4c6`, on top of `a155e5c`), **NOT pushed, NOT released**. Minor: additive API, one
-dependency floor raise, no migration required. ADR-078, ADR-079, ADR-080.
+**SHIPPED & PUBLISHED (2026-10-24).** Minor: additive API, one dependency
+floor raise, no migration required. ADR-078, ADR-079, ADR-080, ADR-081.
+
+**Release record.** Branch `claude/project-review-optimization-e4c726`
+(`47eb4c6` … `c741ddb`) → PR [#18](https://github.com/faizahmaddae/ad_flow/pull/18);
+all 4 checks green on `c741ddb`; squash-merged to `main` with `--admin` (bypasses
+only the 1-review rule — sole maintainer; CI is not a required gate) at
+2026-10-24T17:26:25Z → squash commit **`e652914`**. Main CI on `e652914`
+(run 40116121859) ✓ all 4 jobs. Annotated tag **`v5.4.0`** (object `209d3a5`) →
+`e652914`; tag-triggered publish (run 40116595989) ✓ — **5.4.0 is live and
+Latest** on https://pub.dev/packages/ad_flow (published 2026-10-24T17:35:18Z).
+No GitHub Release (none for 5.3.x either).
 
 Started from Faiz's request (in Persian) to review the package for weak spots
 and make it simpler, easier to integrate, extensible and better for revenue.
@@ -109,8 +118,8 @@ deployment target 13.0 → 15.0 (Flutter's own iOS floor) in `Podfile` and
 `project.pbxproj`; that tool churn was reverted, not committed.
 
 ## Open items for Faiz (5.4.0)
-- Review, then push the branch / open the PR, merge (admin bypass as before),
-  tag `v5.4.0` to publish (tag-triggered workflow). Nothing was pushed.
+- ~~Review, push, PR, merge, tag `v5.4.0`~~ — **done 2026-10-24** (record
+  under Current phase). The local branch is merged and can be deleted.
 - **Look at your own apps once:** the bottom banner is now ~2× taller on
   phones (126pt on a 402pt-wide iPhone, measured in the simulator). Check
   your apps' layouts; use `kind: BannerKind.fixed` where a screen cannot
