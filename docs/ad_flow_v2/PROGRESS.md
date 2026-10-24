@@ -71,16 +71,33 @@ safeArea); example `flutter analyze` clean and its test green; `dart pub
 publish --dry-run` **0 warnings**; pana **160/160** (0.23.10); `cd example &&
 flutter build apk --debug` ✓ and `flutter build ios --simulator --debug` ✓
 (after the lock update). Flutter 3.47.7 / Dart 3.13.5, google_mobile_ads 9.2.0.
-Not run on a device. Each `flutter build ios` on 3.47 migrates the example's
+
+**Simulator check (iPhone 18 Pro, 402×874pt, iOS simulator, Google test ads),
+2026-10-24**, with a temporary size probe in the example (logged the bottom
+banner's measured height on every change; reverted, not committed) and a
+temporary second screen with its own `AdFlowBanner(adFlow: ads, safeArea: true)`:
+- large anchored banner = **126pt** (the large formula for a 402pt width;
+  classic would be ~63pt), + 34pt home-indicator inset → 160pt bar;
+- first banner of the session: 84 (50 floor + 34) → 160 when the ad loads —
+  the expected one-time growth;
+- second screen: **160 from its first frame**, its own ad then loaded (second
+  banner impression) with **no size change** — ADR-079 confirmed;
+- Remove-Ads off → **0** (inset collapsed with the banner, no empty strip);
+  back on → **0 → 160 directly**, the reloaded ad landed without a change.
+UMP showed its own IDFA explainer + Apple's ATT prompt (UMP-driven mode,
+`useExplainer = false` for the run). Not run on a physical device.
+
+Each `flutter build ios` on 3.47 migrates the example's
 deployment target 13.0 → 15.0 (Flutter's own iOS floor) in `Podfile` and
 `project.pbxproj`; that tool churn was reverted, not committed.
 
 ## Open items for Faiz (5.4.0)
 - Review, then push the branch / open the PR, merge (admin bypass as before),
   tag `v5.4.0` to publish (tag-triggered workflow). Nothing was pushed.
-- **Look at a real device once:** the bottom banner is now ~2× taller on
-  phones (large anchored, from plugin 9.2.0). Check your apps' layouts; use
-  `kind: BannerKind.fixed` where a screen cannot spare it.
+- **Look at your own apps once:** the bottom banner is now ~2× taller on
+  phones (126pt on a 402pt-wide iPhone, measured in the simulator). Check
+  your apps' layouts; use `kind: BannerKind.fixed` where a screen cannot
+  spare it.
 - Still open from 5.3.1: the show-on-every-`AdLoaded` listener loop (design
   question); `ageRestrictedTreatment` (now available at the 9.2.0 floor, still
   a separate decision); the plugin's own `AdPreloader` (9.1.0+) deliberately
