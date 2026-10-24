@@ -1,3 +1,84 @@
+## 5.4.0
+
+A **simpler integration, bigger banners** release. ad_flow now requires
+google_mobile_ads 9.2.0, which finally serves Google's large anchored banner
+and fixes an iOS crash; banners stop jumping each time a screen with one
+opens; and the two snippets every app copied are now one argument each.
+**Additive — every existing call site compiles unchanged.** One visible
+change: anchored banners are taller (below). Upgrade notes: MIGRATION.md.
+
+### CHANGED
+
+- **google_mobile_ads `^9.2.0` is now the minimum** (was `^9.0.0`), with the
+  same Flutter, Dart, Android and iOS requirements. Every current
+  `gma_mediation_*` adapter already needs `^9.1.0`. 9.2.0 fixes three things
+  that reach ad_flow apps:
+  - **Anchored banners are Google's large format for real** — about 100–150dp
+    tall on a phone in portrait, instead of ~60dp. ad_flow has always requested
+    the large size (Google's recommendation for banners pinned to the top or
+    bottom of the screen), but plugins up to 9.1 lost the "large" flag on the
+    way to the platform. Expect a taller bottom banner; if a screen cannot
+    spare the height, use `kind: BannerKind.fixed` (320×50) for that
+    placement.
+  - **An iOS crash after `AdFlow.dispose()` is gone.** With app-open
+    configured, the plugin's app-state notifier called a released callback on
+    the next background or foreground transition.
+  - **UMP consent forms present correctly in scene-based iOS apps.**
+
+### ADDED
+
+- **Ready-made presenters.** `RewardedIntroScreen.presenter(navigatorKey)`,
+  `AttExplainerScreen.presenter(navigatorKey)` and
+  `ConsentExplainerScreen.presenter(navigatorKey)` replace the presenter
+  closures every app wrote by hand. They read the key when the screen is due
+  (the package still never holds a `BuildContext`) and skip quietly when no
+  navigator is mounted — no `currentContext!` crash.
+
+  ```dart
+  rewardedIntroPresenter: RewardedIntroScreen.presenter(navigatorKey),
+  ```
+
+- **`AdFlowBanner(safeArea: true)`** for the bottom bar. It keeps the banner
+  clear of the home indicator and notches, and the inset collapses together
+  with the banner when ads are disabled — a `SafeArea` around the banner kept
+  reserving its inset after Remove-Ads, which is why the README used to wrap
+  the whole bar in a `ValueListenableBuilder`. The ad is requested at the width
+  left between the side insets.
+
+  ```dart
+  bottomNavigationBar: AdFlowBanner(adFlow: ads, safeArea: true),
+  ```
+
+- `BannerHeightMemory` and `BannerAdController(heightMemory:)` — advanced;
+  `AdFlow` wires them for you (next section).
+
+### FIXED
+
+- **Banners no longer jump on every screen.** An anchored banner's height is
+  only known once its ad has loaded, so each newly mounted banner reserved the
+  50dp floor and then grew — by 50–100dp now that it is the large format — on
+  every screen that showed one: a layout shift at the moment an ad appears.
+  ad_flow now remembers the height a banner rendered at for its width, and
+  every later banner at that width (the next screen, a reload, a rotation
+  back) reserves it from its first frame, so its ad lands without moving
+  anything. The first banner of a width in a session still grows once. A slot
+  whose ad is dropped while ads stay on (consent closed, a failed reload) now
+  keeps its real height instead of shrinking to 50dp; Remove-Ads still
+  collapses it to nothing.
+
+### DOCS
+
+- **Unity mediation is no longer blocked.** MEDIATION_SETUP said Unity could
+  not be combined with ad_flow 5.0, because `gma_mediation_unity` required
+  google_mobile_ads 8.x. Current releases (1.11.1) support 9.x — as do all the
+  official adapters.
+- README: a shorter Quick start built on the helpers above, version-history
+  notes moved out of the running text, and the 4.x/5.0 "what's new" list folded
+  into the sections it belongs to.
+- Example app: uses the presenters and `safeArea: true`.
+
+Implementer note: no change to the `AdSdk` or handle interfaces.
+
 ## 5.3.1
 
 A **native ad layout and reliability** patch: the native ad's slot keeps its
