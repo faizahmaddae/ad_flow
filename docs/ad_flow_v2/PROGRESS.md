@@ -69,7 +69,9 @@ NOT redesigned; the work went where integrators feel it.
   (default `large`): classic = full width, ~60dp, through the plugin's
   deprecated-but-working classic queries (`isLarge = false` on the wire);
   carried on load and refresh; `BannerHeightMemory` keyed by (width, size).
-  +10 tests (6 controller/widget, 4 seam), neuter-verified.
+  +10 tests (6 controller/widget, 4 seam), neuter-verified. Simulator (iPhone
+  18 Pro, temporary probe, reverted): classic renders **63pt** full width
+  (+34 inset = 97), against 126pt for large.
 
 ## How to verify (Phase 32)
 `dart format --output=none --set-exit-if-changed .` && `flutter analyze` &&
