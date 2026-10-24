@@ -228,15 +228,15 @@ void main() {
     });
   });
 
-  // ADR-073 / issue #15. google_mobile_ads 9.0.0 cannot round-trip the "large"
-  // bit of an anchored adaptive size: `AnchoredAdaptiveBannerAdSize` has no
-  // `isLarge` field, the Dart encoder writes only (orientation, width), and
-  // both native decoders rebuild it with `isLarge = false`. So Dart holds the
-  // LARGE height while the AdView the ad renders in is the CLASSIC one — on a
-  // 426x952dp phone, 67dp of ad inside a 133dp box, with the remainder showing
-  // the app's own surface through the transparent platform view. The seam must
-  // size the handle from the platform's own post-load answer, not from the
-  // AdSize it asked for.
+  // ADR-073 / issue #15. Up to google_mobile_ads 9.1 the plugin could not
+  // round-trip the "large" bit of an anchored adaptive size: the Dart encoder
+  // wrote only (orientation, width), and both native decoders rebuilt it with
+  // `isLarge = false`. So Dart held the LARGE height while the AdView the ad
+  // rendered in was the CLASSIC one — on a 426x952dp phone, 67dp of ad inside
+  // a 133dp box, with the remainder showing the app's own surface through the
+  // transparent platform view. 9.2.0 (the floor since ADR-078) encodes the bit,
+  // but the seam still sizes the handle from the platform's own post-load
+  // answer, never from the AdSize it asked for — these tests keep it that way.
   group('anchored adaptive size reconciliation (ADR-073)', () {
     Future<BannerHandle> loadAnchored(GmaAdSdk sdk, {int width = 426}) async {
       final future = sdk.loadBanner(

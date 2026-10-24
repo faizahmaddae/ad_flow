@@ -11,7 +11,7 @@ console setup.)
 [![google_mobile_ads](https://img.shields.io/badge/google__mobile__ads-9.x-green.svg)](https://pub.dev/packages/google_mobile_ads)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Built on `google_mobile_ads ^9.0.0` (Android + iOS). Upgrading from an older
+Built on `google_mobile_ads ^9.2.0` (Android + iOS). Upgrading from an older
 ad_flow? Read [MIGRATION](MIGRATION.md).
 
 **What you get for free:**
@@ -303,11 +303,9 @@ live SDK dimensions. Before the ad loads, `AdFlowBanner` reserves a minimal,
 deterministic height per kind:
 
 - **fixed** — the slot's exact configured height (no shift when it loads);
-- **large anchored adaptive** — the documented **50dp floor** (Google's large
-  anchored adaptive banners have a documented 50dp minimum), then the box takes
-  the exact height the SDK reports once the ad loads — typically 60–70dp on a
-  phone. See the upstream note below for why it is not the 100–150dp the
-  *large* format would imply;
+- **anchored adaptive** — the documented **50dp floor**, then the exact height
+  the SDK reports once the ad loads (Google's *large* anchored format: about
+  100–150dp on a phone in portrait);
 - **inline adaptive** — **0**, because the real height is unknown until
   `onAdLoaded`.
 
@@ -320,7 +318,7 @@ actually loads.
 
 | kind | slot height | best for |
 | --- | --- | --- |
-| `anchoredAdaptive` *(default)* | one height per width/device, but only the SDK can tell you it — read it after load, never pre-compute it | pinned to the top/bottom of a screen, outside scrolling content |
+| `anchoredAdaptive` *(default)* | one height per width/device (about 100–150dp on a phone), reported by the SDK after load | pinned to the top/bottom of a screen, outside scrolling content |
 | `inlineAdaptive` | decided per-creative by Google, known only after load; cap it with `maxInlineHeight` | inside a feed or any scrolling content |
 | `fixed` | the exact IAB size you name | you need one guaranteed size |
 
@@ -329,13 +327,13 @@ box always matches what was actually rendered. For a bottom-bar placement,
 `anchoredAdaptive` is the right format; reach for
 `inlineAdaptive(maxInlineHeight: …)` when the banner lives in a list.
 
-> **Upstream limitation (google_mobile_ads 9.0.0).** Google's *large* anchored
-> adaptive format cannot currently be requested from Flutter at all: the
-> plugin's codec drops the "large" flag on its way to the platform, so every
-> anchored request degrades to the classic size. ad_flow sizes the slot from
-> what the platform really rendered, so the banner is correct either way — but
-> there is deliberately no standard-vs-large option, because it would be inert.
-> See ADR-073.
+> **Large anchored banners (google_mobile_ads 9.2.0+).** The default kind is
+> Google's *large* anchored adaptive format — its revenue recommendation for
+> banners pinned to the top or bottom of the screen. Before plugin 9.2.0 the
+> "large" flag was lost on the way to the platform, so these banners rendered
+> at the classic ~60dp; ad_flow now requires 9.2.0, so they render at the real
+> large size. If a screen cannot spare that much height, set
+> `kind: BannerKind.fixed` (320×50) in that placement's `BannerConfig`.
 
 ### Filling the slot (`backgroundColor`)
 
