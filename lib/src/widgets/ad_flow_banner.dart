@@ -207,9 +207,9 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
     return LayoutBuilder(
       builder: (context, constraints) {
         // [AdFlowBanner.safeArea]: the system insets, read only when asked
-        // for and only if there is a MediaQuery — a banner pumped under a bare
-        // Directionality (an app's own widget test) must keep working, so this
-        // is not a SafeArea (which requires one).
+        // for. Read HERE, once, because the width the ad is requested at needs
+        // the same values; applied below with a plain Padding. `maybe…` so the
+        // banner never requires a MediaQuery ancestor.
         final insets = widget.safeArea
             ? MediaQuery.maybePaddingOf(context) ?? EdgeInsets.zero
             : EdgeInsets.zero;

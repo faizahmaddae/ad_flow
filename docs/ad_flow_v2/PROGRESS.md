@@ -48,8 +48,9 @@ NOT redesigned; the work went where integrators feel it.
   applies `MediaQuery.maybePaddingOf` (only when on) INSIDE the enabled branch
   — Remove-Ads collapses inset + banner together — subtracts the side insets
   from the requested width, and is a constant `Padding` so toggling it never
-  re-inflates the `AdWidget`. Two first attempts failed instructively (SKILL §6
-  +2 traps). 13 tests, neuter-verified.
+  re-inflates the `AdWidget`. The first attempt (a listener above the
+  `LayoutBuilder`) failed 56 tests and was first misdiagnosed — SKILL §6 +2
+  traps. 13 tests, neuter-verified.
 - **`27c3125` docs — README/example/CHANGELOG/MIGRATION, version 5.4.0.**
   Quick start = initialize + one presenter + `AdFlowBanner(adFlow: ads,
   safeArea: true)`; version-history noise out of the running text; the 4.x/5.0

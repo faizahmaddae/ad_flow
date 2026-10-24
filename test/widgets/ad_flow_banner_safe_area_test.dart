@@ -32,7 +32,7 @@ void main() {
       textDirection: TextDirection.ltr,
       child: Align(alignment: Alignment.bottomCenter, child: child),
     );
-    if (padding == null) return aligned; // no MediaQuery at all
+    if (padding == null) return aligned; // the test view's own: no insets
     return MediaQuery(
       data: MediaQueryData(size: const Size(800, 600), padding: padding),
       child: aligned,
@@ -177,8 +177,8 @@ void main() {
     ads.dispose();
   });
 
-  testWidgets('no MediaQuery above it: safeArea simply has no inset to '
-      'apply, and nothing throws', (tester) async {
+  testWidgets('with no system insets, safeArea adds nothing and nothing '
+      'throws', (tester) async {
     final ads = await boot();
     await tester.pumpWidget(host(AdFlowBanner(adFlow: ads, safeArea: true)));
     await tester.pumpAndSettle();
