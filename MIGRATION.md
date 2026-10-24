@@ -7,6 +7,14 @@ know, and two optional cleanups:
    Dart, Android and iOS minimums. If you pin `google_mobile_ads` yourself, raise
    it; if you use mediation, use current `gma_mediation_*` releases (they all
    need `^9.1.0` already).
+
+   **iOS:** if `flutter build ios` then stops with *"The pod
+   "Google-Mobile-Ads-SDK" required by the plugin "google_mobile_ads" requires
+   a higher minimum iOS deployment version than the plugin's reported minimum
+   version"*, the message is misleading: your committed `ios/Podfile.lock`
+   still pins the SDK the old plugin used (13.3), and 9.2.0 needs `~> 13.11`.
+   Run `cd ios && pod update Google-Mobile-Ads-SDK google_mobile_ads` and
+   commit the new lock.
 2. **Anchored banners get taller.** Plugin 9.2.0 finally serves Google's
    *large* anchored adaptive banner — the size ad_flow has always requested —
    so a bottom banner is about 100–150dp on a phone instead of ~60dp. More

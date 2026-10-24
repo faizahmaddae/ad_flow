@@ -25,6 +25,11 @@ change: anchored banners are taller (below). Upgrade notes: MIGRATION.md.
     the next background or foreground transition.
   - **UMP consent forms present correctly in scene-based iOS apps.**
 
+  **iOS build note:** an app with a committed `ios/Podfile.lock` from the old
+  plugin fails `pod install` (Flutter reports it as a "higher minimum iOS
+  deployment version" — misleading). Run
+  `cd ios && pod update Google-Mobile-Ads-SDK google_mobile_ads` once.
+
 ### ADDED
 
 - **Ready-made presenters.** `RewardedIntroScreen.presenter(navigatorKey)`,
