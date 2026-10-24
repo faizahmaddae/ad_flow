@@ -411,11 +411,44 @@ class GmaAdSdk implements AdSdk {
 
   Future<gma.AdSize> _resolveBannerAdSize(BannerSizeSpec spec) async {
     switch (spec) {
-      case AnchoredAdaptiveSizeSpec(:final width, :final orientation):
+      case AnchoredAdaptiveSizeSpec(
+        :final width,
+        :final orientation,
+        size: AnchoredBannerSize.large,
+      ):
         final gma.AdSize? size = orientation == null
             ? await gma.AdSize.getLargeAnchoredAdaptiveBannerAdSize(width)
             : await gma
                   .AdSize.getLargeAnchoredAdaptiveBannerAdSizeWithOrientation(
+                toGmaOrientation(orientation),
+                width,
+              );
+        if (size == null) {
+          throw const AdFlowError(
+            AdFlowErrorKind.loadFailed,
+            'Could not resolve an anchored adaptive banner size for this '
+            'device/width.',
+          );
+        }
+        return size;
+      // The opt-in classic size (ADR-081). Both queries are deprecated upstream
+      // in favour of the large size (plugin 8.0) but still supported in 9.x,
+      // and they encode `isLarge = false`, so the platform builds the classic
+      // view. Per-line ignores, not file-wide, so a NEW deprecation still
+      // shows. Goes when the plugin removes them.
+      case AnchoredAdaptiveSizeSpec(
+        :final width,
+        :final orientation,
+        size: AnchoredBannerSize.classic,
+      ):
+        final gma.AdSize? size = orientation == null
+            ? await gma
+                  // ignore: deprecated_member_use
+                  .AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
+                width,
+              )
+            // ignore: deprecated_member_use
+            : await gma.AdSize.getAnchoredAdaptiveBannerAdSize(
                 toGmaOrientation(orientation),
                 width,
               );

@@ -64,10 +64,17 @@ NOT redesigned; the work went where integrators feel it.
   the lock). Main's CI iOS job would hit it on its next run (no pub lock in
   CI). MIGRATION/CHANGELOG give users the one-line `pod update`.
 
+- **Classic anchored option (ADR-081, Faiz's decision after seeing the large
+  banner).** `AnchoredBannerSize { large, classic }` + `BannerConfig.anchoredSize`
+  (default `large`): classic = full width, ~60dp, through the plugin's
+  deprecated-but-working classic queries (`isLarge = false` on the wire);
+  carried on load and refresh; `BannerHeightMemory` keyed by (width, size).
+  +10 tests (6 controller/widget, 4 seam), neuter-verified.
+
 ## How to verify (Phase 32)
 `dart format --output=none --set-exit-if-changed .` && `flutter analyze` &&
-`flutter test` → **635 tests** green (615 + 7 height memory + 6 presenters + 7
-safeArea); example `flutter analyze` clean and its test green; `dart pub
+`flutter test` → **645 tests** green (615 + 7 height memory + 6 presenters + 7
+safeArea + 10 classic anchored); example `flutter analyze` clean and its test green; `dart pub
 publish --dry-run` **0 warnings**; pana **160/160** (0.23.10); `cd example &&
 flutter build apk --debug` ✓ and `flutter build ios --simulator --debug` ✓
 (after the lock update). Flutter 3.47.7 / Dart 3.13.5, google_mobile_ads 9.2.0.
@@ -98,6 +105,10 @@ deployment target 13.0 → 15.0 (Flutter's own iOS floor) in `Podfile` and
   phones (126pt on a 402pt-wide iPhone, measured in the simulator). Check
   your apps' layouts; use `kind: BannerKind.fixed` where a screen cannot
   spare it.
+- The classic anchored option rests on a plugin API deprecated since 8.0; on
+  every plugin bump check it still exists (`getCurrentOrientationAnchoredAdaptiveBannerAdSize`,
+  `getAnchoredAdaptiveBannerAdSize`). Its removal makes ADR-081's option a
+  breaking change to plan for.
 - Still open from 5.3.1: the show-on-every-`AdLoaded` listener loop (design
   question); `ageRestrictedTreatment` (now available at the 9.2.0 floor, still
   a separate decision); the plugin's own `AdPreloader` (9.1.0+) deliberately

@@ -33,16 +33,24 @@ import '../seam/ad_sdk_types.dart';
 /// screen height, so a slot resized vertically at the same width can be a few
 /// dp off until its own ad loads and the box takes the exact size.
 final class BannerHeightMemory {
-  final _heights = <int, double>{};
+  final _heights = <(int, AnchoredBannerSize), double>{};
 
-  /// The height an anchored adaptive banner last rendered at when requested
-  /// at [width], or null if none has loaded at that width yet.
-  double? heightFor(int width) => _heights[width];
+  /// The height an anchored adaptive banner of [size] last rendered at when
+  /// requested at [width], or null if none has loaded at that width yet. The
+  /// large and classic sizes are remembered apart.
+  double? heightFor(
+    int width, {
+    AnchoredBannerSize size = AnchoredBannerSize.large,
+  }) => _heights[(width, size)];
 
-  /// Records that a banner requested at [width] rendered [height] tall.
-  /// A non-positive [height] is ignored.
-  void remember(int width, double height) {
-    if (height > 0) _heights[width] = height;
+  /// Records that a banner of [size] requested at [width] rendered [height]
+  /// tall. A non-positive [height] is ignored.
+  void remember(
+    int width,
+    double height, {
+    AnchoredBannerSize size = AnchoredBannerSize.large,
+  }) {
+    if (height > 0) _heights[(width, size)] = height;
   }
 }
 
@@ -208,7 +216,9 @@ class BannerAdController implements AdController {
   /// What [BannerHeightMemory] knows for the current width, if anything.
   double? get _rememberedHeight {
     final width = _width;
-    return width == null ? null : _heightMemory.heightFor(width);
+    return width == null
+        ? null
+        : _heightMemory.heightFor(width, size: _config.anchoredSize);
   }
 
   /// Teaches [BannerHeightMemory] the height [handle] rendered at, requested at
@@ -217,7 +227,11 @@ class BannerAdController implements AdController {
   /// would be a guess (ADR-070).
   void _rememberHeight(BannerHandle handle, int? width) {
     if (_config.kind != BannerKind.anchoredAdaptive || width == null) return;
-    _heightMemory.remember(width, handle.dimensions.value.height);
+    _heightMemory.remember(
+      width,
+      handle.dimensions.value.height,
+      size: _config.anchoredSize,
+    );
   }
 
   /// The width the currently loaded ad was actually REQUESTED at, or null if
@@ -314,7 +328,10 @@ class BannerAdController implements AdController {
           );
           return;
         case BannerKind.anchoredAdaptive:
-          size = AnchoredAdaptiveSizeSpec(width: _width!);
+          size = AnchoredAdaptiveSizeSpec(
+            width: _width!,
+            size: _config.anchoredSize,
+          );
         case BannerKind.inlineAdaptive:
           size = InlineAdaptiveSizeSpec(
             width: _width!,
@@ -589,7 +606,7 @@ class BannerAdController implements AdController {
     final width = _width;
     return switch (_config.kind) {
       BannerKind.anchoredAdaptive when width != null =>
-        AnchoredAdaptiveSizeSpec(width: width),
+        AnchoredAdaptiveSizeSpec(width: width, size: _config.anchoredSize),
       BannerKind.inlineAdaptive when width != null => InlineAdaptiveSizeSpec(
         width: width,
         maxHeight: _config.maxInlineHeight,

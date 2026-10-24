@@ -18,8 +18,8 @@ change: anchored banners are taller (below). Upgrade notes: MIGRATION.md.
     the large size (Google's recommendation for banners pinned to the top or
     bottom of the screen), but plugins up to 9.1 lost the "large" flag on the
     way to the platform. Expect a taller bottom banner; if a screen cannot
-    spare the height, use `kind: BannerKind.fixed` (320×50) for that
-    placement.
+    spare the height, set `anchoredSize: AnchoredBannerSize.classic` (below)
+    to keep it full width at about 60dp.
   - **An iOS crash after `AdFlow.dispose()` is gone.** With app-open
     configured, the plugin's app-state notifier called a released callback on
     the next background or foreground transition.
@@ -52,6 +52,17 @@ change: anchored banners are taller (below). Upgrade notes: MIGRATION.md.
 
   ```dart
   bottomNavigationBar: AdFlowBanner(adFlow: ads, safeArea: true),
+  ```
+
+- **`BannerConfig.anchoredSize`** — `AnchoredBannerSize.large` (the default)
+  or `AnchoredBannerSize.classic`: the full-width anchored banner at its
+  classic ~60dp height, for screens that cannot spare the large one. Per
+  placement or as the global default. It usually earns less, and Google
+  deprecated the plugin API behind it in google_mobile_ads 8.0 (it works in
+  9.x; a later plugin major may remove it).
+
+  ```dart
+  BannerConfig(adUnitId: …, anchoredSize: AnchoredBannerSize.classic)
   ```
 
 - `BannerHeightMemory` and `BannerAdController(heightMemory:)` — advanced;

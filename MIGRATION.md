@@ -18,8 +18,10 @@ know, and two optional cleanups:
 2. **Anchored banners get taller.** Plugin 9.2.0 finally serves Google's
    *large* anchored adaptive banner — the size ad_flow has always requested —
    so a bottom banner is about 100–150dp on a phone instead of ~60dp. More
-   pixels, Google's recommended format. If a screen cannot spare the height,
-   set `kind: BannerKind.fixed` (320×50) in that placement's `BannerConfig`.
+   pixels, Google's recommended format. To keep the old look — full width,
+   about 60dp — set `anchoredSize: AnchoredBannerSize.classic` in that
+   placement's `BannerConfig` (or in `AdFlowConfig.banner` for every banner).
+   It usually earns less, and the plugin API behind it is deprecated upstream.
 3. *(Optional)* **Replace hand-written presenters** with the ready-made ones:
 
    ```dart
