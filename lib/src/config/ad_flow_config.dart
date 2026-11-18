@@ -790,14 +790,6 @@ class AdFlowConfig {
   String? appOpenAdUnitId(AdPlatform platform) =>
       _effective(appOpen?.adUnitId, TestAdUnitIds.appOpen, platform);
 
-  /// The request configuration to push to the SDK at initialization.
-  AdRequestConfig toRequestConfig() => AdRequestConfig(
-    testDeviceIds: testDeviceIds.isEmpty ? null : testDeviceIds,
-    maxAdContentRating: maxAdContentRating,
-    tagForChildDirectedTreatment: tagForChildDirectedTreatment,
-    tagForUnderAgeOfConsent: tagForUnderAgeOfConsent,
-  );
-
   /// Test-mode substitution: a configured slot resolves to the sample ID
   /// while [usesTestAds]. An unconfigured slot stays null — it never
   /// loads, so it must not resolve to anything (v1 bug, ADR-012).
@@ -835,3 +827,12 @@ String? resolveAdUnitId({
   final placeholder = configured.android == null && configured.ios == null;
   return own != null || placeholder ? testIds.resolve(platform) : null;
 }
+
+/// The request configuration [config] pushes to the SDK at initialization
+/// (internal: hidden from the public barrel, like [resolveAdUnitId]).
+AdRequestConfig requestConfigFrom(AdFlowConfig config) => AdRequestConfig(
+  testDeviceIds: config.testDeviceIds.isEmpty ? null : config.testDeviceIds,
+  maxAdContentRating: config.maxAdContentRating,
+  tagForChildDirectedTreatment: config.tagForChildDirectedTreatment,
+  tagForUnderAgeOfConsent: config.tagForUnderAgeOfConsent,
+);

@@ -23,7 +23,8 @@ Most apps change a few lines — and delete the wrapper code they wrote around
 | `BannerConfig(minRefresh: …)` | remove; set the refresh rate on the ad unit in the AdMob console |
 | `ads.setBlockingViewAdVisible(…)` | remove |
 | `skipConsentPrimerIfAttDenied: …` | remove |
-| `import … AdGate / StoredFrequencyCapPolicy / FullScreenAdCoordinator / RetryPolicy` | import `package:ad_flow/ad_flow_testing.dart` |
+| `AdGate`, `StoredFrequencyCapPolicy`, `FullScreenAdCoordinator`, `RetryPolicy`, `InMemoryKeyValueStore`, `FullScreenAdControllerBase`, seam handles/events (`InterstitialHandle`, `AdShowedEvent`, …) | import `package:ad_flow/ad_flow_testing.dart` (in tests) |
+| `SharedPrefsKeyValueStore()` / `config.toRequestConfig()` | remove: omit `store:` for the default store; the request configuration is internal |
 | your own `FrequencyCapPolicy` / `FullScreenAdController` | add `allowsNow` / `canShow` |
 
 Also delete a custom `ConsentGateway` written only to ask ATT after GDPR (5.5.0

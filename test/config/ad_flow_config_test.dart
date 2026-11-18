@@ -353,7 +353,7 @@ void main() {
       expect(base == differentAge, isFalse);
     });
 
-    test('toRequestConfig maps config to seam AdRequestConfig', () {
+    test('requestConfigFrom maps config to seam AdRequestConfig', () {
       const config = AdFlowConfig(
         testMode: false,
         testDeviceIds: ['dev-1'],
@@ -361,7 +361,7 @@ void main() {
         tagForChildDirectedTreatment: false,
         tagForUnderAgeOfConsent: true,
       );
-      final rc = config.toRequestConfig();
+      final rc = requestConfigFrom(config);
       expect(rc.testDeviceIds, ['dev-1']);
       expect(rc.maxAdContentRating, MaxContentRating.t);
       expect(rc.tagForChildDirectedTreatment, isFalse);
@@ -370,7 +370,7 @@ void main() {
 
     test('empty testDeviceIds maps to null (leave SDK default untouched)', () {
       expect(
-        const AdFlowConfig(testMode: false).toRequestConfig().testDeviceIds,
+        requestConfigFrom(const AdFlowConfig(testMode: false)).testDeviceIds,
         isNull,
       );
     });

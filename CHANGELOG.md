@@ -29,9 +29,16 @@ mapping (most apps change a handful of lines and delete their wrappers).
   once when no consent is stored yet or ads are disabled, and completes when
   the ad closes. The slot now preloads at startup. `AppOpenTriggerMode` /
   `triggerMode` → `AppOpenConfig.showOnResume` (default true).
-- `AdGate`, `FrequencyCapPolicy`, `StoredFrequencyCapPolicy`,
-  `FullScreenAdCoordinator` and `RetryPolicy` moved from
-  `package:ad_flow/ad_flow.dart` to `package:ad_flow/ad_flow_testing.dart`.
+- **`package:ad_flow/ad_flow.dart` exports only what app code uses** — 71
+  types (5.x: 105). Moved to `package:ad_flow/ad_flow_testing.dart`: `AdGate`,
+  `FrequencyCapPolicy`, `StoredFrequencyCapPolicy`, `FullScreenAdCoordinator`,
+  `RetryPolicy`, `InMemoryKeyValueStore`, `FullScreenAdControllerBase`,
+  `BannerHeightMemory`, and the seam's handles, events and load specs
+  (`InterstitialHandle`, `BannerHandle`, `AdShowedEvent`, `BannerLoadSpec`,
+  …). `AdSdk` itself stays, as the `sdk:` injection type. Internal now:
+  `SharedPrefsKeyValueStore` (the default store) and
+  `AdFlowConfig.toRequestConfig()`. None of the nine apps on ad_flow used
+  these outside tests.
 - An expired warm full-screen ad is replaced as soon as `canShow` sees it,
   and a show refused after holding the slot past the ad's age (a long rewarded
   intro) drops it — before, only `show()` or the expiry timer replaced it, and
@@ -50,7 +57,9 @@ mapping (most apps change a handful of lines and delete their wrappers).
 If you implement or construct these yourself (custom test doubles, a custom
 cap policy): `FullScreenAdController` gained `canShow`; `FrequencyCapPolicy`
 gained `allowsNow`; `AdGate` lost `settleConsentForwarding:`;
-`FullScreenAdCoordinator` lost `blockingViewAdVisible`.
+`FullScreenAdCoordinator` lost `blockingViewAdVisible`. Implementing `AdSdk`
+or building a controller by hand needs `package:ad_flow/ad_flow_testing.dart`
+for the handle, event and load-spec types.
 
 ### REMOVED
 

@@ -457,7 +457,7 @@ class AdFlow {
     if (_disposed || _requestConfigApplied) return;
     try {
       await _sdk
-          .updateRequestConfiguration(_config.toRequestConfig())
+          .updateRequestConfiguration(requestConfigFrom(_config))
           .timeout(_initTimeout);
       _requestConfigApplied = true;
       // Config is in place — possibly LATE (init completed after the first

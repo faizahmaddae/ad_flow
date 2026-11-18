@@ -1,10 +1,11 @@
 # ARCHITECTURE — ad_flow v2
 
-> **Status (5.4.0, 2026-10-24).** This is the original v2 contract sketch. Its *shape* — the layers, the seam, DI, `ValueListenable` state, the policy layer — still holds. Its *details* have moved on; where they differ, **the code and `DECISIONS.md` win**. The differences that matter most:
-> - **Init is non-blocking** (ADR-032): `initialize()` returns before consent; consent and SDK init run in the background; request configuration is applied only **after** `MobileAds.initialize()` completes (ADR-028 — never concurrently, it deadlocks), and no load goes out before config is applied **and** consent is open (ADR-033/035/061/071). `forwardConsent`, when given, runs before init (ADR-065).
+> **Status (6.0.0, 2026-11-18).** This is the original v2 contract sketch. Its *shape* — the layers, the seam, DI, `ValueListenable` state, the policy layer — still holds. Its *details* have moved on; where they differ, **the code and `DECISIONS.md` win**. The differences that matter most:
+> - **Init is non-blocking** (ADR-032): `initialize()` returns before consent; consent and SDK init run in the background; request configuration is applied only **after** `MobileAds.initialize()` completes (ADR-028 — never concurrently, it deadlocks), and no load goes out before config is applied **and** consent is open (ADR-033/035/061/071).
 > - `AdLoadState` has `AdBlocked(reason)` (ADR-055). `AdGate` answers permission only (`loadBlockReason` / `showBlockReason`); show pacing lives in the controllers, with an atomic `FullScreenAdCoordinator.tryEnter()` (ADR-024/055).
 > - App open: no cold-start latch; `AppOpenConfig.showOnResume` + `AppOpenAdManager.showAtLaunch(maxWait:)` (ADR-043/067/083).
 > - **6.0 (ADR-083):** `show()` completes when the ad CLOSES and returns `AdShowResult`; `canShow` is a sync hint; slot getters are nullable; `testMode` null = test ads in debug; `AdFlowConfig.test()`, `forwardConsent`, the request-config policy enum, runtime SSV, client-side banner refresh and `setBlockingViewAdVisible` are gone. The contract sketch below predates all of this — where it disagrees, the code wins.
+> - **Two libraries (6.0):** `ad_flow.dart` exports only what app code uses (71 types; `AdSdk` as the `sdk:` injection type); `ad_flow_testing.dart` adds the test doubles and the internals they are built from (seam handles/events/load specs, `FullScreenAdControllerBase`, the policy collaborators). A new type goes in the testing library unless app code needs it.
 > - Widgets are widget-first (`AdFlowBanner(adFlow:)` owns its controller, ADR-055) with `safeArea` and ready-made presenters (ADR-080); banners have `BannerConfig.anchoredSize` (ADR-081) and a shared `BannerHeightMemory` (ADR-079); view handles build their own widget (ADR-016).
 
 The target design. Follow it unless you find a concrete reason not to — if you deviate, record why in `DECISIONS.md`. The Dart below is a **contract sketch**: the *shape* (layers, responsibilities, method signatures) is the contract; exact names/param lists may be refined during implementation, but changes to the public contract must be reflected here and in `MIGRATION.md`.
@@ -31,7 +32,8 @@ Dependency injection over global state · one reactive primitive (`ValueListenab
 
 ```
 lib/
-  ad_flow.dart                      # barrel: exports public API only
+  ad_flow.dart                      # barrel: what app code uses (seam types via show-lists)
+  ad_flow_testing.dart              # test doubles + internals (seam types, engine, policies)
   src/
     seam/ad_sdk.dart                # AdSdk interface
     seam/gma_ad_sdk.dart            # real impl (imports google_mobile_ads)
