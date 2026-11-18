@@ -41,6 +41,17 @@ Done (one commit each, tree green after each):
     dispose-safe, interface `canShow`, per-platform test-ID resolution,
     implementer notes, stale comments.
 
+11. Documentation pass: every snippet in `doc/NATIVE_ADS_SETUP.md` and
+    `doc/MEDIATION_SETUP.md` compiles against the 6.0 API, and README §7's
+    test runs as written. `dart doc --dry-run`: the only warning left is the
+    README checklist's `[ ]` (GitHub task-list syntax, harmless). Fixed:
+    2 unresolved references, `AdBlockReason.expired` (all full-screen formats,
+    not only app open), `AppOpenAdController` (points at `showAtLaunch`),
+    `AdFlowErrorKind.timeout`, `TestAdUnitIds` wording; `banner()`/`native()`
+    and both widgets now document that a slot with no ID for the running
+    platform throws `invalidConfig` (README, CHANGELOG and MIGRATION say so
+    too); the library doc has a quick start.
+
 ## Next (ordered)
 
 1. Faiz: merge PR #19 (5.5.0) and tag `v5.5.0` — the App Store fix.

@@ -472,8 +472,8 @@ class AppOpenConfig {
 // REMOVED. It never could show an ad on a cold launch — no foreground event
 // exists for one — and the first warm return shows by default.
 
-/// Google's official sample ad unit IDs (safe to click; used by
-/// whenever [AdFlowConfig.usesTestAds]).
+/// Google's official sample ad unit IDs (safe to click; served whenever
+/// [AdFlowConfig.usesTestAds] is true).
 abstract final class TestAdUnitIds {
   /// Sample banner IDs — the ADAPTIVE units, matching the default
   /// [BannerKind.anchoredAdaptive]. Prefer [forBannerKind] over reading this

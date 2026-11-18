@@ -51,6 +51,10 @@ class AdFlowNativeAd extends StatefulWidget {
        );
 
   /// The facade to mint this placement's controller from (recommended path).
+  ///
+  /// The slot needs an ad unit ID for the running platform: on a platform it
+  /// has none for, [AdFlow.native] throws an `AdFlowError` (`invalidConfig`)
+  /// when the widget mounts, so only place the ad where it is configured.
   final AdFlow? adFlow;
 
   /// Per-placement override of the global native config ([adFlow] mode).

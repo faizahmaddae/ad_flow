@@ -189,9 +189,8 @@ class AdFlow {
   /// slot is configured. [consentDebug] passes UMP debug geography —
   /// remove before release.
   ///
-  /// The optional priming ("explainer") parameters restore v1's
-  /// `initializeWithExplainer` in the v2 presenter style — all opt-in and
-  /// additive (pass none and behaviour is exactly as before):
+  /// The optional priming ("explainer") parameters are all opt-in — pass
+  /// none and UMP's own flow runs unchanged:
   ///
   /// - [attExplainer] — the app's ATT primer shown before Apple's system
   ///   tracking prompt (client-driven ATT, iOS). The tracking question always
@@ -262,8 +261,8 @@ class AdFlow {
     // instead of leaving it running. Apps DO re-initialize — on login/logout,
     // on a config change, on a debug hot restart — and every call builds a
     // whole new graph. Without this the previous one stayed fully alive: still
-    // subscribed to the foreground stream, still preloading and refreshing,
-    // still able to show ads, and coordinating through its OWN separate
+    // subscribed to the foreground stream, still preloading, still able to
+    // show ads, and coordinating through its OWN separate
     // FullScreenAdCoordinator, so it could not even see the new graph's ads.
     // That is v1 trap #6 — two lifecycle reactors fighting — coming back in
     // through the front door.
@@ -886,6 +885,10 @@ class AdFlow {
   /// Creates a fresh banner controller (one per placement; give it to an
   /// `AdFlowBanner` with `ownsController: true`). [override] replaces the
   /// global banner config for this placement.
+  ///
+  /// Throws an [AdFlowError] (`invalidConfig`) when there is no banner config
+  /// or the slot has no ad unit ID for this platform — the same in debug and
+  /// release builds, so a missing ID shows up during development.
   BannerAdController banner([BannerConfig? override]) {
     final config = override ?? _config.banner;
     if (config == null) {
@@ -936,6 +939,9 @@ class AdFlow {
   /// Creates a fresh native controller (one per placement; give it to an
   /// `AdFlowNativeAd` with `ownsController: true`). [override] replaces
   /// the global native config for this placement.
+  ///
+  /// Throws an [AdFlowError] (`invalidConfig`) when there is no native config
+  /// or the slot has no ad unit ID for this platform.
   NativeAdController native([NativeConfig? override]) {
     final config = override ?? _config.nativeAd;
     if (config == null) {

@@ -58,6 +58,10 @@ class AdFlowBanner extends StatefulWidget {
        );
 
   /// The facade to mint this placement's controller from (recommended path).
+  ///
+  /// The slot needs an ad unit ID for the running platform: on a platform it
+  /// has none for, [AdFlow.banner] throws an `AdFlowError` (`invalidConfig`)
+  /// when the widget mounts, so only place the banner where it is configured.
   final AdFlow? adFlow;
 
   /// Per-placement override of the global banner config ([adFlow] mode).
@@ -72,8 +76,7 @@ class AdFlowBanner extends StatefulWidget {
 
   /// Height reserved before the ad loads.
   ///
-  /// When omitted, the default depends on the banner [kind]
-  /// (see [_AdFlowBannerState._placeholderHeight]):
+  /// When omitted, the default depends on the slot's [BannerConfig.kind]:
   /// - **fixed** — the slot's exact configured height (no shift when it loads);
   /// - **anchored adaptive** — the height an earlier banner of the same width
   ///   rendered at in this `AdFlow` (so a banner on a new screen does not grow

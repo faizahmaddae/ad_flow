@@ -1,11 +1,33 @@
-/// Easy AdMob integration for Flutter.
+/// AdMob for Flutter with policy-aware defaults.
 ///
-/// ad_flow wraps `google_mobile_ads` into a testable, revenue-minded ad
-/// layer with policy-aware defaults: banner, interstitial, rewarded,
-/// rewarded interstitial, native and app open ads, plus UMP consent
-/// management.
+/// ad_flow wraps `google_mobile_ads` into one ad layer: banner, interstitial,
+/// rewarded, rewarded interstitial, native and app open ads, Google's UMP
+/// consent flow, and optional iOS App Tracking Transparency.
 ///
-/// This barrel exports the public API only. Internals live under `src/`.
+/// ```dart
+/// final ads = await AdFlow.initialize(
+///   const AdFlowConfig(
+///     banner: BannerConfig(
+///       adUnitId: PlatformAdUnitId(android: 'ca-app-pub-…', ios: 'ca-app-pub-…'),
+///     ),
+///     interstitial: InterstitialConfig(
+///       adUnitId: PlatformAdUnitId(android: 'ca-app-pub-…', ios: 'ca-app-pub-…'),
+///     ),
+///   ),
+/// );
+///
+/// // A banner placement: one widget that reserves its height.
+/// Scaffold(bottomNavigationBar: AdFlowBanner(adFlow: ads, safeArea: true));
+///
+/// // A full-screen ad at a natural break: completes when the ad closes.
+/// final result = await ads.interstitial?.show();
+/// ```
+///
+/// [AdFlow.initialize] returns at once; consent, SDK start-up and the first
+/// loads run in the background, and no ad is requested before consent allows
+/// it. Debug builds serve Google's test ads automatically
+/// ([AdFlowConfig.testMode]). Test doubles are in
+/// `package:ad_flow/ad_flow_testing.dart`.
 library;
 
 export 'src/config/ad_flow_config.dart' hide resolveAdUnitId;

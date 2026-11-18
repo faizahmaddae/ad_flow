@@ -162,7 +162,9 @@ The [example](example/lib/main.dart) uses every format.
 ## 4. Formats
 
 Each full-screen slot is `null` when it is not configured for this platform,
-so shared code just uses `?.`.
+so shared code just uses `?.`. Banner and native placements are widgets, so
+they need an ID for the running platform: `AdFlowBanner(adFlow: ads)` and
+`AdFlowNativeAd(adFlow: ads)` throw `invalidConfig` where their slot has none.
 
 ### Banner
 

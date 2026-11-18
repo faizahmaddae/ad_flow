@@ -36,8 +36,10 @@ enum AdBlockReason {
   /// user-action pacing (`InterstitialConfig.minActionsBetween`).
   userActionPacing,
 
-  /// The warm app-open ad outlived its 4-hour expiry and was discarded rather
-  /// than shown.
+  /// The warm ad outlived its maximum age — 4 hours for app open
+  /// (`AppOpenConfig.expiry`), 55 minutes by default for the other
+  /// full-screen formats (`maxAdAge`) — and was discarded rather than shown;
+  /// a fresh one is requested.
   expired,
 
   /// The user chose "skip" on the mandatory rewarded-interstitial intro. Not a

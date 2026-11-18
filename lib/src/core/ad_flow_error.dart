@@ -10,7 +10,9 @@ enum AdFlowErrorKind {
   /// A UMP consent operation failed (maps to a UMP `FormError`).
   consent,
 
-  /// An internal ad_flow timeout elapsed.
+  /// An internal ad_flow timeout elapsed — e.g. a dispatched full-screen ad
+  /// the SDK never put on screen within
+  /// `FullScreenAdControllerBase.presentationTimeout`.
   timeout,
 
   /// Server-side verification could not be attached to a rewarded /

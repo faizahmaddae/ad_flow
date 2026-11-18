@@ -20,17 +20,18 @@ mapping (most apps change a handful of lines and delete their wrappers).
 - **Test ads are automatic.** `AdFlowConfig.testMode` is `bool?`; null (the
   default) serves Google's test ads in debug builds and your IDs in release.
   Test ads stand in only on platforms the slot has IDs for (debug and release
-  agree on which slots exist). With `testMode: true` a slot may leave its IDs
-  out (`PlatformAdUnitId()`).
+  agree on which slots exist): on the other platform the full-screen getter is
+  null, and `ads.banner()` / `AdFlowBanner(adFlow: ads)` throw `invalidConfig`
+  in debug too, as they always did in release. With `testMode: true` a slot
+  may leave its IDs out (`PlatformAdUnitId()`).
 - **App open:** `showAtLaunch({maxWait = 3 s})` replaces
   `showAtLaunchIfReady()` — it waits (bounded) for the first load, returns at
   once when no consent is stored yet or ads are disabled, and completes when
-  the ad closes. The slot now preloads at startup. `AppOpenTriggerMode` / `triggerMode` →
-  `AppOpenConfig.showOnResume` (default true).
+  the ad closes. The slot now preloads at startup. `AppOpenTriggerMode` /
+  `triggerMode` → `AppOpenConfig.showOnResume` (default true).
 - `AdGate`, `FrequencyCapPolicy`, `StoredFrequencyCapPolicy`,
   `FullScreenAdCoordinator` and `RetryPolicy` moved from
   `package:ad_flow/ad_flow.dart` to `package:ad_flow/ad_flow_testing.dart`.
-
 - An expired warm full-screen ad is replaced as soon as `canShow` sees it,
   and a show refused after holding the slot past the ad's age (a long rewarded
   intro) drops it — before, only `show()` or the expiry timer replaced it, and

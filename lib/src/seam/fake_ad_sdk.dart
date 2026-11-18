@@ -473,9 +473,9 @@ class FakeFullScreenAdHandle
   /// If set, [show] throws this instead of completing normally — simulates
   /// the real plugin's `Ad.show()` Future *rejecting* (ad already
   /// released, channel error, mediation failure), which the documented
-  /// [AdSdk.show] contract says should never happen (failures are meant to
-  /// arrive via [AdFailedToShowEvent] on [contentEvents] instead) but a
-  /// real implementation can still violate. Controllers must be robust to
+  /// [FullScreenAdHandle.show] contract says should never happen (failures
+  /// are meant to arrive via [AdFailedToShowEvent] on [contentEvents]
+  /// instead) but a real implementation can still violate. Controllers must be robust to
   /// this regardless of what the contract promises.
   Object? showRejectsWith;
 

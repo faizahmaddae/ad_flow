@@ -38,7 +38,10 @@ Behaviour changes to check:
 - **The app-open slot preloads at startup**, not after the consent flow (loads
   still wait for consent and request configuration).
 - **A slot configured for one platform has no test ads on the other** in debug
-  either (it already had no ads there in release).
+  either (it already had no ads there in release). There the full-screen
+  getter is null, and `ads.banner()` / `AdFlowBanner(adFlow: ads)` throw
+  `invalidConfig` — so place a banner only on platforms its slot has an ID
+  for.
 - A `BannerConfig` that set `minRefresh` now relies on the console's refresh.
 
 # Upgrading 5.4.x → 5.5.0
