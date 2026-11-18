@@ -204,8 +204,6 @@ class AdFlow {
   ///   GDPR form, only when a form will actually appear.
   /// - [consentExplainerContent] / [attExplainerContent] — the copy for the
   ///   presenters (localize by overriding).
-  /// - [skipConsentPrimerIfAttDenied] — no effect since 5.5.0 (the tracking
-  ///   question now comes after the consent flow).
   ///
   /// These apply only to a gateway this facade creates. If you inject your
   /// own [consent], construct it with these options yourself.
@@ -226,11 +224,6 @@ class AdFlow {
     ConsentExplainerContent consentExplainerContent =
         const ConsentExplainerContent(),
     AttExplainerContent attExplainerContent = const AttExplainerContent(),
-    @Deprecated(
-      'No effect since 5.5.0: the tracking question now comes after the '
-      'GDPR flow (ADR-082). Remove the argument.',
-    )
-    bool skipConsentPrimerIfAttDenied = true,
   }) async {
     // Fail fast on nonsense (empty ad unit strings, negative durations) —
     // discoverable at init, instead of silent no-fill in production

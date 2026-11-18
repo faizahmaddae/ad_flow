@@ -1,6 +1,6 @@
 ---
 name: ad-flow-builder
-description: Operating method for building and maintaining the ad_flow v2 Flutter AdMob package. Use this whenever ANY model (Fable 5, Sonnet 5, Opus, or a smaller model) works on ad_flow. It teaches HOW to work here — research-first, verify-by-running, isolate layers, ship small verifiable slices, and hand off cleanly — so that a smaller/cheaper model produces the same quality as a larger one, and so work can be handed between models without losing quality. Read this together with docs/ad_flow_v2/RESEARCH.md, DECISIONS.md, ARCHITECTURE.md, PLAN.md, and PROGRESS.md before writing any code.
+description: Operating method for building and maintaining the ad_flow v2 Flutter AdMob package. Use this whenever ANY model (Fable 5, Sonnet 5, Opus, or a smaller model) works on ad_flow. It teaches HOW to work here — research-first, verify-by-running, isolate layers, ship small verifiable slices, and hand off cleanly — so that a smaller/cheaper model produces the same quality as a larger one, and so work can be handed between models without losing quality. Read this together with docs/ad_flow_v2/PROGRESS.md, REVIEW_2026-11.md, ARCHITECTURE.md, DECISIONS.md and RESEARCH.md before writing any code.
 ---
 
 # ad_flow builder — how to work here
@@ -15,15 +15,15 @@ The prime directive: **the scarce, expensive resource is high-quality thinking. 
 
 Before writing or changing a single line of code, read these files in this order:
 
-1. `docs/ad_flow_v2/PROGRESS.md` — where we are, what's in progress, the exact next step.
-2. `docs/ad_flow_v2/PLAN.md` — the phased plan and acceptance criteria.
-3. `docs/ad_flow_v2/ARCHITECTURE.md` — the target architecture and the public-API contract you must implement to.
-4. `docs/ad_flow_v2/DECISIONS.md` — why things are the way they are (don't relitigate settled decisions).
+1. `docs/ad_flow_v2/PROGRESS.md` — where we are, what's in progress, the exact next step (short; the v2–v5 history is in `archive/`).
+2. `docs/ad_flow_v2/REVIEW_2026-11.md` — the review behind 5.5.0/6.0.0: what the real apps need, what was removed and why.
+3. `docs/ad_flow_v2/ARCHITECTURE.md` — the layer contract.
+4. `docs/ad_flow_v2/DECISIONS.md` — the append-only ADR log: read the latest ADRs and search for the subsystem you touch (don't relitigate settled decisions).
 5. `docs/ad_flow_v2/RESEARCH.md` — ground-truth facts about `google_mobile_ads` 9.x, UMP, and AdMob policy.
 
-If these files do not exist yet, you are at Phase 1: create them first (the master task prompt describes their contents). **Never skip orientation to "save time" — it is what makes a handoff safe.**
+**Never skip orientation to "save time" — it is what makes a handoff safe.**
 
-Precedence when they seem to conflict: **PROGRESS/PLAN** decide *what to do next*; **DECISIONS/ARCHITECTURE** decide *how*; **RESEARCH** decides *the facts*. If a real conflict exists, fix the docs first, then code.
+Precedence when they seem to conflict: **PROGRESS** decides *what to do next*; **DECISIONS/ARCHITECTURE** decide *how*; **RESEARCH** decides *the facts*. If a real conflict exists, fix the docs first, then code.
 
 ---
 
@@ -207,3 +207,6 @@ A clean stop with a clear question beats a large, broken, speculative change eve
 - **`… | tail` hides a failed build's exit code — and a plugin bump can break the example's committed `Podfile.lock`.** The first iOS check of the 9.2.0 bump "passed" (exit 0 from `tail`) while `pod install` had failed: the example's `ios/Podfile.lock` still pinned `Google-Mobile-Ads-SDK` 13.3.0 and 9.2.0 needs `~> 13.11`; Flutter words that as a "higher minimum iOS deployment version" problem, which it is not (RESEARCH §1). Capture the exit code (`cmd > log 2>&1; echo EXIT=$?`) and read the log's last lines; after every plugin bump run `pod update Google-Mobile-Ads-SDK google_mobile_ads` in `example/ios` and commit the lock.
 - **The real-world apps are the test oracle the unit tests cannot be — read them before changing the public surface (2026-11 review).** Faiz's apps that use ad_flow live in `~/Desktop` (potion_sort, esmfamil, novels/app, jadval), `~/Documents/ChatGPT` (lebentest, Jadval) and `~/AndroidStudioProjects` (nahjal_balagha, zanashueie_legacy, dehkhoda); grep their `lib/` for `package:ad_flow`. Their comments record what no test here could: two App Store rejections for the ATT-first order (ADR-082), the glue each app copies from the next (wait-for-close, cap mirrors, launch-ad budgets), and which knobs nobody sets. An API "simplification" that ignores them is a guess.
 - **ATT is ALWAYS asked after the GDPR flow, never before (ADR-082).** ADR-030 restored v1's ATT-first order and the README recommended it; App Review rejected two apps for it under Guideline 5.1.1(iv) — the user denies tracking, then a consent form asks them to agree to tracking. A tracking prompt is also skipped after a GDPR purpose-1 refusal and deferred when the GDPR flow failed (offline), so it can never precede a form shown later. Do not "restore" ATT-first for opt-in rates or v1 parity.
+- **6.0: `show()` completes on the CLOSE, not on the dispatch (ADR-083).** A test that `await`s a successful show before simulating the dismissal hangs (or times out at 30 s). Assert the dispatch with `dispatch()` from `test/support/show.dart` (true = handed to the SDK or already closed), or start the show, pump, simulate the close, then await its `AdShowResult`. In `fakeAsync`, `show().then((r) => …)` fires only after the close — read the fake handle's `showCalls` for the dispatch.
+- **`kDebugMode` is true under `flutter test`** — since 6.0 a config without `testMode` resolves Google's sample IDs in tests. A test asserting configured IDs must set `testMode: false`.
+- **Removing a feature the apps never used is the cheapest reliability work there is (6.0).** The 2026-11 review measured usage across the nine apps (SKILL §6, apps list); every subsystem used by none of them (consent forwarding, runtime SSV, client-side banner refresh, the request-config policy enum) carried its own retry machine, flags and interleaving guards. Before hardening a subsystem further, check whether anyone uses it.

@@ -125,86 +125,30 @@ not propagated for you):
 
 ad_flow's surfaces for this:
 
-- **`forwardConsent` — the fail-closed, before-initialize barrier.** Supply
-  it to `AdFlow.initialize`; ad_flow runs it after consent settles and
-  **before `MobileAds.initialize()`**, then blocks every mediation-capable ad
-  request until it has succeeded. This ordering matters: **mediation adapters
-  initialize *during* `MobileAds.initialize()`**, and AppLovin/Meta read their
-  privacy flag at that point (Google's docs: set it "before you initialize the
-  Google Mobile Ads SDK"). Unity reads at request time. Forwarding-before-init
-  covers both. Unlike `onConsentChanged` (below) it cannot miss the initial
-  flow, cannot be raced by init or the first load, and its callback is never
-  invoked concurrently (serialized):
+- **Before `AdFlow.initialize()`** — set the partner flags you already know.
+  Mediation adapters initialize *during* `MobileAds.initialize()`, and
+  AppLovin/Meta read their privacy flag at that point (Google's docs: set it
+  "before you initialize the Google Mobile Ads SDK"). Flags the app decides
+  itself — AppLovin's US-state `setDoNotSell`, Meta's Limited Data Use — come
+  from your own stored settings, so set them first, then call `initialize`.
+  GDPR consent itself is read from the TCF string by TCF-reading SDKs.
 
-  ```dart
-  await AdFlow.initialize(
-    config,
-    forwardConsent: () async {
-      final prefs = await SharedPreferences.getInstance();
-      final gdprApplies = prefs.getInt('IABTCF_gdprApplies') == 1;
-      final consented = _hasPurpose1(prefs.getString('IABTCF_PurposeConsents'));
-      // Forward to each partner SDK that needs its own signal (AppLovin
-      // US-state, Meta LDU, Unity MetaData, …) using that partner's published
-      // Flutter privacy API. IMPORTANT: let this callback COMPLETE only once
-      // those native APIs have ACKNOWLEDGED the update — that acknowledgement is
-      // what ad_flow's before-init ordering carries to the SDK. Only `await` a
-      // partner API that actually reports back; a fire-and-forget wrapper (see
-      // the Unity caveat in §4) gives no such guarantee.
-      await forwardPartnerPrivacy(gdprApplies && consented); // your per-network wiring
-    },
-  );
-  ```
-
-  **What "before init" guarantees — and what it does not.** ad_flow guarantees
-  the *ordering*: your `forwardConsent` callback runs to completion **before**
-  `MobileAds.initialize()` is called, and no mediation-capable request goes out
-  until it succeeds. It cannot guarantee a partner's native SDK actually applied
-  the value — that depends on the partner's Flutter API reporting completion.
-  So a `forwardConsent` callback must **complete only after the native partner
-  API acknowledges the update**. Where a partner's published wrapper is
-  fire-and-forget (Unity today, §4), the public API cannot give you that
-  acknowledgement; treat that partner as request-time best-effort until the
-  adapter fixes its wrapper, and do **not** import its generated internals or
-  build a custom bridge to force an await.
-
-  **Fail-closed by default** (`MediationConsentFailurePolicy.failClosed`): if
-  the forwarder fails or times out (15s), the **GMA SDK is not initialized**
-  and loads are **blocked** (`AdBlockReason.consentNotForwarded`, visible via
-  `onAdBlocked`); the forwarder is retried in the background and everything
-  (init + loads) recovers the moment it succeeds. It never blocks your UI:
-  `AdFlow.initialize(...)` returns immediately and the app renders its first
-  frame; only `whenReady`/ad requests wait. If — and only if — every network
-  you use reads the IAB TCF/GPP string itself, set
-  `mediationConsentPolicy: MediationConsentFailurePolicy.unsafeFailOpen` to
-  initialize/serve even when forwarding fails (revenue-first, unsafe for any
-  network that needs its own signal).
-
-  It re-establishes on every consent change (`showPrivacyOptions`, a re-run) —
-  best-effort for **request-time** partner reads; an already-initialized
-  adapter **cannot be re-initialized**, so an init-time flag is set once,
-  before the first init. On a consent change, ad_flow also drops-and-reloads
-  any already-loaded warm/visible ad so it re-requests under the fresh consent
-  (a full-screen ad on screen is not interrupted). Verify with the Ad
-  Inspector.
-
-  > **Removed in 5.0:** the earlier `deferMediationInit` flag. It used the
-  > plugin's `disableMediationInitialization`, which is a *session-wide
-  > disable* of Google mediation (an A/B-testing tool), not a defer/resume —
-  > it could not achieve "set the flag, then let adapters come up." Use
-  > `forwardConsent` (which runs before init) instead.
+  > **Removed in 6.0:** `forwardConsent` and `MediationConsentFailurePolicy`,
+  > which held `MobileAds.initialize()` back until an app callback finished.
+  > No app used them. If you add a partner whose *GDPR* signal cannot come
+  > from the TCF string and must be set before init, open an issue — a
+  > before-init hook is easy to bring back once there is a real case.
 
 - **`AdFlow.onConsentChanged`** — a fire-and-forget hook that fires after
   every consent flow or mutation (initial gather, a retry that finally
-  succeeds offline→online, a privacy-options change). Nothing waits for it, so
-  use it for *observability* or for networks whose signal is only needed for
-  *later* requests. Assignable only after `initialize` returns, so it may miss
-  the initial flow — prefer `forwardConsent` for anything the first request
-  depends on. Async rejections are contained (reported, not fatal).
+  succeeds offline→online, a privacy-options change). Use it to forward an
+  updated choice to partners that read it at request time (Unity's `MetaData`,
+  for example). Async rejections are contained (reported, not fatal).
 
   ```dart
   ads.onConsentChanged = () async {
-    final prefs = await SharedPreferences.getInstance();
-    // ...forward the updated state to networks needed for later requests.
+    final prefs = SharedPreferencesAsync();
+    // ...read the IABTCF_* / IABGPP_* keys and forward to request-time partners.
   };
   ```
 
@@ -249,10 +193,9 @@ with each partner's AdMob mediation page and the Ad Inspector.
 - [ ] Mediation group per format in the console
 - [ ] Partners selected under Privacy & messaging (GDPR + US states)
 - [ ] Adapters added (`gma_mediation_*` package, or native build files)
-- [ ] Per-network consent APIs wired in `forwardConsent` (each completing only
-      after the partner's native API acknowledges — see the §4 Unity caveat) or
-      `onConsentChanged` (Unity, AppLovin US flag, Meta LDU, …) — see §4
-- [ ] `forwardConsent` supplied if any partner needs its flag before init
+- [ ] Init-time partner flags (AppLovin US flag, Meta LDU) set before
+      `AdFlow.initialize()`; request-time ones (Unity) in `onConsentChanged` —
+      see §4
 - [ ] iOS: partner `SKAdNetworkItems` in `Info.plist`
 - [ ] `app-ads.txt` updated with partner lines
 - [ ] Verified with Ad Inspector on a test device

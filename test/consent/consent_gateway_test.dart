@@ -318,7 +318,6 @@ void main() {
       void armEea({
         AttStatus requestResult = AttStatus.authorized,
         TcfConsentReader? readTcf,
-        bool skip = true,
       }) {
         events = <String>[];
         sdk.attStatus = AttStatus.notDetermined;
@@ -332,8 +331,6 @@ void main() {
           attExplainer: (_) async => events.add('att-primer'),
           consentExplainer: (_) async => events.add('consent-primer'),
           readTcfConsent: readTcf ?? () async => null,
-          // ignore: deprecated_member_use_from_same_package
-          skipConsentPrimerIfAttDenied: skip,
         );
       }
 
@@ -372,16 +369,6 @@ void main() {
         await gateway.ensureCanRequestAds();
         expect(events, ['consent-primer', 'form', 'att-primer']);
         expect(sdk.loadAndShowConsentFormCalls, 1);
-      });
-
-      test('skipConsentPrimerIfAttDenied has no effect any more', () async {
-        for (final skip in [true, false]) {
-          armEea(requestResult: AttStatus.denied, skip: skip);
-          await gateway.ensureCanRequestAds();
-          expect(events, ['consent-primer', 'form', 'att-primer']);
-          gateway.dispose();
-          sdk.attStatus = AttStatus.notDetermined;
-        }
       });
 
       test('the ATT step waits for the consent answer before it starts: '

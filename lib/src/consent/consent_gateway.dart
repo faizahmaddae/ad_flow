@@ -90,9 +90,6 @@ class UmpConsentGateway implements ConsentGateway {
   ///   prompt (Apple's guidance; default 200 ms).
   /// - [readTcfConsent] — reads the device's TCF record; defaults to
   ///   [readDeviceTcfConsent]. Injectable for tests.
-  /// - [skipConsentPrimerIfAttDenied] — **no effect since 5.5.0.** It skipped
-  ///   the consent primer after an ATT denial; the tracking question now comes
-  ///   after the consent flow, so there is no earlier denial to react to.
   UmpConsentGateway(
     this._sdk, {
     bool? tagForUnderAgeOfConsent,
@@ -103,11 +100,6 @@ class UmpConsentGateway implements ConsentGateway {
         const ConsentExplainerContent(),
     AttExplainerContent attExplainerContent = const AttExplainerContent(),
     Duration attPromptDelay = const Duration(milliseconds: 200),
-    @Deprecated(
-      'No effect since 5.5.0: the tracking question now comes after the '
-      'GDPR flow (ADR-082). Remove the argument.',
-    )
-    bool skipConsentPrimerIfAttDenied = true,
     TcfConsentReader readTcfConsent = readDeviceTcfConsent,
     Future<void> Function()? waitBeforePresenting,
   }) : _tagForUnderAgeOfConsent = tagForUnderAgeOfConsent,

@@ -4,20 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`ad_flow` (v5.5.0; the docs folder history says "v2" — same architecture) — a Flutter package that wraps **`google_mobile_ads ^9.2.0`** (AdMob) into a policy-compliant, DI-based ad layer: banner, interstitial, rewarded, rewarded-interstitial, native and app-open ads, plus UMP consent and (opt-in) iOS ATT. Android + iOS only. Also depends on `app_tracking_transparency` (iOS ATT, opt-in mode) and `shared_preferences` (frequency-cap persistence).
+`ad_flow` (v6.0.0; the docs folder history says "v2" — same architecture) — a Flutter package that wraps **`google_mobile_ads ^9.2.0`** (AdMob) into a policy-compliant, DI-based ad layer: banner, interstitial, rewarded, rewarded-interstitial, native and app-open ads, plus UMP consent and (opt-in) iOS ATT. Android + iOS only. Also depends on `app_tracking_transparency` (iOS ATT, opt-in mode) and `shared_preferences` (frequency-cap persistence).
 
 v2 is a ground-up rewrite: **no global singletons** (config and collaborators are injected). Public entry point is `AdFlow.initialize(config, {...}) → Future<AdFlow>`; `AdFlow.instance` is only a thin convenience pointer to the last-initialized instance.
 
 ## Read these FIRST (the real operating manual)
 
 Before writing any code, **load the `ad-flow-builder` skill** and read, in order:
-`docs/ad_flow_v2/PROGRESS.md` (where things stand + next step) → `PLAN.md` → `ARCHITECTURE.md` (the layer contract) → `DECISIONS.md` (ADR log — settled decisions + the *why*; do not relitigate) → `RESEARCH.md` (ground-truth `google_mobile_ads` 9.x / UMP / AdMob-policy facts — trust it, don't re-research). The skill's §2 (invariants) and §6 (traps) are load-bearing. `MIGRATION.md` maps v1→v2 public API.
+`docs/ad_flow_v2/PROGRESS.md` (short: where things stand + next step) → `REVIEW_2026-11.md` (why 6.0 looks the way it does) → `ARCHITECTURE.md` (the layer contract) → the latest ADRs at the end of `DECISIONS.md` (an append-only log; search it for the subsystem you touch, do not relitigate) → `RESEARCH.md` (ground-truth `google_mobile_ads` 9.x / UMP / AdMob-policy facts — trust it, don't re-research). The skill's §2 (invariants) and §6 (traps) are load-bearing. `MIGRATION.md` maps every major's public API.
 
 ## Commands
 
 ```bash
 flutter analyze                                   # MUST be clean (0 issues) before moving on
-flutter test                                      # full suite (~665 tests)
+flutter test                                      # full suite (~620 tests)
 flutter test --concurrency=2                      # use if the runner OOM-kills (exit 137)
 flutter test test/facade/ad_flow_test.dart        # one file
 flutter test --plain-name 'CONFIG-BEFORE-LOAD'    # one test/group by name substring
@@ -64,6 +64,7 @@ seam         AdSdk  (GmaAdSdk real · FakeAdSdk test)   ← the ONLY door to goo
 
 ## Repo-specific behavior a new instance won't guess
 
+- **6.0 public API in one breath (ADR-083):** `show()` completes when the ad CLOSES and returns `AdShowResult`; `canShow` is the sync hint; slot getters are nullable (`ads.interstitial?.show()`); `ads.appOpen?.showAtLaunch(maxWait:)` waits for the launch ad; `testMode` null = test ads in debug. Tests assert a dispatch with `dispatch()` from `test/support/show.dart` — awaiting a dispatched show hangs until the test simulates the close.
 - **Consent order: the GDPR flow first, Apple's tracking question last (ADR-082).** The old ATT-first client flow got two of the maintainer's apps rejected under App Store Guideline 5.1.1(iv). ATT is skipped after a GDPR purpose-1 refusal (TCF read via `SharedPreferencesAsync`, iOS) and deferred when the GDPR flow failed. Never reintroduce ATT-first.
 - **The 2026-11 review and the v6 plan** live in `docs/ad_flow_v2/REVIEW_2026-11.md` — read it before changing the public API. Real usage data comes from the maintainer's apps (paths in skill §6).
 - **Init is NON-BLOCKING (ADR-032/033).** `AdFlow.initialize()` builds the graph synchronously and its `Future` completes on the next microtask, **before** consent — consent/ATT/SDK-init/request-config all run in the background. **Never gate the first frame on it** (that was v1's splash hang). Render your UI immediately; ads/consent/ATT appear over it. `AdFlow.whenReady` (`Future<bool>`) is the optional await for the consent result — never required, never gate UI on it. No ad request goes out before request configuration is applied **and** the consent gate opens — `AdGate.canLoad` awaits a `_configApplied` gate (bounded by a timeout so a hung config degrades open, never hangs).
