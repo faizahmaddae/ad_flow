@@ -87,7 +87,9 @@ void main() {
         config.bannerAdUnitId(AdPlatform.android),
         TestAdUnitIds.banner.android,
       );
-      expect(config.bannerAdUnitId(AdPlatform.ios), TestAdUnitIds.banner.ios);
+      // No iOS ID configured: no iOS slot in release, so none in test mode
+      // either (6.0 — debug and release agree on which slots exist).
+      expect(config.bannerAdUnitId(AdPlatform.ios), isNull);
     });
 
     // ADR-073 / issue #15: Google publishes a different sample banner unit per
@@ -191,14 +193,21 @@ void main() {
     });
 
     test('test ads are AUTOMATIC by default — on in a debug build (tests run '
-        'in debug) — and a slot then needs no IDs at all (6.0)', () {
+        'in debug) — standing in for the configured IDs (6.0)', () {
       const config = AdFlowConfig(
-        interstitial: InterstitialConfig(adUnitId: PlatformAdUnitId()),
-        banner: BannerConfig(adUnitId: PlatformAdUnitId()),
+        interstitial: InterstitialConfig(
+          adUnitId: PlatformAdUnitId(
+            android: 'ca-app-pub-1/1',
+            ios: 'ca-app-pub-1/2',
+          ),
+        ),
+        banner: BannerConfig(
+          adUnitId: PlatformAdUnitId(android: 'ca-app-pub-1/3'),
+        ),
       );
       expect(config.testMode, isNull);
       expect(config.usesTestAds, isTrue);
-      config.validate(); // no IDs needed while test ads are on
+      config.validate();
       expect(
         config.interstitialAdUnitId(AdPlatform.ios),
         TestAdUnitIds.interstitial.ios,
@@ -207,6 +216,40 @@ void main() {
       expect(
         config.bannerAdUnitId(AdPlatform.android),
         'ca-app-pub-3940256099942544/9214589741',
+      );
+    });
+
+    test('a test ad stands in only on a platform the slot has an ID for — '
+        'debug and release agree on which slots exist', () {
+      const banner = BannerConfig(
+        adUnitId: PlatformAdUnitId(android: 'ca-app-pub-1/3'),
+      );
+      const debug = AdFlowConfig(banner: banner);
+      const release = AdFlowConfig(testMode: false, banner: banner);
+      expect(debug.bannerAdUnitId(AdPlatform.ios), isNull);
+      expect(release.bannerAdUnitId(AdPlatform.ios), isNull);
+      expect(debug.bannerAdUnitId(AdPlatform.android), isNotNull);
+    });
+
+    test('an ID-less slot needs an EXPLICIT testMode: true — with the '
+        'automatic default it fails in debug, not first in release', () {
+      const auto = AdFlowConfig(
+        interstitial: InterstitialConfig(adUnitId: PlatformAdUnitId()),
+      );
+      expect(auto.validate, throwsA(isA<AdFlowError>()));
+
+      const explicit = AdFlowConfig(
+        testMode: true,
+        interstitial: InterstitialConfig(adUnitId: PlatformAdUnitId()),
+      );
+      explicit.validate();
+      expect(
+        explicit.interstitialAdUnitId(AdPlatform.ios),
+        TestAdUnitIds.interstitial.ios,
+      );
+      expect(
+        explicit.interstitialAdUnitId(AdPlatform.android),
+        TestAdUnitIds.interstitial.android,
       );
     });
 

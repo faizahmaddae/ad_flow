@@ -23,7 +23,7 @@ abstract interface class AdController {
   ///   privacy-stale even though showing it makes no new request: its
   ///   impression and measurement still reflect the old choice. So a warm
   ///   full-screen ad, or a visible banner/native ad, is DROPPED and reloaded
-  ///   through the (re-forwarded) gate. A full-screen ad already ON SCREEN is
+  ///   through the fresh gate. A full-screen ad already ON SCREEN is
   ///   NOT interrupted — its impression already happened — but the next one it
   ///   preloads on dismissal goes through the fresh gate.
   ///
@@ -51,4 +51,8 @@ abstract interface class FullScreenAdController implements AdController {
   /// `RewardedInterstitialAdController.show(onReward:)`); their result also
   /// carries the reward.
   Future<AdShowResult> show();
+
+  /// Whether [show] would show an ad right now — a synchronous hint for UI
+  /// (6.0). [show] re-checks everything and remains the authority.
+  bool get canShow;
 }

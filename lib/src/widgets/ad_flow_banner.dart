@@ -284,7 +284,7 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
       // listenable) changes.
       return ValueListenableBuilder(
         valueListenable: handle.dimensions,
-        // Keyed by HANDLE IDENTITY, so a refresh swap (ADR-041) unmounts the
+        // Keyed by HANDLE IDENTITY, so a new handle (a reload) unmounts the
         // old AdWidget element and mounts a fresh one. The plugin's AdWidget
         // has no didUpdateWidget: its platform view captures the ad id at
         // creation and the framework only recreates a platform view when its

@@ -15,7 +15,7 @@ Most apps change a few lines — and delete the wrapper code they wrote around
 | `AppOpenConfig(triggerMode: launchAndResume)` | default + call `showAtLaunch()` |
 | `AppOpenConfig(triggerMode: launchOnly)` | `AppOpenConfig(showOnResume: false)` + call `showAtLaunch()` |
 | `testMode: kDebugMode` (or a flag of yours) | leave `testMode` out — automatic |
-| placeholder IDs so `validate()` passes in debug | `PlatformAdUnitId()` is fine while test ads are on |
+| placeholder IDs so `validate()` passes in debug | real IDs (a missing one fails in debug too), or `PlatformAdUnitId()` with `testMode: true` |
 | `AdFlowConfig.test()` | a normal `AdFlowConfig` (test ads are automatic in debug) |
 | `forwardConsent: …` | set partner flags before `AdFlow.initialize()`; request-time ones in `onConsentChanged` (doc/MEDIATION_SETUP.md) |
 | `requestConfigPolicy: …` | remove (the `auto` behaviour is built in) |
@@ -24,6 +24,7 @@ Most apps change a few lines — and delete the wrapper code they wrote around
 | `ads.setBlockingViewAdVisible(…)` | remove |
 | `skipConsentPrimerIfAttDenied: …` | remove |
 | `import … AdGate / StoredFrequencyCapPolicy / FullScreenAdCoordinator / RetryPolicy` | import `package:ad_flow/ad_flow_testing.dart` |
+| your own `FrequencyCapPolicy` / `FullScreenAdController` | add `allowsNow` / `canShow` |
 
 Also delete a custom `ConsentGateway` written only to ask ATT after GDPR (5.5.0
 already does), together with any native channel that read the `IABTCF_*` keys
@@ -36,6 +37,8 @@ Behaviour changes to check:
   the device in `testDeviceIds`.
 - **The app-open slot preloads at startup**, not after the consent flow (loads
   still wait for consent and request configuration).
+- **A slot configured for one platform has no test ads on the other** in debug
+  either (it already had no ads there in release).
 - A `BannerConfig` that set `minRefresh` now relies on the console's refresh.
 
 # Upgrading 5.4.x → 5.5.0

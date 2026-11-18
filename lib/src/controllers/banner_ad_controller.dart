@@ -54,7 +54,7 @@ final class BannerHeightMemory {
   }
 }
 
-/// Loads and refreshes one banner slot.
+/// Loads one banner slot.
 ///
 /// - Every load is gate-checked (invariant 1).
 /// - Failures retry with [RetryPolicy] backoff; after the attempt budget a
@@ -228,9 +228,7 @@ class BannerAdController implements AdController {
   ///
   /// An anchored/inline adaptive banner is requested FOR a specific width, so
   /// after a rotation an ad sized for the old width sits letterboxed in the
-  /// slot — poor viewability, lost revenue — and, because the controller
-  /// cached the stale width, EVERY subsequent refresh re-requested that wrong
-  /// size too. Google's guidance is to reload an adaptive banner when the
+  /// slot — poor viewability, lost revenue. Google's guidance is to reload an adaptive banner when the
   /// orientation changes.
   ///
   /// A no-op for [BannerKind.fixed] (its size is not width-derived) and when
@@ -260,7 +258,7 @@ class BannerAdController implements AdController {
 
   /// Loads the banner. [width] (logical px) is required the first time for
   /// adaptive kinds — `AdFlowBanner` passes its layout width; later calls
-  /// (refresh, re-arm) reuse the last width.
+  /// (re-arm, resize) reuse the last width.
   @override
   Future<void> load({int? width}) async {
     if (_disposed) return;
@@ -344,8 +342,8 @@ class BannerAdController implements AdController {
       }
       if (_gate.consentGeneration != requestGeneration) {
         // Consent mutated while this banner was in flight — it was requested
-        // (and its mediation signal forwarded) under the OLD consent. Drop it
-        // unshown and reload through the re-forwarded gate, so it never
+        // under the OLD consent. Drop it unshown and reload through the fresh
+        // gate, so it never
         // renders a stale-consent impression (release gate #2).
         safeUnawaited(handle.dispose(), debugName: 'handle');
         await _reloadAtCurrentWidth();
@@ -398,7 +396,7 @@ class BannerAdController implements AdController {
     final state = _state.value;
     if (state is AdLoaded) {
       // A mounted banner requested under a now-stale consent generation
-      // renders and measures under the OLD consent/forwarding — drop it and
+      // renders and measures under the OLD consent — drop it and
       // re-request at the current width through the fresh gate before checking
       // mere permission (release gate #2). The already-loaded counterpart of
       // the mid-load check in load().
@@ -453,7 +451,7 @@ class BannerAdController implements AdController {
 
   /// Re-checks the gate after a backoff when a load was blocked (consent not
   /// settled / ads disabled) rather than failed — otherwise a banner whose
-  /// refresh or initial load happened to land while the gate was shut stays
+  /// load happened to land while the gate was shut stays
   /// blank forever with nothing left to prompt a reload.
   ///
   /// [RetryPolicy.gateRecheckDelay], not the 5-minute failure cooldown: a

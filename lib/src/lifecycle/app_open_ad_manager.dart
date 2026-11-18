@@ -3,6 +3,7 @@ import 'dart:async';
 import '../config/ad_flow_config.dart';
 import '../controllers/app_open_ad_controller.dart';
 import '../core/ad_block_reason.dart';
+import '../core/ad_load_state.dart';
 import '../core/ad_show_result.dart';
 import '../core/callback_guard.dart';
 import '../policy/full_screen_ad_coordinator.dart';
@@ -113,8 +114,15 @@ class AppOpenAdManager {
       if (!await _hasEarlierConsent()) {
         return const AdShowResult.blocked(AdBlockReason.consentNotGranted);
       }
+      if (_disposed) return const AdShowResult.blocked(AdBlockReason.notReady);
+      // Remove-Ads on, or consent declined: no ad can come, so do not hold the
+      // loading screen for it.
+      final refused = _definitelyRefused();
+      if (refused != null) return AdShowResult.blocked(refused);
       await _waitUntilReady(maxWait);
       if (_disposed) return const AdShowResult.blocked(AdBlockReason.notReady);
+      final refusedLater = _definitelyRefused();
+      if (refusedLater != null) return AdShowResult.blocked(refusedLater);
       // show() refuses (and reports) a not-ready ad itself.
       final result = _controller.show();
       // Launch-only: the launch is done — stop maintaining inventory. An ad
@@ -136,18 +144,39 @@ class AppOpenAdManager {
     }
   }
 
-  /// Completes when the ad is ready, or after [maxWait], whichever is first.
+  /// The reason the slot's load is refused, when waiting cannot change it:
+  /// ads disabled (Remove-Ads) or consent not granted.
+  AdBlockReason? _definitelyRefused() {
+    final state = _controller.state.value;
+    if (state is! AdBlocked) return null;
+    return switch (state.reason) {
+      AdBlockReason.adsDisabled ||
+      AdBlockReason.consentNotGranted => state.reason,
+      _ => null,
+    };
+  }
+
+  /// Completes when the ad is ready or definitely refused, or after
+  /// [maxWait], whichever is first.
   Future<void> _waitUntilReady(Duration maxWait) {
     if (_controller.isReady || maxWait <= Duration.zero) {
       return Future<void>.value();
     }
     final ready = Completer<void>();
     void check() {
-      if (_controller.isReady && !ready.isCompleted) ready.complete();
+      if ((_controller.isReady || _definitelyRefused() != null) &&
+          !ready.isCompleted) {
+        ready.complete();
+      }
     }
 
     final state = _controller.state;
-    state.addListener(check);
+    try {
+      state.addListener(check);
+    } catch (_) {
+      // The controller was disposed meanwhile: nothing to wait for.
+      return Future<void>.value();
+    }
     final timer = Timer(maxWait, () {
       if (!ready.isCompleted) ready.complete();
     });

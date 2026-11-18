@@ -152,9 +152,10 @@ Future<void> main() async {
 
 **Test ads are automatic.** While `AdFlowConfig.testMode` is left out, debug
 builds serve Google's test ads and release builds serve your IDs, so a
-development run never puts your own impressions on live inventory. In debug a
-slot may even leave its IDs out (`PlatformAdUnitId()`). Set `testMode: true`
-or `false` to force either.
+development run never puts your own impressions on live inventory. Test ads
+stand in only on the platforms a slot has IDs for, so debug and release agree
+on which slots exist. Set `testMode: true` or `false` to force either; with
+`testMode: true` a slot may leave its IDs out (`PlatformAdUnitId()`).
 
 The [example](example/lib/main.dart) uses every format.
 
@@ -260,8 +261,10 @@ await ads.appOpen?.showAtLaunch();
 navigator.pushReplacement(homeRoute);
 ```
 
-It never shows to a first-time user (no consent stored yet), and only once per
-process. `AppOpenConfig(showOnResume: false)` makes the slot launch-only.
+It returns at once when no consent is stored on the device yet (an EEA user's
+first launch, before the GDPR form) or ads are disabled, and it takes the launch
+moment only once per process. `AppOpenConfig(showOnResume: false)` makes the
+slot launch-only.
 
 ## 5. Consent & privacy
 

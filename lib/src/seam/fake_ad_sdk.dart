@@ -483,6 +483,11 @@ class FakeFullScreenAdHandle
   /// off to drive the showed event manually.
   bool autoEmitShowed = true;
 
+  /// If set, [show] awaits this before doing anything else (after recording
+  /// the call) — leave it incomplete to simulate a platform show call that
+  /// never replies.
+  Completer<void>? showHold;
+
   /// Whether [simulateDismissed] has fired — the ad's lifecycle has ended,
   /// matching the real SDK's single-use ad instances.
   bool _dismissed = false;
@@ -503,6 +508,8 @@ class FakeFullScreenAdHandle
   Future<void> show({OnUserEarnedReward? onUserEarnedReward}) async {
     showCalls++;
     lastOnUserEarnedReward = onUserEarnedReward;
+    final hold = showHold;
+    if (hold != null) await hold.future;
     final rejectsWith = showRejectsWith;
     if (rejectsWith != null) throw rejectsWith;
     if (showCalls > 1) {

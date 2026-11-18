@@ -214,6 +214,44 @@ void main() {
     });
   });
 
+  group('showAtLaunch never holds the loading screen for nothing', () {
+    test('Remove-Ads on: returns blocked(adsDisabled) at once', () {
+      fakeAsync((async) {
+        final c = AppOpenAdController(
+          sdk: sdk,
+          gate: AdGate(
+            canRequestAds: sdk.canRequestAds,
+            isEnabled: () => false,
+          ),
+          caps: caps,
+          coordinator: coordinator,
+          config: cfg(),
+          adUnitId: 'unit-ao',
+          now: () => now,
+        );
+        final m = manager(c)..start();
+        async.flushMicrotasks();
+
+        AdShowResult? result;
+        m.showAtLaunch().then((r) => result = r);
+        async.flushMicrotasks(); // no elapse: nothing may wait out maxWait
+        expect(result, const AdShowResult.blocked(AdBlockReason.adsDisabled));
+        m.dispose();
+        c.dispose();
+      });
+    });
+
+    test('disposed during its consent read: returns, never throws', () async {
+      final c = controller();
+      final m = manager(c)..start();
+      await pumpEventQueue();
+      final launch = m.showAtLaunch();
+      m.dispose();
+      c.dispose();
+      expect(await launch, const AdShowResult.blocked(AdBlockReason.notReady));
+    });
+  });
+
   group('showOnResume', () {
     test('default: a warm return shows', () async {
       final m = manager(controller())..start();

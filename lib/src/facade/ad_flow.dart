@@ -899,11 +899,12 @@ class AdFlow {
     // adaptive slot served from Google's fixed-size sample unit gets a
     // creative that cannot fill it — issue #15), so resolve from the
     // override's kind, not the global config's.
-    final adUnitId =
-        (_config.usesTestAds
-                ? TestAdUnitIds.forBannerKind(config.kind)
-                : config.adUnitId)
-            .resolve(_platform);
+    final adUnitId = resolveAdUnitId(
+      configured: config.adUnitId,
+      testIds: TestAdUnitIds.forBannerKind(config.kind),
+      platform: _platform,
+      testAds: _config.usesTestAds,
+    );
     if (adUnitId == null) {
       throw AdFlowError(
         AdFlowErrorKind.invalidConfig,
@@ -944,10 +945,12 @@ class AdFlow {
         'AdFlowConfig.nativeAd.',
       );
     }
-    final adUnitId =
-        (_config.usesTestAds ? TestAdUnitIds.native : config.adUnitId).resolve(
-          _platform,
-        );
+    final adUnitId = resolveAdUnitId(
+      configured: config.adUnitId,
+      testIds: TestAdUnitIds.native,
+      platform: _platform,
+      testAds: _config.usesTestAds,
+    );
     if (adUnitId == null) {
       throw AdFlowError(
         AdFlowErrorKind.invalidConfig,

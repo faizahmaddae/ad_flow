@@ -579,9 +579,10 @@ class AdFlowConfig {
     }
 
     void checkUnitId(PlatformAdUnitId id, String slot) {
-      // While test ads are on the configured IDs are never requested, so a
-      // slot may leave them out (6.0).
-      if (usesTestAds) return;
+      // Only an EXPLICIT testMode: true may leave IDs out. With the automatic
+      // default a missing ID must fail in debug too — not first in a release
+      // build, where initialize() rejecting would cost every ad (6.0).
+      if (testMode == true) return;
       check(
         id.android != null || id.ios != null,
         '$slot.adUnitId has no platform IDs — configure android and/or ios, '
@@ -717,8 +718,10 @@ class AdFlowConfig {
   /// forces your IDs (to check them from a debug build, register the device
   /// in [testDeviceIds] so it receives test ads with them).
   ///
-  /// While test ads are on, a slot needs no IDs at all
-  /// (`PlatformAdUnitId()`): the sample unit is used.
+  /// Test ads stand in only on a platform the slot has an ID for, so debug
+  /// and release builds agree on which slots exist. With `testMode: true` a
+  /// slot may leave its IDs out entirely (`PlatformAdUnitId()`): it then
+  /// serves the sample unit on every platform.
   final bool? testMode;
 
   /// Whether this configuration serves Google's sample test ads: [testMode],
@@ -804,6 +807,31 @@ class AdFlowConfig {
     AdPlatform platform,
   ) {
     if (configured == null) return null;
-    return (usesTestAds ? testIds : configured).resolve(platform);
+    return resolveAdUnitId(
+      configured: configured,
+      testIds: testIds,
+      platform: platform,
+      testAds: usesTestAds,
+    );
   }
+}
+
+/// The ad unit ID a slot requests on [platform]: its own, or — with [testAds]
+/// — the matching sample unit from [testIds].
+///
+/// A sample unit stands in only where the slot exists in a release build too
+/// (it has an ID for [platform]), so a slot configured for one platform does
+/// not appear on the other in debug only. An ID-less slot
+/// (`PlatformAdUnitId()`, accepted only with `testMode: true`) is a test
+/// placeholder for every platform. Internal: not exported.
+String? resolveAdUnitId({
+  required PlatformAdUnitId configured,
+  required PlatformAdUnitId testIds,
+  required AdPlatform platform,
+  required bool testAds,
+}) {
+  final own = configured.resolve(platform);
+  if (!testAds) return own;
+  final placeholder = configured.android == null && configured.ios == null;
+  return own != null || placeholder ? testIds.resolve(platform) : null;
 }

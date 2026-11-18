@@ -8,7 +8,7 @@
 /// This barrel exports the public API only. Internals live under `src/`.
 library;
 
-export 'src/config/ad_flow_config.dart';
+export 'src/config/ad_flow_config.dart' hide resolveAdUnitId;
 export 'src/config/ad_platform.dart';
 export 'src/consent/consent_gateway.dart';
 export 'src/consent/explainer_content.dart';

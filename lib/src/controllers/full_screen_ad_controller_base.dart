@@ -122,7 +122,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
 
   /// Once retired, this controller stops maintaining inventory: [load] is inert
   /// and the autonomous reloads (dismiss, expiry, retry) become no-ops. Used by
-  /// the app-open manager for `launchOnly` after its single launch, so it does
+  /// the app-open manager for a launch-only slot after its single launch, so it does
   /// not keep requesting an ad that can never be shown again this process
   /// (5.1). Distinct from [dispose]: the controller stays alive and observable.
   bool _retired = false;
@@ -142,7 +142,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
 
   /// Drops the current handle (without showing it) and preloads a fresh
   /// one — for a warm ad that must not be shown: expired, requested under a
-  /// stale consent generation, or left with a failed runtime-SSV attach.
+  /// or stale consent generation.
   ///
   /// A no-op while a load is already in flight (same reasoning as review
   /// finding #4 on `NativeAdController.reload()`): that load is already the
@@ -163,8 +163,8 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   /// SHOWING ad finishes on screen — its dismiss cleans up but does not reload,
   /// because [load] is now inert. Idempotent; safe after [dispose].
   ///
-  /// Used by the app-open manager for `launchOnly` after the single launch (a
-  /// launchOnly ad is never shown again this process). Not a general lifecycle
+  /// Used by the app-open manager for a launch-only slot after the single launch
+  /// (such an ad is never shown again this process). Not a general lifecycle
   /// control — exposed publicly only via `AppOpenAdController.retire`.
   @protected
   void retireInventory() {
@@ -192,14 +192,30 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   /// to pause at a natural break for an interstitial. It replaces mirroring
   /// the caps in app code. [show] re-checks everything (including live
   /// consent) and remains the only authority.
-  bool get canShow =>
-      !_disposed &&
-      isReady &&
-      !isExpired &&
-      _gate.isEnabled &&
-      !_coordinator.isFullScreenAdVisible &&
-      _caps.allowsNow(slot) &&
-      canShowExtra();
+  ///
+  /// A warm ad found expired here is replaced (in a microtask): the expiry
+  /// timer runs on a clock that stops while the device sleeps, and an app that
+  /// only calls [show] when this is true would otherwise never trigger the
+  /// replacement [show] performs.
+  @override
+  bool get canShow {
+    if (_disposed || !isReady) return false;
+    if (isExpired) {
+      scheduleMicrotask(_replaceIfExpired);
+      return false;
+    }
+    return _gate.isEnabled &&
+        !_coordinator.isFullScreenAdVisible &&
+        _caps.allowsNow(slot) &&
+        canShowExtra();
+  }
+
+  /// Drops a warm ad that has outlived its maximum age and loads a fresh one.
+  void _replaceIfExpired() {
+    if (_disposed || _state.value is! AdLoaded || !isExpired) return;
+    noteBlocked(AdBlockReason.expired);
+    discardCurrentAd();
+  }
 
   /// Which network filled the warm ad (mediation observability), or null
   /// when nothing is loaded / the SDK reported nothing.
@@ -228,13 +244,16 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   /// the guarantee.
   void _scheduleExpiry() {
     final maxAdAge = _maxAdAge;
-    if (maxAdAge == null) return;
+    final loadedAt = _loadedAt;
+    if (maxAdAge == null || loadedAt == null) return;
+    // The REMAINING age, so a show that held the slot (a long rewarded intro)
+    // can re-arm it on rollback.
+    final remaining = maxAdAge - _now().difference(loadedAt);
     _timer?.cancel();
-    _timer = Timer(maxAdAge, () {
-      if (_disposed || _state.value is! AdLoaded || !isExpired) return;
-      noteBlocked(AdBlockReason.expired);
-      discardCurrentAd();
-    });
+    _timer = Timer(
+      remaining.isNegative ? Duration.zero : remaining,
+      _replaceIfExpired,
+    );
   }
 
   @override
@@ -381,11 +400,14 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   @override
   Future<AdShowResult> show() => showEngine();
 
-  /// How long [show] waits for the SDK to report that a dispatched ad closed
-  /// before it completes anyway — so a dismissal the SDK never reports cannot
-  /// hold the app's flow (the next level, the next screen) forever. The ad
-  /// itself is not touched: the controller still follows the SDK's events.
-  static const dismissalTimeout = Duration(minutes: 3);
+  /// How long [show] waits for the SDK to put a dispatched ad ON SCREEN
+  /// before it completes with `AdShowResult.failed` (kind `timeout`), so an
+  /// ad the SDK never presents cannot hold the app's flow forever. Once the ad
+  /// is on screen there is no bound: [show] completes when the user closes it,
+  /// however long that takes (a user may leave the app mid-video and finish it
+  /// later — the result must still carry the reward). The ad itself is never
+  /// touched: the controller keeps following the SDK's events.
+  static const presentationTimeout = Duration(seconds: 30);
 
   /// The show in progress — dispatched, waiting for the ad to close.
   _ShowAttempt? _attempt;
@@ -421,8 +443,9 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   /// Returning false (the user skipped; report the reason yourself before
   /// returning) or throwing rolls everything back to a warm [AdLoaded].
   ///
-  /// Completes when the dispatched ad CLOSES (bounded by [dismissalTimeout]),
-  /// or at once when the show is refused or fails (6.0).
+  /// Completes when the dispatched ad CLOSES, or at once when the show is
+  /// refused or fails (6.0); an ad the SDK never presents completes after
+  /// [presentationTimeout].
   @protected
   Future<AdShowResult> showEngine({
     OnUserEarnedReward? onReward,
@@ -473,7 +496,17 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     // runs again only if the first call threw (the flag is cleared after it).
     Future<AdShowResult> rejectAndRollBack(AdBlockReason reason) async {
       _exitCoordinator();
-      if (!_disposed) _state.value = const AdLoaded();
+      if (_disposed) return AdShowResult.blocked(reason);
+      if (isExpired) {
+        // The ad aged out while this show held the slot (a long rewarded
+        // intro): drop and reload in the same turn as the claim release —
+        // never back to AdLoaded first (ADR-075).
+        discardCurrentAd();
+      } else {
+        _state.value = const AdLoaded();
+        // The expiry timer may have fired (and done nothing) during AdShowing.
+        _scheduleExpiry();
+      }
       return AdShowResult.blocked(reason);
     }
 
@@ -598,18 +631,15 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     // events that arrive while the dispatch is still awaited are not lost.
     final attempt = _ShowAttempt();
     _attempt = attempt;
-    attempt.timer = Timer(dismissalTimeout, () {
-      if (!identical(_attempt, attempt)) return;
+    attempt.timer = Timer(presentationTimeout, () {
+      if (!identical(_attempt, attempt) || attempt.showedOnScreen) return;
       _finishShow(
-        (a) => a.showedOnScreen
-            ? AdShowResult.shown(reward: a.reward)
-            : const AdShowResult.failed(
-                AdFlowError(
-                  AdFlowErrorKind.timeout,
-                  'The ad was dispatched, but the SDK never reported it on '
-                  'screen or closed.',
-                ),
-              ),
+        (_) => const AdShowResult.failed(
+          AdFlowError(
+            AdFlowErrorKind.timeout,
+            'The ad was dispatched, but the SDK did not put it on screen.',
+          ),
+        ),
       );
     });
     // A reward is granted at most once per ad, even if the SDK misfires —
@@ -626,8 +656,21 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       }
     }
 
+    // Not awaited before returning: the result is bounded by
+    // [presentationTimeout] and [dispose] even if the platform call never
+    // replies.
+    unawaited(_dispatch(handle, attempt, onRewardOnce));
+    return attempt.completer.future;
+  }
+
+  /// Hands the ad to the SDK and handles a dispatch that throws.
+  Future<void> _dispatch(
+    FullScreenAdHandle handle,
+    _ShowAttempt attempt,
+    OnUserEarnedReward onReward,
+  ) async {
     try {
-      await handle.show(onUserEarnedReward: onRewardOnce);
+      await handle.show(onUserEarnedReward: onReward);
     } catch (e) {
       // The documented AdSdk.show contract says failures arrive via
       // AdFailedToShowEvent, never a rejected Future — but a real
@@ -635,20 +678,24 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       // and show, channel error, mediation failure). Without this guard
       // the coordinator claim and AdShowing state above are never rolled
       // back, wedging every full-screen format for the rest of the
-      // session (review finding #1).
+      // session (review finding #1). Only while this ad is still the
+      // current one: a late throw must not tear down a newer ad.
       final error = AdFlowError(AdFlowErrorKind.showFailed, '$e');
-      _exitCoordinator();
-      _dropHandle();
-      if (!_disposed) {
-        _state.value = AdFailed(error);
-        unawaited(load());
+      if (identical(_handle, handle)) {
+        _exitCoordinator();
+        _dropHandle();
+        if (!_disposed) {
+          _state.value = AdFailed(error);
+          unawaited(load());
+        }
       }
-      _finishShow((_) => AdShowResult.failed(error));
-      return attempt.completer.future;
+      if (identical(_attempt, attempt)) {
+        _finishShow((_) => AdShowResult.failed(error));
+      }
+      return;
     }
     _lastBlockReason = null;
     onShown();
-    return attempt.completer.future;
   }
 
   void _onContentEvent(FullScreenAdEvent event) {
@@ -659,7 +706,12 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         // recorded here — it is recorded on dismiss (see below, ADR-040).
         // Coordinator entry already happened synchronously in show().
         _impressionPending = true;
-        _attempt?.showedOnScreen = true;
+        final attempt = _attempt;
+        if (attempt != null) {
+          // On screen: from here show() waits for the close, unbounded.
+          attempt.showedOnScreen = true;
+          attempt.timer?.cancel();
+        }
       case AdDismissedEvent():
         // Record the impression HERE, not on AdShowedEvent (ADR-040).
         //
@@ -810,6 +862,6 @@ class _ShowAttempt {
   /// The reward the user earned during this show, if any.
   RewardEarned? reward;
 
-  /// The [FullScreenAdControllerBase.dismissalTimeout] bound.
+  /// The [FullScreenAdControllerBase.presentationTimeout] bound.
   Timer? timer;
 }

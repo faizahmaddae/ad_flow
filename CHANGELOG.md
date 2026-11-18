@@ -11,22 +11,30 @@ mapping (most apps change a handful of lines and delete their wrappers).
 - **`show()` completes when the ad CLOSES** (all full-screen formats) and
   returns an `AdShowResult`: `shown` (with `reward` for rewarded formats),
   `blockReason` (why nothing was shown) or `error`. `onReward` still fires,
-  once. A close the SDK never reports completes after 3 minutes
-  (`FullScreenAdControllerBase.dismissalTimeout`) without touching the ad.
+  once. An ad the SDK never puts on screen completes `failed` (kind
+  `timeout`) after 30 seconds (`FullScreenAdControllerBase.presentationTimeout`);
+  once on screen, `show()` waits for the close however long it takes.
 - **Slot getters are nullable** — `ads.interstitial?.show()`; null means the
   slot is not configured for this platform. The `…OrNull` getters and
   `appOpenController` are gone (`ads.appOpen?.controller`).
 - **Test ads are automatic.** `AdFlowConfig.testMode` is `bool?`; null (the
   default) serves Google's test ads in debug builds and your IDs in release.
-  While test ads are on, a slot needs no IDs (`PlatformAdUnitId()`).
+  Test ads stand in only on platforms the slot has IDs for (debug and release
+  agree on which slots exist). With `testMode: true` a slot may leave its IDs
+  out (`PlatformAdUnitId()`).
 - **App open:** `showAtLaunch({maxWait = 3 s})` replaces
-  `showAtLaunchIfReady()` — it waits (bounded) for the first load, never shows
-  to a first-time user, and completes when the ad closes. The slot now
-  preloads at startup. `AppOpenTriggerMode` / `triggerMode` →
+  `showAtLaunchIfReady()` — it waits (bounded) for the first load, returns at
+  once when no consent is stored yet or ads are disabled, and completes when
+  the ad closes. The slot now preloads at startup. `AppOpenTriggerMode` / `triggerMode` →
   `AppOpenConfig.showOnResume` (default true).
 - `AdGate`, `FrequencyCapPolicy`, `StoredFrequencyCapPolicy`,
   `FullScreenAdCoordinator` and `RetryPolicy` moved from
   `package:ad_flow/ad_flow.dart` to `package:ad_flow/ad_flow_testing.dart`.
+
+- An expired warm full-screen ad is replaced as soon as `canShow` sees it,
+  and a show refused after holding the slot past the ad's age (a long rewarded
+  intro) drops it — before, only `show()` or the expiry timer replaced it, and
+  that timer does not run while the device sleeps.
 
 ### ADDED
 
@@ -34,7 +42,14 @@ mapping (most apps change a handful of lines and delete their wrappers).
 - `FullScreenAdController.canShow` — synchronous "would `show()` show an ad
   now?" (warm, unexpired, enabled, nothing else on screen, caps and pacing).
 - `AdFlowConfig.usesTestAds`, `AppOpenAdManager.controller`,
-  `FrequencyCapPolicy.allowsNow`.
+  `FrequencyCapPolicy.allowsNow`, `FakeFullScreenAdHandle.showHold`.
+
+### FOR IMPLEMENTERS
+
+If you implement or construct these yourself (custom test doubles, a custom
+cap policy): `FullScreenAdController` gained `canShow`; `FrequencyCapPolicy`
+gained `allowsNow`; `AdGate` lost `settleConsentForwarding:`;
+`FullScreenAdCoordinator` lost `blockingViewAdVisible`.
 
 ### REMOVED
 

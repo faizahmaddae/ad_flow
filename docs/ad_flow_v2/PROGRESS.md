@@ -35,6 +35,12 @@ Done (one commit each, tree green after each):
    full (708 MB free) when Gradle 9.5 downloaded; CI verifies it. The v6 branch
    is rebased on top of it.
 
+10. Independent review (fresh agent) before release: 3 should-fix issues and
+    several nits, all fixed (ADR-083 addendum): presentation-only show
+    timeout, expired-ad self-heal, `showAtLaunch` no-wait on Remove-Ads /
+    dispose-safe, interface `canShow`, per-platform test-ID resolution,
+    implementer notes, stale comments.
+
 ## Next (ordered)
 
 1. Faiz: merge PR #19 (5.5.0) and tag `v5.5.0` — the App Store fix.

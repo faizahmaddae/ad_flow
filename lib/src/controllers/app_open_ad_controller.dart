@@ -32,7 +32,8 @@ class AppOpenAdController extends FullScreenAdControllerBase {
 
   final AppOpenConfig _config;
 
-  /// Retires this controller's inventory after a `launchOnly` cold-launch show:
+  /// Retires this controller's inventory after a launch-only cold-launch show
+  /// (`AppOpenConfig.showOnResume: false`):
   /// it stops preloading/reloading an ad that can never be shown again this
   /// process. The `AppOpenAdManager` calls this; apps normally do not. A
   /// currently-showing ad finishes on screen. See

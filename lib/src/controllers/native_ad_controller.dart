@@ -105,7 +105,7 @@ class NativeAdController implements AdController {
 
   /// The consent generation the mounted ad was REQUESTED under. When
   /// [AdGate.consentGeneration] advances past it, the ad carries a stale
-  /// consent/forwarding state and `recheckGate` drops-and-reloads it — the
+  /// consent state and `recheckGate` drops-and-reloads it — the
   /// already-loaded counterpart of the mid-load check in [load]. Internal.
   int _loadedGeneration = 0;
   bool _disposed = false;
@@ -206,8 +206,8 @@ class NativeAdController implements AdController {
       }
       if (_gate.consentGeneration != requestGeneration) {
         // Consent mutated while this native ad was in flight — it carries the
-        // OLD consent/forwarding. Drop it unshown and reload through the
-        // re-forwarded gate (release gate #2).
+        // OLD consent. Drop it unshown and reload through the fresh gate
+        // (release gate #2).
         safeUnawaited(handle.dispose(), debugName: 'handle');
         _state.value = const AdIdle();
         unawaited(load());
@@ -271,7 +271,7 @@ class NativeAdController implements AdController {
     final state = _state.value;
     if (state is AdLoaded) {
       // A mounted ad requested under a now-stale consent generation renders and
-      // measures under the OLD consent/forwarding — drop it and reload through
+      // measures under the OLD consent — drop it and reload through
       // the fresh gate before checking mere permission (release gate #2). The
       // already-loaded counterpart of the mid-load check in load(). reload()
       // no-ops while a load is already in flight.

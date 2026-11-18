@@ -155,24 +155,57 @@ void main() {
     c.dispose();
   });
 
-  test('a close the SDK never reports cannot hold the app forever: the result '
-      'arrives after dismissalTimeout, the ad is left alone', () {
+  test('an ad the SDK never puts on screen completes failed(timeout) after '
+      'presentationTimeout', () {
     fakeAsync((async) {
       final c = interstitial();
+      c.load();
+      async.flushMicrotasks();
+      sdk.interstitials.single.autoEmitShowed = false; // never presented
+      AdShowResult? result;
+      c.show().then((r) => result = r);
+      async.flushMicrotasks();
+
+      async.elapse(FullScreenAdControllerBase.presentationTimeout);
+      expect(result?.shown, isFalse);
+      expect(result?.error?.kind, AdFlowErrorKind.timeout);
+      c.dispose();
+    });
+  });
+
+  test('a show call that never replies is still bounded', () {
+    fakeAsync((async) {
+      final c = interstitial();
+      c.load();
+      async.flushMicrotasks();
+      sdk.interstitials.single.showHold = Completer<void>();
+      AdShowResult? result;
+      c.show().then((r) => result = r);
+      async.elapse(FullScreenAdControllerBase.presentationTimeout);
+      expect(result?.error?.kind, AdFlowErrorKind.timeout);
+      c.dispose();
+    });
+  });
+
+  test('ON SCREEN there is no timeout: a user who leaves mid-video and '
+      'finishes later still gets the reward in the result', () {
+    fakeAsync((async) {
+      final c = rewarded();
       c.load();
       async.flushMicrotasks();
       AdShowResult? result;
       c.show().then((r) => result = r);
       async.flushMicrotasks();
+
+      async.elapse(const Duration(minutes: 20)); // away, ad still open
       expect(result, isNull);
 
-      async.elapse(FullScreenAdControllerBase.dismissalTimeout);
-      expect(
-        result,
-        const AdShowResult.shown(),
-        reason: 'it did reach the screen',
-      );
-      expect(coordinator.isFullScreenAdVisible, isTrue, reason: 'untouched');
+      const reward = RewardEarned(amount: 5, type: 'coins');
+      sdk.rewardeds.single
+        ..simulateReward(reward)
+        ..simulateDismissed();
+      async.flushMicrotasks();
+      expect(result, const AdShowResult.shown(reward: reward));
       c.dispose();
     });
   });
