@@ -11,13 +11,13 @@ v2 is a ground-up rewrite: **no global singletons** (config and collaborators ar
 ## Read these FIRST (the real operating manual)
 
 Before writing any code, **load the `ad-flow-builder` skill** and read, in order:
-`docs/ad_flow_v2/PROGRESS.md` (short: where things stand + next step) → `REVIEW_2026-11.md` (why 6.0 looks the way it does) → `ARCHITECTURE.md` (the layer contract) → the latest ADRs at the end of `DECISIONS.md` (an append-only log; search it for the subsystem you touch, do not relitigate) → `RESEARCH.md` (ground-truth `google_mobile_ads` 9.x / UMP / AdMob-policy facts — trust it, don't re-research). The skill's §2 (invariants) and §6 (traps) are load-bearing. `MIGRATION.md` maps every major's public API.
+`docs/ad_flow_v2/PROGRESS.md` (short: where things stand + next step) → `REVIEW_2026-11.md` (why 6.0 looks the way it does) → `ARCHITECTURE.md` (the layer contract) → `DECISIONS.md` (short: an index of ADR-001…083, whose full text is in `archive/DECISIONS_v2-v6.md` — grep the number — plus new records from ADR-084; do not relitigate) → `RESEARCH.md` (ground-truth `google_mobile_ads` 9.x / UMP / AdMob-policy facts — trust it, don't re-research). The skill's §2 (invariants) and §6 (traps) are load-bearing. `MIGRATION.md` maps every major's public API.
 
 ## Commands
 
 ```bash
 flutter analyze                                   # MUST be clean (0 issues) before moving on
-flutter test                                      # full suite (~620 tests)
+flutter test                                      # full suite (~630 tests)
 flutter test --concurrency=2                      # use if the runner OOM-kills (exit 137)
 flutter test test/facade/ad_flow_test.dart        # one file
 flutter test --plain-name 'CONFIG-BEFORE-LOAD'    # one test/group by name substring
@@ -48,7 +48,7 @@ seam         AdSdk  (GmaAdSdk real · FakeAdSdk test)   ← the ONLY door to goo
 
 **The SDK seam is the single most important structural rule (invariant 8).** `lib/src/seam/gma_ad_sdk.dart` is the *only* file that imports `google_mobile_ads` (and `app_tracking_transparency`). Everything above it talks to the interface `AdSdk` and is fully unit-testable with `FakeAdSdk` (shipped publicly in `lib/ad_flow_testing.dart`). This is enforced by `test/architecture/seam_boundary_test.dart` — respect it, or those tests fail.
 
-`AdFlow.initialize` is the composition root: it builds the whole graph (seam → consent → policies → controllers → lifecycle), then runs startup in the background. `lib/ad_flow.dart` is the public barrel — export new public API there.
+`AdFlow.initialize` is the composition root: it builds the whole graph (seam → consent → policies → controllers → lifecycle), then runs startup in the background. `lib/ad_flow.dart` is the app-facing barrel, pinned by `test/architecture/public_api_test.dart` (ADR-084): export there only what app code needs; internals and test doubles go in `lib/ad_flow_testing.dart`.
 
 ### Invariants (non-negotiable — each maps to real revenue or a policy/ban risk; full text in skill §2, each has a guarding test)
 

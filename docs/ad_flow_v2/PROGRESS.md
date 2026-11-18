@@ -54,14 +54,29 @@ Done (one commit each, tree green after each):
     platform throws `invalidConfig` (README, CHANGELOG and MIGRATION say so
     too); the library doc has a quick start. `pana --no-warning .`: 160/160.
 
+12. Public surface cut (review F7, ADR-084): `ad_flow.dart` exports 71 types +
+    4 helpers (was 100), everything else a test double needs is in
+    `ad_flow_testing.dart`. Checked against the nine apps first — nothing they
+    use moved. `test/architecture/public_api_test.dart` pins the list.
+
+13. Docs reset (review Phase 4): `DECISIONS.md` is now an index of
+    ADR-001…083 (full text in `archive/DECISIONS_v2-v6.md`) plus new records
+    from ADR-084; the stale v2 files (MASTER_PROMPT, START_HERE, specs, old
+    audits) moved to `archive/`. The review's plan now carries a status line
+    per phase.
+
 ## Next (ordered)
 
 1. Faiz: merge PR #19 (5.5.0) and tag `v5.5.0` — the App Store fix.
 2. Rebase `claude/ad-flow-v6` onto main after #19 merges
    (`git rebase --onto origin/main <last 5.5.0 commit>`), open the 6.0.0 PR.
-3. Device check of the example on Android + iOS (show-and-wait, launch ad,
+3. Faiz decides before 6.0 ships: (a) should `AdFlowBanner(adFlow:)` /
+   `AdFlowNativeAd(adFlow:)` render nothing instead of throwing on a platform
+   their slot has no ID for (recommended: yes, with a debug report)? (b) keep or
+   drop the consent primer (review open decision 4; four apps pass it)?
+4. Device check of the example on Android + iOS (show-and-wait, launch ad,
    ATT order) — not done yet; unit tests only.
-4. Migrate the nine apps (one session per app, in its own repo), deleting their
+5. Migrate the nine apps (one session per app, in its own repo), deleting their
    wrappers: wait-for-close adapters, `FullScreenPacing`, `PrivacyOptionsMirror`,
    nahjal's `ConsentThenAttGateway` + TCF channel, launch-wait code, debug
    placeholder IDs. The README's "Set up with AI" prompt is written for this.
@@ -69,7 +84,7 @@ Done (one commit each, tree green after each):
 ## How to verify
 
 `dart format --output=none --set-exit-if-changed .` && `flutter analyze` &&
-`flutter test` (≈620 tests) && `cd example && flutter analyze && flutter test`
+`flutter test` (≈630 tests) && `cd example && flutter analyze && flutter test`
 && `dart pub publish --dry-run`.
 
 ## Traps hit this phase

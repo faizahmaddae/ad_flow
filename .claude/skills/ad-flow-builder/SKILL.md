@@ -18,7 +18,7 @@ Before writing or changing a single line of code, read these files in this order
 1. `docs/ad_flow_v2/PROGRESS.md` — where we are, what's in progress, the exact next step (short; the v2–v5 history is in `archive/`).
 2. `docs/ad_flow_v2/REVIEW_2026-11.md` — the review behind 5.5.0/6.0.0: what the real apps need, what was removed and why.
 3. `docs/ad_flow_v2/ARCHITECTURE.md` — the layer contract.
-4. `docs/ad_flow_v2/DECISIONS.md` — the append-only ADR log: read the latest ADRs and search for the subsystem you touch (don't relitigate settled decisions).
+4. `docs/ad_flow_v2/DECISIONS.md` — the decision log: an index of ADR-001…083 (full text in `archive/DECISIONS_v2-v6.md`; grep the number a comment cites) and the new records from ADR-084. Search for the subsystem you touch; don't relitigate settled decisions.
 5. `docs/ad_flow_v2/RESEARCH.md` — ground-truth facts about `google_mobile_ads` 9.x, UMP, and AdMob policy.
 
 **Never skip orientation to "save time" — it is what makes a handoff safe.**
@@ -66,7 +66,7 @@ A slice is done only when ALL of these are true:
 - It compiles and `flutter analyze` is clean (zero warnings/infos you introduced).
 - Unit tests are written and green, using `FakeAdSdk` (and fakes for consent / key-value store / clock as needed). Every invariant the slice touches has a guarding test.
 - Public API is documented with dartdoc comments.
-- `DECISIONS.md` updated if you made any non-obvious choice (ADR entry: context → decision → rationale → consequences).
+- `DECISIONS.md` updated if you made any non-obvious choice (a short ADR at the end: context → decision → rejected → consequences).
 - `MIGRATION.md` updated if the public API changed relative to v1.
 - `PROGRESS.md` updated (Section 4 template).
 - Committed with a clear, scoped message (e.g. `feat(interstitial): add frequency-capped controller with reload-on-dismiss`).
