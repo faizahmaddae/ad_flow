@@ -3,6 +3,10 @@ import 'dart:async';
 import 'package:ad_flow/ad_flow.dart';
 import 'package:ad_flow/ad_flow_testing.dart';
 import 'package:fake_async/fake_async.dart';
+// Deprecated in Flutter 3.50 in favour of package:material_ui, which needs
+// Flutter >= 3.47 and does not share Material types with apps on older
+// Flutter; migrate once the package floor reaches 3.50.
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

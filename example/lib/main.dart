@@ -2,6 +2,10 @@ import 'dart:async';
 
 import 'package:ad_flow/ad_flow.dart';
 import 'package:flutter/foundation.dart';
+// Deprecated in Flutter 3.50 in favour of package:material_ui, which needs
+// Flutter >= 3.47 and does not share Material types with apps on older
+// Flutter; migrate once the package floor reaches 3.50.
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 
 // ad_flow example — every ad format over Google's sample IDs, in BOTH of the
