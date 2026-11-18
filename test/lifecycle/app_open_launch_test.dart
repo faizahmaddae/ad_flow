@@ -5,6 +5,7 @@ import 'package:ad_flow/ad_flow_testing.dart'
 import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/controllers/app_open_ad_controller.dart';
 import 'package:ad_flow/src/core/ad_block_reason.dart';
+import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/core/ad_load_state.dart';
 import 'package:ad_flow/src/core/ad_show_result.dart';
 import 'package:ad_flow/src/lifecycle/app_open_ad_manager.dart';
@@ -236,6 +237,38 @@ void main() {
         m.showAtLaunch().then((r) => result = r);
         async.flushMicrotasks(); // no elapse: nothing may wait out maxWait
         expect(result, const AdShowResult.blocked(AdBlockReason.adsDisabled));
+        m.dispose();
+        c.dispose();
+      });
+    });
+
+    test('a load that FAILS (offline, no fill) ends the wait at once — the '
+        'loading screen is not held for the rest of maxWait', () {
+      fakeAsync((async) {
+        sdk.loadHold = Completer<void>(); // the first load is in flight
+        sdk.nextLoadError = const AdFlowError(
+          AdFlowErrorKind.loadFailed,
+          'no fill',
+        );
+        final c = controller();
+        final m = manager(c)..start();
+        async.flushMicrotasks();
+
+        AdShowResult? result;
+        m
+            .showAtLaunch(maxWait: const Duration(seconds: 3))
+            .then((r) => result = r);
+        async.elapse(const Duration(milliseconds: 500));
+        expect(result, isNull, reason: 'still loading: it waits');
+
+        sdk.loadHold!.complete(); // the load comes back FAILED, 0.5 s in
+        sdk.loadHold = null;
+        async.flushMicrotasks();
+        expect(result, isNotNull, reason: 'no ad is coming within the launch');
+        expect(result!.shown, isFalse);
+        // Nothing reached the screen; the refused show kicked off a fresh
+        // load for the next warm return, as every refused show does.
+        expect(sdk.appOpens.where((h) => h.showCalls > 0), isEmpty);
         m.dispose();
         c.dispose();
       });

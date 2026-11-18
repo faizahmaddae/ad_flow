@@ -29,8 +29,8 @@ mapping (most apps change a handful of lines and delete their wrappers).
   prints why. `ads.banner()` / `ads.native()` still throw `invalidConfig`.
 - **App open:** `showAtLaunch({maxWait = 3 s})` replaces
   `showAtLaunchIfReady()` — it waits (bounded) for the first load, returns at
-  once when no consent is stored yet or ads are disabled, and completes when
-  the ad closes. The slot now preloads at startup. `AppOpenTriggerMode` /
+  once when no consent is stored yet or ads are disabled, stops waiting when
+  the load fails (offline, no fill), and completes when the ad closes. The slot now preloads at startup. `AppOpenTriggerMode` /
   `triggerMode` → `AppOpenConfig.showOnResume` (default true).
 - **`package:ad_flow/ad_flow.dart` exports only what app code uses** — 68
   types (5.x: 105). Moved to `package:ad_flow/ad_flow_testing.dart`: `AdGate`,

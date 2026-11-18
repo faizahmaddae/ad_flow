@@ -101,14 +101,24 @@ Done (one commit each, tree green after each):
     Flutter 3.50 migrated the example's iOS target to 15.0 (Flutter ≥ 3.47
     needs iOS 15) — committed with the example.
 
+17. Device check, Android emulator (Pixel 10 Pro, Android 17, profile build,
+    Google's sample units): every format, `show()` completing on the close,
+    action pacing, rewarded and RI rewards, RI intro first, app open on a warm
+    return and the 4-min cap, the EU GDPR form first, privacy settings
+    reopening the form, and a consent change dropping and reloading the ads —
+    all as designed. The startup gate showed in the log (loads waited for the
+    request configuration, then went out). One finding, fixed (ADR-087): a
+    failed launch load no longer holds the loading screen for the rest of
+    `maxWait`. The cold-start launch ad missed the 3 s wait on this emulator
+    (ad ready at ~4 s); the default stays 3 s.
+
 ## Next (ordered)
 
 1. Faiz: merge PR #19 (5.5.0) and tag `v5.5.0` — the App Store fix.
 2. Rebase `claude/ad-flow-v6` onto main after #19 merges
    (`git rebase --onto origin/main <last 5.5.0 commit>`), open the 6.0.0 PR.
-3. Device check left: Android (emulator or phone), and the client-driven
-   `attExplainer` primer with a real app ID that has no console IDFA message
-   (iOS done, item 16).
+3. Device check left: the client-driven `attExplainer` primer with a real
+   app ID that has no console IDFA message (iOS item 16, Android item 17).
 4. Migrate the nine apps (one session per app, in its own repo), deleting their
    wrappers: wait-for-close adapters, `FullScreenPacing`, `PrivacyOptionsMirror`,
    nahjal's `ConsentThenAttGateway` + TCF channel, launch-wait code, debug
@@ -122,6 +132,12 @@ Done (one commit each, tree green after each):
 && `dart pub publish --dry-run`.
 
 ## Traps hit this phase
+
+- The maintainer's Android emulator has ~700 MB free: the 155 MB debug APK
+  fails with `INSTALL_FAILED_INSUFFICIENT_STORAGE`. Use
+  `flutter build apk --profile --target-platform android-arm64` (~31 MB; the
+  example's IDs are Google's sample units, so profile mode still serves test
+  ads), and uninstall the example afterwards.
 
 - Google's sample app ID has a console IDFA message, so on a device UMP asks
   ATT itself and the client-driven `attExplainer` step is (correctly)

@@ -264,8 +264,10 @@ navigator.pushReplacement(homeRoute);
 ```
 
 It returns at once when no consent is stored on the device yet (an EEA user's
-first launch, before the GDPR form) or ads are disabled, and it takes the launch
-moment only once per process. `AppOpenConfig(showOnResume: false)` makes the
+first launch, before the GDPR form) or ads are disabled, stops waiting as soon as
+the ad fails to load (offline, no fill), and takes the launch moment only once
+per process. On a slow device the first load can take longer than 3 s: pass a
+longer `maxWait` if your loading screen stays up anyway. `AppOpenConfig(showOnResume: false)` makes the
 slot launch-only.
 
 ## 5. Consent & privacy

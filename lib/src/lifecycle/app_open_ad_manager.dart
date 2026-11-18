@@ -89,7 +89,9 @@ class AppOpenAdManager {
   /// - Waits up to [maxWait] (3 s by default) for the ad to finish loading —
   ///   at a real cold launch the first load is usually still in flight, which
   ///   is why a launch ad that is only shown when "already ready" almost never
-  ///   shows. `Duration.zero` shows only an ad that is already warm.
+  ///   shows. `Duration.zero` shows only an ad that is already warm. A load
+  ///   that fails (offline, no fill) ends the wait at once: the retry is
+  ///   seconds away, so no ad would come within the launch window anyway.
   /// - Never for a first-time user: when no consent from an earlier launch is
   ///   on the device it returns at once (`blocked(consentNotGranted)`), so a
   ///   launch ad never follows the consent form.
@@ -156,18 +158,17 @@ class AppOpenAdManager {
     };
   }
 
-  /// Completes when the ad is ready or definitely refused, or after
-  /// [maxWait], whichever is first.
+  /// Completes when the ad is ready, its load failed, or it is definitely
+  /// refused — or after [maxWait], whichever is first.
   Future<void> _waitUntilReady(Duration maxWait) {
-    if (_controller.isReady || maxWait <= Duration.zero) {
-      return Future<void>.value();
-    }
+    bool settled() =>
+        _controller.isReady ||
+        _controller.state.value is AdFailed ||
+        _definitelyRefused() != null;
+    if (settled() || maxWait <= Duration.zero) return Future<void>.value();
     final ready = Completer<void>();
     void check() {
-      if ((_controller.isReady || _definitelyRefused() != null) &&
-          !ready.isCompleted) {
-        ready.complete();
-      }
+      if (settled() && !ready.isCompleted) ready.complete();
     }
 
     final state = _controller.state;

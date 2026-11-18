@@ -192,3 +192,27 @@ make anyway.
 `consent_gateway_test.dart` now also asserts that nothing of the app runs
 before the form.
 
+## ADR-087 — `showAtLaunch` stops waiting when the load fails · accepted (2026-11-18)
+
+**Context.** The Android device check (emulator, profile build): the wait
+for the launch ad ended only on ready, a definite refusal, or `maxWait`. A
+first load that FAILED (offline, no fill) kept the loading screen up for the
+rest of `maxWait`, though the retry is seconds away (5 s base backoff) and
+cannot land inside a 3 s launch window. The same check measured a cold start
+where the SDK finished initializing at ~2.2 s and the ad was ready at ~4 s,
+so a 3 s `maxWait` missed it there (iOS simulator: shown within 3 s).
+
+**Decision.** `_waitUntilReady` also completes on `AdFailed`, including a
+failure that happened before `showAtLaunch` was called; the refused show then
+returns `blocked(notReady)` and kicks off the next load for a warm return.
+The default `maxWait` stays 3 s (ADR-083): the README now says a slow device
+may need a longer one when the loading screen stays up anyway.
+
+**Rejected.** Raising the default to 5 s on one emulator run: an emulator
+starts the Google SDK slower than a phone, and the cost — a longer loading
+screen on every cold launch where the ad is slow — lands on every app.
+
+**Consequences.** Offline or no-fill launches enter the app as soon as the
+load fails. Guarded by `app_open_launch_test.dart` ("a load that FAILS …",
+neuter-checked).
+
