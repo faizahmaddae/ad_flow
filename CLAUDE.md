@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`ad_flow` (v4.0.0; the docs/ai folder history says "v2" — same architecture) — a Flutter package that wraps **`google_mobile_ads ^9.0.0`** (AdMob) into a policy-compliant, DI-based ad layer: banner, interstitial, rewarded, rewarded-interstitial, native and app-open ads, plus UMP consent and (opt-in) iOS ATT. Android + iOS only. Also depends on `app_tracking_transparency` (iOS ATT, opt-in mode) and `shared_preferences` (frequency-cap persistence).
+`ad_flow` (v5.5.0; the docs folder history says "v2" — same architecture) — a Flutter package that wraps **`google_mobile_ads ^9.2.0`** (AdMob) into a policy-compliant, DI-based ad layer: banner, interstitial, rewarded, rewarded-interstitial, native and app-open ads, plus UMP consent and (opt-in) iOS ATT. Android + iOS only. Also depends on `app_tracking_transparency` (iOS ATT, opt-in mode) and `shared_preferences` (frequency-cap persistence).
 
 v2 is a ground-up rewrite: **no global singletons** (config and collaborators are injected). Public entry point is `AdFlow.initialize(config, {...}) → Future<AdFlow>`; `AdFlow.instance` is only a thin convenience pointer to the last-initialized instance.
 
@@ -17,7 +17,7 @@ Before writing any code, **load the `ad-flow-builder` skill** and read, in order
 
 ```bash
 flutter analyze                                   # MUST be clean (0 issues) before moving on
-flutter test                                      # full suite (~272 tests)
+flutter test                                      # full suite (~665 tests)
 flutter test --concurrency=2                      # use if the runner OOM-kills (exit 137)
 flutter test test/facade/ad_flow_test.dart        # one file
 flutter test --plain-name 'CONFIG-BEFORE-LOAD'    # one test/group by name substring
@@ -64,6 +64,8 @@ seam         AdSdk  (GmaAdSdk real · FakeAdSdk test)   ← the ONLY door to goo
 
 ## Repo-specific behavior a new instance won't guess
 
+- **Consent order: the GDPR flow first, Apple's tracking question last (ADR-082).** The old ATT-first client flow got two of the maintainer's apps rejected under App Store Guideline 5.1.1(iv). ATT is skipped after a GDPR purpose-1 refusal (TCF read via `SharedPreferencesAsync`, iOS) and deferred when the GDPR flow failed. Never reintroduce ATT-first.
+- **The 2026-11 review and the v6 plan** live in `docs/ad_flow_v2/REVIEW_2026-11.md` — read it before changing the public API. Real usage data comes from the maintainer's apps (paths in skill §6).
 - **Init is NON-BLOCKING (ADR-032/033).** `AdFlow.initialize()` builds the graph synchronously and its `Future` completes on the next microtask, **before** consent — consent/ATT/SDK-init/request-config all run in the background. **Never gate the first frame on it** (that was v1's splash hang). Render your UI immediately; ads/consent/ATT appear over it. `AdFlow.whenReady` (`Future<bool>`) is the optional await for the consent result — never required, never gate UI on it. No ad request goes out before request configuration is applied **and** the consent gate opens — `AdGate.canLoad` awaits a `_configApplied` gate (bounded by a timeout so a hung config degrades open, never hangs).
 - **Presenter pattern, never `BuildContext`.** Consent/ATT/rewarded-intro screens are shown via app-supplied `Future` callbacks (`attExplainer`, `consentExplainer`, `rewardedIntroPresenter`) that resolve `navigatorKey.currentContext` *themselves*. The package never holds a `BuildContext`. A broken presenter is caught, recorded on `lastError`, and the real prompt/form still proceeds.
 - **Create banner/native controllers ONCE** (a `State` field, never inside `build()`) — each `ads.banner()`/`ads.native()` mints a fresh controller and starts a new load (ADR-029). The widgets defend against a swap via `didUpdateWidget`, but one stable controller per placement is the correct usage.

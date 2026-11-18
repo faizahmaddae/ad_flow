@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:ad_flow/src/consent/consent_gateway.dart';
+import 'package:ad_flow/src/consent/tcf_consent.dart';
 import 'package:ad_flow/src/core/ad_flow_error.dart';
 import 'package:ad_flow/src/seam/ad_sdk_types.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
@@ -309,63 +310,234 @@ void main() {
       });
     });
 
-    group('skipConsentPrimerIfAttDenied (COMPLIANCE: a required GDPR form is '
-        'never suppressed by ATT; the flag only skips the primer)', () {
+    group('order (ADR-082, App Store 5.1.1(iv)): the GDPR flow first, the '
+        'tracking question last', () {
       late List<String> events;
-      void armEeaWithAtt(AttStatus requestResult, {bool skip = true}) {
+
+      /// An EEA user (form required) who has not answered ATT yet.
+      void armEea({
+        AttStatus requestResult = AttStatus.authorized,
+        TcfConsentReader? readTcf,
+        bool skip = true,
+      }) {
         events = <String>[];
         sdk.attStatus = AttStatus.notDetermined;
         sdk.attRequestResult = requestResult;
-        sdk.consentStatus = AdConsentStatus.required; // EEA: form required
+        sdk.consentStatus = AdConsentStatus.required;
         sdk.consentFormAvailable = true;
+        sdk.canRequestAdsResult = true;
         sdk.onConsentFormShown = () => events.add('form');
         gateway = UmpConsentGateway(
           sdk,
-          attExplainer: (_) async {},
-          consentExplainer: (_) async => events.add('primer'),
+          attExplainer: (_) async => events.add('att-primer'),
+          consentExplainer: (_) async => events.add('consent-primer'),
+          readTcfConsent: readTcf ?? () async => null,
+          // ignore: deprecated_member_use_from_same_package
           skipConsentPrimerIfAttDenied: skip,
         );
       }
 
-      test('EEA + ATT denied → the required GDPR form is STILL shown '
-          '(GDPR and ATT are independent regimes)', () async {
-        armEeaWithAtt(AttStatus.denied); // skip defaults true
+      test('consent primer → GDPR form → ATT primer → ATT prompt', () async {
+        int? updatesAtAttPrimer, formsAtAttPrimer, promptsAtAttPrimer;
+        events = <String>[];
+        sdk.attStatus = AttStatus.notDetermined;
+        sdk.consentStatus = AdConsentStatus.required;
+        sdk.consentFormAvailable = true;
+        sdk.onConsentFormShown = () => events.add('form');
+        gateway = UmpConsentGateway(
+          sdk,
+          consentExplainer: (_) async => events.add('consent-primer'),
+          attExplainer: (_) async {
+            events.add('att-primer');
+            updatesAtAttPrimer = sdk.consentUpdateCalls.length;
+            formsAtAttPrimer = sdk.loadAndShowConsentFormCalls;
+            promptsAtAttPrimer = sdk.requestTrackingAuthorizationCalls;
+          },
+          readTcfConsent: () async => null,
+        );
+
         await gateway.ensureCanRequestAds();
-        expect(sdk.loadAndShowConsentFormCalls, 1); // never suppressed
-        expect(events, contains('form'));
+
+        expect(events, ['consent-primer', 'form', 'att-primer']);
+        // By the ATT primer the whole GDPR flow had run, the prompt had not.
+        expect(updatesAtAttPrimer, 1);
+        expect(formsAtAttPrimer, 1);
+        expect(promptsAtAttPrimer, 0);
+        expect(sdk.requestTrackingAuthorizationCalls, 1);
       });
 
-      test('EEA + ATT denied + default flag → only the optional primer is '
-          'skipped, the form still shows', () async {
-        armEeaWithAtt(AttStatus.denied);
+      test('the required GDPR form is shown whatever the user later answers '
+          'to ATT', () async {
+        armEea(requestResult: AttStatus.denied);
         await gateway.ensureCanRequestAds();
-        expect(events, isNot(contains('primer'))); // primer optimized away
-        expect(events, contains('form')); // ...but the form still shows
+        expect(events, ['consent-primer', 'form', 'att-primer']);
+        expect(sdk.loadAndShowConsentFormCalls, 1);
       });
 
-      test('EEA + ATT denied + flag off → the primer is shown too', () async {
-        armEeaWithAtt(AttStatus.denied, skip: false);
-        await gateway.ensureCanRequestAds();
-        expect(events, ['primer', 'form']);
+      test('skipConsentPrimerIfAttDenied has no effect any more', () async {
+        for (final skip in [true, false]) {
+          armEea(requestResult: AttStatus.denied, skip: skip);
+          await gateway.ensureCanRequestAds();
+          expect(events, ['consent-primer', 'form', 'att-primer']);
+          gateway.dispose();
+          sdk.attStatus = AttStatus.notDetermined;
+        }
       });
 
-      test('EEA + ATT authorized → primer and form both shown (flag '
-          'irrelevant when ATT was not denied)', () async {
-        armEeaWithAtt(AttStatus.authorized);
+      test('the ATT step waits for the consent answer before it starts: '
+          'the whole run resolves only after the prompt', () async {
+        armEea();
+        final canRequest = await gateway.ensureCanRequestAds();
+        expect(sdk.requestTrackingAuthorizationCalls, 1);
+        expect(canRequest, isTrue);
+      });
+
+      test('a failed consent info update defers ATT to a later run', () async {
+        armEea();
+        sdk.consentUpdateError = const AdFlowError(
+          AdFlowErrorKind.consent,
+          'offline',
+        );
+
         await gateway.ensureCanRequestAds();
-        expect(events, ['primer', 'form']);
+
+        expect(events, isEmpty); // no primer, no form, no ATT
+        expect(sdk.requestTrackingAuthorizationCalls, 0);
+        expect(gateway.lastError?.message, 'offline');
+
+        // The network is back: the retry run asks in the compliant order.
+        sdk.consentUpdateError = null;
+        await gateway.ensureCanRequestAds();
+        expect(events, ['consent-primer', 'form', 'att-primer']);
+        expect(sdk.requestTrackingAuthorizationCalls, 1);
+      });
+
+      test('a consent form error also defers ATT', () async {
+        armEea();
+        sdk.consentFormError = const AdFlowError(
+          AdFlowErrorKind.consent,
+          'form failed',
+        );
+
+        await gateway.ensureCanRequestAds();
+
+        expect(events, ['consent-primer']);
+        expect(sdk.requestTrackingAuthorizationCalls, 0);
+        expect(gateway.lastError?.message, 'form failed');
+      });
+
+      test('a timed-out consent info update also defers ATT', () {
+        fakeAsync((async) {
+          events = <String>[];
+          sdk.attStatus = AttStatus.notDetermined;
+          sdk.consentUpdateHold = Completer<void>();
+          gateway = UmpConsentGateway(
+            sdk,
+            attExplainer: (_) async => events.add('att-primer'),
+            readTcfConsent: () async => null,
+            infoUpdateTimeout: const Duration(seconds: 30),
+          );
+
+          var done = false;
+          gateway.ensureCanRequestAds().then((_) => done = true);
+          async.elapse(const Duration(seconds: 31));
+          async.flushMicrotasks();
+
+          expect(done, isTrue);
+          expect(events, isEmpty);
+          expect(sdk.requestTrackingAuthorizationCalls, 0);
+          expect(gateway.lastError?.kind, AdFlowErrorKind.timeout);
+        });
+      });
+    });
+
+    group('ATT after a GDPR answer (TCF purpose 1)', () {
+      Future<void> runWith(TcfConsentReader readTcf) async {
+        sdk.attStatus = AttStatus.notDetermined;
+        sdk.canRequestAdsResult = true;
+        gateway = UmpConsentGateway(
+          sdk,
+          attExplainer: (_) async {},
+          readTcfConsent: readTcf,
+        );
+        await gateway.ensureCanRequestAds();
+      }
+
+      test('GDPR applies and purpose 1 was refused → no ATT primer, no '
+          'prompt', () async {
+        var primers = 0;
+        sdk.attStatus = AttStatus.notDetermined;
+        sdk.canRequestAdsResult = true;
+        gateway = UmpConsentGateway(
+          sdk,
+          attExplainer: (_) async => primers++,
+          readTcfConsent: () async => const TcfConsent(
+            gdprApplies: true,
+            purposeConsents: '0000000000',
+          ),
+        );
+
+        final canRequest = await gateway.ensureCanRequestAds();
+
+        expect(primers, 0);
+        expect(sdk.requestTrackingAuthorizationCalls, 0);
+        expect(canRequest, isTrue); // ads still flow (limited ads)
+        expect(gateway.lastError, isNull); // a choice, not a failure
+      });
+
+      test('GDPR applies with no answer stored → not asked', () async {
+        await runWith(
+          () async => const TcfConsent(gdprApplies: true, purposeConsents: ''),
+        );
+        expect(sdk.requestTrackingAuthorizationCalls, 0);
+      });
+
+      test('GDPR applies and purpose 1 was granted → asked', () async {
+        await runWith(
+          () async => const TcfConsent(
+            gdprApplies: true,
+            purposeConsents: '1111111111',
+          ),
+        );
+        expect(sdk.requestTrackingAuthorizationCalls, 1);
+      });
+
+      test('GDPR does not apply → asked', () async {
+        await runWith(
+          () async => const TcfConsent(gdprApplies: false, purposeConsents: ''),
+        );
+        expect(sdk.requestTrackingAuthorizationCalls, 1);
+      });
+
+      test('no TCF record (outside the EEA) → asked', () async {
+        await runWith(() async => null);
+        expect(sdk.requestTrackingAuthorizationCalls, 1);
+      });
+
+      test('a throwing TCF reader → asked, nothing recorded', () async {
+        await runWith(() async => throw StateError('no prefs'));
+        expect(sdk.requestTrackingAuthorizationCalls, 1);
+        expect(gateway.lastError, isNull);
       });
 
       test(
-        'the consent info update always runs (even when ATT was denied)',
+        'the record is read only when ATT is actually undetermined',
         () async {
-          armEeaWithAtt(AttStatus.denied);
+          var reads = 0;
+          sdk.attStatus = AttStatus.authorized;
+          sdk.canRequestAdsResult = true;
+          gateway = UmpConsentGateway(
+            sdk,
+            attExplainer: (_) async {},
+            readTcfConsent: () async {
+              reads++;
+              return null;
+            },
+          );
+
           await gateway.ensureCanRequestAds();
-          expect(sdk.consentUpdateCalls, hasLength(1));
-          expect(
-            sdk.loadAndShowConsentFormCalls,
-            1,
-          ); // form no longer suppressed
+
+          expect(reads, 0);
         },
       );
     });
@@ -431,9 +603,8 @@ void main() {
       });
     });
 
-    test('full pipeline ordering: ATT primer (no ATT/consent calls yet) → '
-        'requestTrackingAuthorization + info update → consent primer (both '
-        'done) → form', () async {
+    test('full pipeline ordering: info update → consent primer → form → ATT '
+        'primer → ATT prompt (ADR-082)', () async {
       final events = <String>[];
       int? reqAtAttPrimer, updAtAttPrimer;
       int? reqAtConsentPrimer, updAtConsentPrimer;
@@ -454,20 +625,20 @@ void main() {
           reqAtConsentPrimer = sdk.requestTrackingAuthorizationCalls;
           updAtConsentPrimer = sdk.consentUpdateCalls.length;
         },
+        readTcfConsent: () async => null,
       );
 
       await gateway.ensureCanRequestAds();
 
-      expect(events, ['att-primer', 'consent-primer', 'form']);
-      // At the ATT primer neither the system prompt nor the info update has
-      // run yet — ATT is strictly first.
-      expect(reqAtAttPrimer, 0);
-      expect(updAtAttPrimer, 0);
-      // By the consent primer, the ATT prompt AND the info update have both
-      // completed — i.e. requestTrackingAuthorization ran before the info
-      // update, which ran before the consent primer / form.
-      expect(reqAtConsentPrimer, 1);
+      expect(events, ['consent-primer', 'form', 'att-primer']);
+      // At the consent primer the info update has run; no tracking prompt yet.
       expect(updAtConsentPrimer, 1);
+      expect(reqAtConsentPrimer, 0);
+      // At the ATT primer the GDPR flow is over and the prompt is still to
+      // come — ATT is strictly last.
+      expect(updAtAttPrimer, 1);
+      expect(reqAtAttPrimer, 0);
+      expect(sdk.requestTrackingAuthorizationCalls, 1);
     });
   });
 }

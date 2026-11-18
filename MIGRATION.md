@@ -1,3 +1,19 @@
+# Upgrading 5.4.x → 5.5.0
+
+No code change is required.
+
+- **If you pass `attExplainer`:** the ATT primer and Apple's prompt now come
+  **after** the GDPR form (App Store Guideline 5.1.1(iv)), and they are
+  skipped for a user who has just refused device storage/access in the form.
+  If you wrote your own gateway to get this order (a `ConsentGateway` that
+  runs GDPR, then ATT, reading the `IABTCF_*` keys through a native channel),
+  you can delete it and pass `attExplainer` again — `readDeviceTcfConsent()`
+  reads the same keys without native code.
+- **`skipConsentPrimerIfAttDenied`** is deprecated and ignored: remove the
+  argument.
+- **If you pass no `attExplainer`:** nothing changes. UMP keeps driving ATT
+  from the IDFA message in the AdMob console, after the GDPR message.
+
 # Upgrading 5.3.x → 5.4.0
 
 **Nothing in your Dart code has to change — 5.4.0 is additive.** Two things to

@@ -1,3 +1,43 @@
+## 5.5.0
+
+An **App Store compliance** release: the consent flow now asks Apple's
+tracking question **after** the GDPR form, never before it. **Additive — every
+existing call site compiles unchanged.** If you pass `attExplainer`, the order
+your users see changes (below). Upgrade notes: MIGRATION.md.
+
+### FIXED
+
+- **Client-driven ATT ran before the GDPR form, and App Review rejects that
+  (Guideline 5.1.1(iv)).** With an `attExplainer`, ad_flow showed the ATT
+  primer and Apple's prompt first and the GDPR form second, so a user who
+  chose "Ask App Not to Track" was then asked by the form to agree to
+  tracking. Two apps built on ad_flow were rejected for it. The order is now
+  the one UMP itself uses: info update → consent primer → GDPR form → ATT
+  primer → ATT prompt (ADR-082).
+- **No tracking question after a GDPR refusal.** When GDPR applies and the
+  user refused device storage/access (TCF purpose 1) in the form, the ATT
+  primer and prompt are skipped — asking would be asking for tracking twice.
+  Read from the TCF record UMP stores on the device; no native code needed.
+- **No tracking question before the form, even offline.** When the consent
+  flow fails (no network, a form error), ATT waits for the retry that follows,
+  so it can never precede a consent form shown later.
+
+### ADDED
+
+- `TcfConsent`, `TcfConsentReader` and `readDeviceTcfConsent()` — the TCF
+  record UMP leaves on the device (iOS), for apps with a consent gateway of
+  their own. `UmpConsentGateway(readTcfConsent:)` makes it injectable.
+
+### DEPRECATED
+
+- `skipConsentPrimerIfAttDenied` (on `AdFlow.initialize` and
+  `UmpConsentGateway`) — no effect: there is no earlier ATT answer any more.
+
+### DOCS
+
+- README and example: UMP-driven ATT (the IDFA message in the AdMob console)
+  is the recommended setup; the example now starts in the simple mode.
+
 ## 5.4.0
 
 A **simpler integration, bigger banners** release. ad_flow now requires
