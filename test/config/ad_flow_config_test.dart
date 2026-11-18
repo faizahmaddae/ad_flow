@@ -253,6 +253,32 @@ void main() {
       );
     });
 
+    test('an ID-less slot is a test placeholder only with an explicit '
+        'testMode: true, never under the automatic default', () {
+      const idLess = PlatformAdUnitId();
+      final automatic = resolveAdUnitId(
+        configured: idLess,
+        testIds: TestAdUnitIds.banner,
+        platform: AdPlatform.ios,
+        testAds: true, // a debug build under the automatic default
+        allowPlaceholder: false,
+      );
+      expect(automatic, isNull, reason: 'release resolves nothing either');
+      final explicit = resolveAdUnitId(
+        configured: idLess,
+        testIds: TestAdUnitIds.banner,
+        platform: AdPlatform.ios,
+        testAds: true,
+        allowPlaceholder: true,
+      );
+      expect(explicit, TestAdUnitIds.banner.ios);
+      // The automatic default's slot accessor follows the same rule.
+      const auto = AdFlowConfig(
+        interstitial: InterstitialConfig(adUnitId: PlatformAdUnitId()),
+      );
+      expect(auto.interstitialAdUnitId(AdPlatform.ios), isNull);
+    });
+
     test('testMode: false uses your IDs — and validates them', () {
       const config = AdFlowConfig(
         testMode: false,

@@ -126,6 +126,62 @@ void main() {
     ads.dispose();
   });
 
+  testWidgets('an ID-less per-placement config renders nothing in debug too '
+      '— debug and release agree; only testMode: true makes it a placeholder', (
+    tester,
+  ) async {
+    const idLess = BannerConfig(adUnitId: PlatformAdUnitId());
+    // The automatic default (debug → test ads): the same checks as the
+    // global config, so no sample ad in debug that release would not show.
+    final auto = await boot(const AdFlowConfig());
+    final printed = await printsDuring(() async {
+      await tester.pumpWidget(host(AdFlowBanner(adFlow: auto, config: idLess)));
+      await tester.pumpAndSettle();
+    });
+    expect(sdk.banners, isEmpty);
+    expect(tester.getSize(find.byType(AdFlowBanner)), Size.zero);
+    expect(printed, anyElement(contains('has no platform IDs')));
+    await tester.pumpWidget(host(const SizedBox()));
+    auto.dispose();
+
+    // An explicit testMode: true: the documented placeholder.
+    final explicit = await boot(const AdFlowConfig(testMode: true));
+    await printsDuring(() async {
+      await tester.pumpWidget(
+        host(AdFlowBanner(adFlow: explicit, config: idLess)),
+      );
+      await tester.pumpAndSettle();
+    });
+    expect(sdk.bannerSpecs.single.adUnitId, TestAdUnitIds.banner.ios);
+    await tester.pumpWidget(host(const SizedBox()));
+    explicit.dispose();
+  });
+
+  test('a per-placement config gets the global checks: an empty-string ID '
+      'is refused by ads.banner() / ads.native()', () async {
+    final ads = await boot(const AdFlowConfig());
+    final invalid = isA<AdFlowError>().having(
+      (e) => e.kind,
+      'kind',
+      AdFlowErrorKind.invalidConfig,
+    );
+    expect(
+      () =>
+          ads.banner(const BannerConfig(adUnitId: PlatformAdUnitId(ios: ' '))),
+      throwsA(invalid),
+    );
+    expect(
+      () => ads.native(
+        const NativeConfig(
+          adUnitId: PlatformAdUnitId(ios: ''),
+          templateKind: NativeTemplateKind.small,
+        ),
+      ),
+      throwsA(invalid),
+    );
+    ads.dispose();
+  });
+
   testWidgets('a placement whose config gains an ID for this platform mounts '
       'and loads; losing it again drops the ad', (tester) async {
     final ads = await boot(const AdFlowConfig(testMode: false));

@@ -578,25 +578,8 @@ class AdFlowConfig {
       if (!ok) throw AdFlowError(AdFlowErrorKind.invalidConfig, message);
     }
 
-    void checkUnitId(PlatformAdUnitId id, String slot) {
-      // Only an EXPLICIT testMode: true may leave IDs out. With the automatic
-      // default a missing ID must fail in debug too — not first in a release
-      // build, where initialize() rejecting would cost every ad (6.0).
-      if (testMode == true) return;
-      check(
-        id.android != null || id.ios != null,
-        '$slot.adUnitId has no platform IDs — configure android and/or ios, '
-        'or leave the slot null.',
-      );
-      check(
-        id.android == null || id.android!.trim().isNotEmpty,
-        '$slot.adUnitId.android is an empty string.',
-      );
-      check(
-        id.ios == null || id.ios!.trim().isNotEmpty,
-        '$slot.adUnitId.ios is an empty string.',
-      );
-    }
+    void checkUnitId(PlatformAdUnitId id, String slot) =>
+        _checkAdUnitId(id, slot, testMode: testMode);
 
     void checkCap(FrequencyCap cap, String name) {
       check(cap.minGap >= Duration.zero, '$name.minGap is negative.');
@@ -619,11 +602,7 @@ class AdFlowConfig {
 
     final banner = this.banner;
     if (banner != null) {
-      checkUnitId(banner.adUnitId, 'banner');
-      check(
-        banner.maxInlineHeight == null || banner.maxInlineHeight! > 0,
-        'banner.maxInlineHeight must be positive.',
-      );
+      validateBannerConfig(banner, name: 'banner', testMode: testMode);
     }
     final interstitial = this.interstitial;
     if (interstitial != null) {
@@ -649,12 +628,7 @@ class AdFlowConfig {
     }
     final nativeAd = this.nativeAd;
     if (nativeAd != null) {
-      checkUnitId(nativeAd.adUnitId, 'nativeAd');
-      check(
-        (nativeAd.templateKind != null) ^ (nativeAd.factoryId != null),
-        'nativeAd must set exactly one of templateKind or factoryId.',
-      );
-      checkAge(nativeAd.maxAdAge, 'nativeAd.maxAdAge');
+      validateNativeConfig(nativeAd, name: 'nativeAd', testMode: testMode);
     }
     final appOpen = this.appOpen;
     if (appOpen != null) {
@@ -804,6 +778,7 @@ class AdFlowConfig {
       testIds: testIds,
       platform: platform,
       testAds: usesTestAds,
+      allowPlaceholder: testMode == true,
     );
   }
 }
@@ -814,18 +789,85 @@ class AdFlowConfig {
 /// A sample unit stands in only where the slot exists in a release build too
 /// (it has an ID for [platform]), so a slot configured for one platform does
 /// not appear on the other in debug only. An ID-less slot
-/// (`PlatformAdUnitId()`, accepted only with `testMode: true`) is a test
-/// placeholder for every platform. Internal: not exported.
+/// (`PlatformAdUnitId()`) is a test placeholder for every platform only when
+/// [allowPlaceholder] is set — an explicit `testMode: true`; with the
+/// automatic default it resolves to nothing in debug as in release.
+/// Internal: not exported.
 String? resolveAdUnitId({
   required PlatformAdUnitId configured,
   required PlatformAdUnitId testIds,
   required AdPlatform platform,
   required bool testAds,
+  required bool allowPlaceholder,
 }) {
   final own = configured.resolve(platform);
   if (!testAds) return own;
-  final placeholder = configured.android == null && configured.ios == null;
+  final placeholder =
+      allowPlaceholder && configured.android == null && configured.ios == null;
   return own != null || placeholder ? testIds.resolve(platform) : null;
+}
+
+/// Checks a banner slot config: the global one in [AdFlowConfig.validate],
+/// a per-placement one in `AdFlow.banner()` (6.0 — the same rules, so a
+/// per-placement config cannot behave differently in debug and release).
+/// Throws [AdFlowError] (`invalidConfig`). Internal: not exported.
+void validateBannerConfig(
+  BannerConfig banner, {
+  required String name,
+  required bool? testMode,
+}) {
+  _checkAdUnitId(banner.adUnitId, name, testMode: testMode);
+  _require(
+    banner.maxInlineHeight == null || banner.maxInlineHeight! > 0,
+    '$name.maxInlineHeight must be positive.',
+  );
+}
+
+/// Checks a native slot config — see [validateBannerConfig].
+/// Internal: not exported.
+void validateNativeConfig(
+  NativeConfig nativeAd, {
+  required String name,
+  required bool? testMode,
+}) {
+  _checkAdUnitId(nativeAd.adUnitId, name, testMode: testMode);
+  _require(
+    (nativeAd.templateKind != null) ^ (nativeAd.factoryId != null),
+    '$name must set exactly one of templateKind or factoryId.',
+  );
+  final age = nativeAd.maxAdAge;
+  _require(
+    age == null || age > Duration.zero,
+    '$name.maxAdAge must be positive.',
+  );
+}
+
+/// Only an EXPLICIT `testMode: true` may leave IDs out. With the automatic
+/// default a missing ID must fail in debug too — not first in a release
+/// build, where initialize() rejecting would cost every ad (6.0).
+void _checkAdUnitId(
+  PlatformAdUnitId id,
+  String slot, {
+  required bool? testMode,
+}) {
+  if (testMode == true) return;
+  _require(
+    id.android != null || id.ios != null,
+    '$slot.adUnitId has no platform IDs — configure android and/or ios, '
+    'or leave the slot null.',
+  );
+  _require(
+    id.android == null || id.android!.trim().isNotEmpty,
+    '$slot.adUnitId.android is an empty string.',
+  );
+  _require(
+    id.ios == null || id.ios!.trim().isNotEmpty,
+    '$slot.adUnitId.ios is an empty string.',
+  );
+}
+
+void _require(bool ok, String message) {
+  if (!ok) throw AdFlowError(AdFlowErrorKind.invalidConfig, message);
 }
 
 /// The request configuration [config] pushes to the SDK at initialization

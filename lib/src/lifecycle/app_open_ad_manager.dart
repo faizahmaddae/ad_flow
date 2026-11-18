@@ -64,6 +64,9 @@ class AppOpenAdManager {
   StreamSubscription<AppForegroundEvent>? _sub;
   bool _disposed = false;
 
+  /// The pending launch wait, so [dispose] can end it at once.
+  Completer<void>? _launchWait;
+
   /// The app-open slot's controller (state, readiness, block reasons).
   AppOpenAdController get controller => _controller;
 
@@ -90,8 +93,11 @@ class AppOpenAdManager {
   ///   at a real cold launch the first load is usually still in flight, which
   ///   is why a launch ad that is only shown when "already ready" almost never
   ///   shows. `Duration.zero` shows only an ad that is already warm. A load
-  ///   that fails (offline, no fill) ends the wait at once: the retry is
-  ///   seconds away, so no ad would come within the launch window anyway.
+  ///   that fails (offline, no fill) ends the wait at once: the app enters
+  ///   instead of holding the loading screen on a request that failed (with
+  ///   the default retry timing no retry lands inside 3 s anyway), and the
+  ///   next ad loads for a later warm return. Disposing the manager ends the
+  ///   wait too.
   /// - Never for a first-time user: when no consent from an earlier launch is
   ///   on the device it returns at once (`blocked(consentNotGranted)`), so a
   ///   launch ad never follows the consent form.
@@ -178,11 +184,13 @@ class AppOpenAdManager {
       // The controller was disposed meanwhile: nothing to wait for.
       return Future<void>.value();
     }
+    _launchWait = ready;
     final timer = Timer(maxWait, () {
       if (!ready.isCompleted) ready.complete();
     });
     return ready.future.whenComplete(() {
       timer.cancel();
+      if (identical(_launchWait, ready)) _launchWait = null;
       try {
         state.removeListener(check);
       } catch (_) {
@@ -233,6 +241,9 @@ class AppOpenAdManager {
   /// controller lifecycles).
   void dispose() {
     _disposed = true;
+    // A launch still waiting for its ad returns now, not after maxWait.
+    final wait = _launchWait;
+    if (wait != null && !wait.isCompleted) wait.complete();
     stop();
   }
 }

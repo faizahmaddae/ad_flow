@@ -336,6 +336,7 @@ normal — a cap doing its job, a user skipping a rewarded intro.
 ## 7. Testing
 
 ```dart
+import 'package:ad_flow/ad_flow.dart';
 import 'package:ad_flow/ad_flow_testing.dart';
 
 final sdk = FakeAdSdk()..canRequestAdsResult = true;

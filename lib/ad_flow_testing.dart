@@ -2,11 +2,11 @@
 /// internals they are built from: the SDK seam's handles, events and load
 /// specs, the full-screen controller engine, and the collaborators (gate,
 /// frequency caps, coordinator, retry policy) for tests that build a
-/// controller by hand. App code never needs these; they follow the plugin and
-/// change more often than `package:ad_flow/ad_flow.dart`.
+/// controller by hand. App code never needs these.
 ///
-/// Import in test files only:
+/// Import in test files only, next to the main library:
 /// ```dart
+/// import 'package:ad_flow/ad_flow.dart';
 /// import 'package:ad_flow/ad_flow_testing.dart';
 ///
 /// final sdk = FakeAdSdk()..canRequestAdsResult = true;

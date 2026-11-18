@@ -12,8 +12,7 @@ mapping (most apps change a handful of lines and delete their wrappers).
   returns an `AdShowResult`: `shown` (with `reward` for rewarded formats),
   `blockReason` (why nothing was shown) or `error`. `onReward` still fires,
   once. An ad the SDK never puts on screen completes `failed` (kind
-  `timeout`) after 30 seconds (`FullScreenAdControllerBase.presentationTimeout`);
-  once on screen, `show()` waits for the close however long it takes.
+  `timeout`) after 30 seconds; once on screen, `show()` waits for the close however long it takes.
 - **Slot getters are nullable** — `ads.interstitial?.show()`; null means the
   slot is not configured for this platform. The `…OrNull` getters and
   `appOpenController` are gone (`ads.appOpen?.controller`).
@@ -26,7 +25,10 @@ mapping (most apps change a handful of lines and delete their wrappers).
   their slot is not configured** — no slot config, or no ID for the running
   platform — the way the full-screen getters return null there. 5.x threw
   while building: a red screen in debug, a grey box in release. A debug build
-  prints why. `ads.banner()` / `ads.native()` still throw `invalidConfig`.
+  prints why. `ads.banner()` / `ads.native()` still throw `invalidConfig`,
+  and a per-placement `config:` gets the same checks as the global one: an
+  ID-less (`PlatformAdUnitId()`) or empty ID is refused unless `testMode:
+  true`, in debug as in release.
 - **App open:** `showAtLaunch({maxWait = 3 s})` replaces
   `showAtLaunchIfReady()` — it waits (bounded) for the first load, returns at
   once when no consent is stored yet or ads are disabled, stops waiting when

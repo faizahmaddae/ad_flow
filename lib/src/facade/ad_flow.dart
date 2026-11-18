@@ -891,6 +891,15 @@ class AdFlow {
         'AdFlowConfig.banner.',
       );
     }
+    // A per-placement config gets the checks initialize() gave the global
+    // one, so it cannot behave differently in debug and release.
+    if (override != null) {
+      validateBannerConfig(
+        override,
+        name: 'banner(config)',
+        testMode: _config.testMode,
+      );
+    }
     // In test mode the sample unit must match THIS placement's kind (an
     // adaptive slot served from Google's fixed-size sample unit gets a
     // creative that cannot fill it — issue #15), so resolve from the
@@ -900,6 +909,7 @@ class AdFlow {
       testIds: TestAdUnitIds.forBannerKind(config.kind),
       platform: _platform,
       testAds: _config.usesTestAds,
+      allowPlaceholder: _config.testMode == true,
     );
     if (adUnitId == null) {
       throw AdFlowError(
@@ -945,11 +955,19 @@ class AdFlow {
         'AdFlowConfig.nativeAd.',
       );
     }
+    if (override != null) {
+      validateNativeConfig(
+        override,
+        name: 'native(config)',
+        testMode: _config.testMode,
+      );
+    }
     final adUnitId = resolveAdUnitId(
       configured: config.adUnitId,
       testIds: TestAdUnitIds.native,
       platform: _platform,
       testAds: _config.usesTestAds,
+      allowPlaceholder: _config.testMode == true,
     );
     if (adUnitId == null) {
       throw AdFlowError(

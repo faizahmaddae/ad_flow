@@ -36,9 +36,9 @@ enum AdBlockReason {
   /// user-action pacing (`InterstitialConfig.minActionsBetween`).
   userActionPacing,
 
-  /// The warm ad outlived its maximum age — 4 hours for app open
+  /// The loaded ad outlived its maximum age — 4 hours for app open
   /// (`AppOpenConfig.expiry`), 55 minutes by default for the other
-  /// full-screen formats (`maxAdAge`) — and was discarded rather than shown;
+  /// full-screen formats and native ads (`maxAdAge`) — and was discarded;
   /// a fresh one is requested.
   expired,
 

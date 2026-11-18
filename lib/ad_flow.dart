@@ -30,7 +30,12 @@
 /// `package:ad_flow/ad_flow_testing.dart`.
 library;
 
-export 'src/config/ad_flow_config.dart' hide resolveAdUnitId, requestConfigFrom;
+export 'src/config/ad_flow_config.dart'
+    hide
+        resolveAdUnitId,
+        requestConfigFrom,
+        validateBannerConfig,
+        validateNativeConfig;
 export 'src/config/ad_platform.dart';
 export 'src/consent/consent_gateway.dart';
 export 'src/consent/explainer_content.dart';

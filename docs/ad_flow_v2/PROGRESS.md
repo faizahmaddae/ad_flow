@@ -45,7 +45,8 @@ Done (one commit each, tree green after each):
 
 11. Documentation pass: every snippet in `doc/NATIVE_ADS_SETUP.md` and
     `doc/MEDIATION_SETUP.md` compiles against the 6.0 API, and README §7's
-    test runs as written. `dart doc --dry-run`: the only warning left is the
+    test runs (with both imports — the snippet showed only the testing one
+    until the final review, item 18). `dart doc --dry-run`: the only warning left is the
     README checklist's `[ ]` (GitHub task-list syntax, harmless). Fixed:
     2 unresolved references, `AdBlockReason.expired` (all full-screen formats,
     not only app open), `AppOpenAdController` (points at `showAtLaunch`),
@@ -111,6 +112,19 @@ Done (one commit each, tree green after each):
     failed launch load no longer holds the loading screen for the rest of
     `maxWait`. The cold-start launch ad missed the 3 s wait on this emulator
     (ad ready at ~4 s); the default stays 3 s.
+
+18. Final independent review of items 11–17 (8 commits): no correctness bug
+    in the changed code. Fixed what it found:
+    - a per-placement `config:` skipped validation and an ID-less slot got a
+      sample ad in debug but an empty slot in release (ADR-085 addendum);
+    - `public_api_test`'s parser could miss declaration forms (public
+      extensions, generic or record-returning functions, nested exports) —
+      now strict: every top-level line must be read or the test fails, with
+      its own parser tests;
+    - docs: README §7 / testing-library snippet needed both imports;
+      `presentationTimeout` was named on a class apps cannot import;
+      `expired` left out native; the launch-wait rationale was overstated;
+    - older: disposing during the launch wait now ends it (ADR-087 addendum).
 
 ## Next (ordered)
 

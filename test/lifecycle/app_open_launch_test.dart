@@ -283,6 +283,31 @@ void main() {
       c.dispose();
       expect(await launch, const AdShowResult.blocked(AdBlockReason.notReady));
     });
+
+    test('disposed WHILE waiting for the ad: returns at once, not after '
+        'maxWait', () {
+      fakeAsync((async) {
+        sdk.loadHold = Completer<void>(); // the first load is in flight
+        final c = controller();
+        final m = manager(c)..start();
+        async.flushMicrotasks();
+
+        AdShowResult? result;
+        m
+            .showAtLaunch(maxWait: const Duration(seconds: 3))
+            .then((r) => result = r);
+        async.elapse(const Duration(milliseconds: 500));
+        expect(result, isNull, reason: 'still waiting for the load');
+
+        m.dispose();
+        async.flushMicrotasks(); // no elapse: the dispose ends the wait
+        expect(result, const AdShowResult.blocked(AdBlockReason.notReady));
+        c.dispose();
+        sdk.loadHold!.complete();
+        sdk.loadHold = null;
+        async.flushMicrotasks();
+      });
+    });
   });
 
   group('showOnResume', () {

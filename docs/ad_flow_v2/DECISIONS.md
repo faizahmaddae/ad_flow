@@ -163,6 +163,18 @@ would differ again (ADR-083 addendum).
 **Consequences.** A forgotten ID shows as an empty slot plus one debug log
 line, not a crash. Other `AdFlowError`s still propagate.
 
+**Addendum (final review, 2026-11-18).** A per-placement `config:` skipped
+the checks `initialize()` gives the global one, and the ID-less placeholder
+resolved under the automatic debug default: `PlatformAdUnitId()` showed a
+sample ad in debug and — with this ADR swallowing the release error — an
+empty slot in release, silently. Now `banner()` / `native()` run
+`validateBannerConfig` / `validateNativeConfig` (shared with
+`AdFlowConfig.validate`) on a per-placement config, and `resolveAdUnitId`
+treats an ID-less slot as a placeholder only with an explicit
+`testMode: true`. Debug and release agree again. Guarded in
+`unconfigured_placement_test.dart` and `ad_flow_config_test.dart`
+(neuter-checked).
+
 ## ADR-086 — No primer before the GDPR form · accepted (2026-11-18)
 
 **Context.** Review open decision 4. Since ADR-082 the order is GDPR first,
@@ -197,8 +209,8 @@ before the form.
 **Context.** The Android device check (emulator, profile build): the wait
 for the launch ad ended only on ready, a definite refusal, or `maxWait`. A
 first load that FAILED (offline, no fill) kept the loading screen up for the
-rest of `maxWait`, though the retry is seconds away (5 s base backoff) and
-cannot land inside a 3 s launch window. The same check measured a cold start
+rest of `maxWait`, waiting on a request that had already failed (with the
+default retry timing no retry lands inside 3 s). The same check measured a cold start
 where the SDK finished initializing at ~2.2 s and the ad was ready at ~4 s,
 so a 3 s `maxWait` missed it there (iOS simulator: shown within 3 s).
 
@@ -215,4 +227,11 @@ screen on every cold launch where the ad is slow — lands on every app.
 **Consequences.** Offline or no-fill launches enter the app as soon as the
 load fails. Guarded by `app_open_launch_test.dart` ("a load that FAILS …",
 neuter-checked).
+
+**Addendum (final review, 2026-11-18).** With a long `maxWait` and a fast
+retry an ad could still have arrived inside the window; entering the app on
+the first failure is the deliberate choice, and the docs now say so instead
+of claiming no ad could come. Disposing the manager now also ends a pending
+wait (it used to run until `maxWait`) — "disposed WHILE waiting" in the same
+suite, neuter-checked.
 
