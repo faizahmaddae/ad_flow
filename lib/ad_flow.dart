@@ -12,6 +12,8 @@ export 'src/config/ad_flow_config.dart';
 export 'src/config/ad_platform.dart';
 export 'src/consent/consent_gateway.dart';
 export 'src/consent/explainer_content.dart';
+export 'src/consent/tcf_consent.dart'
+    show TcfConsent, TcfConsentReader, readDeviceTcfConsent;
 export 'src/controllers/app_open_ad_controller.dart';
 export 'src/controllers/banner_ad_controller.dart';
 export 'src/controllers/full_screen_ad_controller_base.dart';

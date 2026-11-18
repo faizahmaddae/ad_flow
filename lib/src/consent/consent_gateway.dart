@@ -7,6 +7,7 @@ import '../core/ad_flow_error.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
 import 'explainer_content.dart';
+import 'tcf_consent.dart';
 
 /// Gathers user consent and answers the one question that gates every ad
 /// load: may ads be requested?
@@ -63,27 +64,35 @@ class UmpConsentGateway implements ConsentGateway {
   /// legitimately keep it open for minutes.
   ///
   /// The remaining parameters are the **opt-in** pre-consent / pre-ATT
-  /// priming ("explainer") flow. All are optional and additive:
+  /// priming ("explainer") flow. All are optional and additive.
   ///
-  /// - [attExplainer] — presents the app's ATT primer before Apple's system
-  ///   tracking prompt (client-driven ATT, iOS). When non-null the flow runs
-  ///   ATT *first* (primer → [attPromptDelay] → system prompt), then GDPR.
-  ///   When null, no ATT call is made at all — behaviour is exactly as
-  ///   before (UMP-driven / console-configured).
+  /// **Order (ADR-082): the GDPR flow always comes first, Apple's tracking
+  /// question last.** App Review rejects an app whose user answers the
+  /// tracking prompt and is then shown a consent form asking them to agree to
+  /// tracking (Guideline 5.1.1(iv)) — and that is what the pre-5.5.0 order
+  /// (ATT first) produced. GDPR-then-ATT is also UMP's own order when the IDFA
+  /// message is configured in the AdMob console.
+  ///
   /// - [consentExplainer] — presents the app's consent primer before the UMP
   ///   GDPR form, but **only when a form will actually appear** (non-EEA
   ///   users never see it).
+  /// - [attExplainer] — presents the app's ATT primer before Apple's system
+  ///   tracking prompt (client-driven ATT, iOS): primer → [attPromptDelay] →
+  ///   system prompt, run once this run's GDPR flow has settled. It is skipped
+  ///   when the user has just refused GDPR purpose 1 (device storage/access) —
+  ///   read from the TCF record UMP stores, via [readTcfConsent] — and it waits
+  ///   for a later run when this run's GDPR flow failed (offline), so a
+  ///   tracking question can never precede the consent form. When null, no ATT
+  ///   call is made at all (UMP-driven / console-configured ATT, recommended).
   /// - [consentExplainerContent] / [attExplainerContent] — the copy passed to
   ///   the respective presenters (localize by overriding).
   /// - [attPromptDelay] — brief pause between the ATT primer and the system
   ///   prompt (Apple's guidance; default 200 ms).
-  /// - [skipConsentPrimerIfAttDenied] — when the user is prompted for ATT and
-  ///   denies it, skip the optional consent *primer* (default true). A
-  ///   **required** GDPR form (EEA/UK/CH) is ALWAYS shown regardless: ATT
-  ///   (Apple tracking) and GDPR (EU privacy) are independent regimes, so
-  ///   denying tracking never satisfies — and never suppresses — a required
-  ///   consent form. This flag is a UX optimization on the primer only; it
-  ///   cannot override a required form.
+  /// - [readTcfConsent] — reads the device's TCF record; defaults to
+  ///   [readDeviceTcfConsent]. Injectable for tests.
+  /// - [skipConsentPrimerIfAttDenied] — **no effect since 5.5.0.** It skipped
+  ///   the consent primer after an ATT denial; the tracking question now comes
+  ///   after the consent flow, so there is no earlier denial to react to.
   UmpConsentGateway(
     this._sdk, {
     bool? tagForUnderAgeOfConsent,
@@ -94,7 +103,12 @@ class UmpConsentGateway implements ConsentGateway {
         const ConsentExplainerContent(),
     AttExplainerContent attExplainerContent = const AttExplainerContent(),
     Duration attPromptDelay = const Duration(milliseconds: 200),
+    @Deprecated(
+      'No effect since 5.5.0: the tracking question now comes after the '
+      'GDPR flow (ADR-082). Remove the argument.',
+    )
     bool skipConsentPrimerIfAttDenied = true,
+    TcfConsentReader readTcfConsent = readDeviceTcfConsent,
     Future<void> Function()? waitBeforePresenting,
   }) : _tagForUnderAgeOfConsent = tagForUnderAgeOfConsent,
        _infoUpdateTimeout = infoUpdateTimeout,
@@ -103,7 +117,7 @@ class UmpConsentGateway implements ConsentGateway {
        _consentExplainerContent = consentExplainerContent,
        _attExplainerContent = attExplainerContent,
        _attPromptDelay = attPromptDelay,
-       _skipConsentPrimerIfAttDenied = skipConsentPrimerIfAttDenied,
+       _readTcfConsent = readTcfConsent,
        _waitBeforePresenting = waitBeforePresenting ?? _waitForFirstFrame;
 
   /// Waits (bounded) for the app's first frame before presenting a primer.
@@ -133,7 +147,7 @@ class UmpConsentGateway implements ConsentGateway {
   final ConsentExplainerContent _consentExplainerContent;
   final AttExplainerContent _attExplainerContent;
   final Duration _attPromptDelay;
-  final bool _skipConsentPrimerIfAttDenied;
+  final TcfConsentReader _readTcfConsent;
   final Future<void> Function() _waitBeforePresenting;
 
   Future<bool>? _inFlight;
@@ -161,27 +175,17 @@ class UmpConsentGateway implements ConsentGateway {
 
   Future<bool> _run(ConsentDebugOptions? debug) async {
     _lastError = null;
-    // Step 1 — client-driven ATT (opt-in; iOS only in practice). Runs before
-    // GDPR, matching v1. Returns whether the user was just prompted and
-    // denied, so we can optionally skip the consent PRIMER below.
+    // Step 1 — the GDPR flow, ALWAYS before any tracking question (ADR-082).
     //
-    // This is deliberately its own try/catch and NOT allowed to abort the
-    // rest of the flow: ATT (Apple) and GDPR (EU) are independent regimes, so
-    // an ATT failure must never suppress the required consent form. ADR-031
-    // fixed the *policy* version of this (a DENIAL must not skip the form);
-    // this is the *crash* version (an ATT platform throw must not skip it
-    // either). Without it, a missing app_tracking_transparency channel or a
-    // missing NSUserTrackingUsageDescription meant: no consent info update, no
-    // GDPR form, no privacy-options entry point and zero ads for the session.
-    var attDenied = false;
+    // The pre-5.5.0 order ran client-driven ATT first, and App Review rejected
+    // two of the maintainer's apps for it under Guideline 5.1.1(iv) (2026-07,
+    // 2026-10): a user who chose "Ask App Not to Track" was then shown a
+    // consent form asking them to agree to tracking. GDPR-then-ATT is also
+    // UMP's own order when the IDFA message is configured in the console.
+    var gdprSettled = false;
     try {
-      attDenied = await _maybeRunAtt();
-    } catch (e) {
-      _lastError = asAdFlowError(e, AdFlowErrorKind.consent);
-    }
-    try {
-      // Step 2 — consent info update (unchanged; still runs even when ATT was
-      // denied, because canRequestAds()/privacy status depend on it).
+      // The consent info update (every launch; canRequestAds() and the
+      // privacy-options status depend on it).
       await _sdk
           .requestConsentInfoUpdate(
             tagForUnderAgeOfConsent: _tagForUnderAgeOfConsent,
@@ -189,23 +193,17 @@ class UmpConsentGateway implements ConsentGateway {
           )
           .timeout(_infoUpdateTimeout);
       await _refreshPrivacyRequirement();
-      // Step 3a — the OPTIONAL consent primer. This soft screen is the only
-      // thing an ATT denial may suppress (a UX optimization). It never gates
-      // the form below.
-      if (!(attDenied && _skipConsentPrimerIfAttDenied)) {
-        // Prime only when a form will actually appear (v2 improvement over
-        // v1's blanket flag: non-EEA users never see a pointless dialog).
-        await _maybeShowConsentPrimer();
-      }
-      // Step 3b — the GDPR form itself. ALWAYS called: the plugin no-ops when
-      // no form is required, and shows the REQUIRED form (EEA/UK/CH) otherwise.
-      // This must never be gated on ATT — GDPR (EU) and ATT (Apple) are
-      // independent regimes, so denying tracking neither satisfies nor
-      // suppresses a required consent form. This line is the compliance
-      // guarantee (ADR-031).
+      // The OPTIONAL consent primer — only when a form will actually appear
+      // (non-EEA users never see a pointless dialog). It never gates the form.
+      await _maybeShowConsentPrimer();
+      // The GDPR form itself. ALWAYS called: the plugin no-ops when no form is
+      // required, and shows the REQUIRED form (EEA/UK/CH) otherwise. Nothing
+      // may suppress it — ATT (Apple) and GDPR (EU) are independent regimes.
+      // This line is the compliance guarantee (ADR-031).
       await _sdk.loadAndShowConsentFormIfRequired();
       // Form dismissal can change both statuses.
       await _refreshPrivacyRequirement();
+      gdprSettled = true;
     } on TimeoutException {
       _lastError = AdFlowError(
         AdFlowErrorKind.timeout,
@@ -230,6 +228,24 @@ class UmpConsentGateway implements ConsentGateway {
       // its own errors), so it is safe here.
       await _refreshPrivacyRequirement();
     }
+    // Step 2 — client-driven ATT (opt-in; iOS only in practice), LAST.
+    //
+    // Only after THIS run's GDPR flow settled. A failed flow (offline, a form
+    // error) leaves the user's GDPR answer unknown, and a tracking prompt now
+    // could precede the consent form a later run shows — the rejected order
+    // again. The facade's retry re-runs the whole flow when the network
+    // returns, and the question is asked then.
+    //
+    // Contained, like every step: an ATT platform throw (no
+    // app_tracking_transparency channel, no NSUserTrackingUsageDescription)
+    // never changes the consent answer below.
+    if (gdprSettled) {
+      try {
+        await _maybeRunAtt();
+      } catch (e) {
+        _lastError ??= asAdFlowError(e, AdFlowErrorKind.consent);
+      }
+    }
     // Degrade to the SDK's own answer: consent obtained on a previous
     // launch (or not required at all) keeps serving ads through transient
     // consent-flow failures.
@@ -248,27 +264,32 @@ class UmpConsentGateway implements ConsentGateway {
     }
   }
 
-  /// Runs the client-driven ATT flow when [_attExplainer] is set and the
-  /// status is [AttStatus.notDetermined]: the app's primer, Apple's
-  /// recommended [_attPromptDelay], then the system prompt. Returns whether
-  /// the resulting status is [AttStatus.denied] (only meaningful for a fresh
-  /// prompt — a previously-decided or unsupported status returns false and
-  /// never skips GDPR).
+  /// Runs the client-driven ATT flow when [_attExplainer] is set, the status
+  /// is [AttStatus.notDetermined] and the user did not just refuse GDPR
+  /// purpose 1: the app's primer, Apple's recommended [_attPromptDelay], then
+  /// the system prompt. Called only after the GDPR flow settled (ADR-082).
   ///
   /// A throwing presenter is caught and recorded on [lastError]; the real
   /// system prompt still fires — a broken primer must never block ATT.
-  Future<bool> _maybeRunAtt() async {
+  Future<void> _maybeRunAtt() async {
     final attExplainer = _attExplainer;
-    if (attExplainer == null) return false; // opt-in: no ATT at all
+    if (attExplainer == null) return; // opt-in: no client ATT at all
     final AttStatus status;
     try {
       status = await _sdk.getTrackingAuthorizationStatus();
     } catch (e) {
-      _lastError = asAdFlowError(e, AdFlowErrorKind.consent);
-      return false;
+      _lastError ??= asAdFlowError(e, AdFlowErrorKind.consent);
+      return;
     }
     // Only iOS 14+ with an undetermined status can show the system prompt.
-    if (status != AttStatus.notDetermined) return false;
+    // (UMP's own IDFA message, when configured in the console, has already
+    // asked inside the form step above — then the status is decided and the
+    // app's primer is skipped here: never a double prompt.)
+    if (status != AttStatus.notDetermined) return;
+    // A user who has just refused device storage/access (TCF purpose 1) under
+    // GDPR is not asked for tracking: that would be asking for it twice. UMP's
+    // own IDFA flow skips them the same way.
+    if (await _refusedDeviceAccess()) return;
     await _waitBeforePresenting();
     try {
       await attExplainer(_attExplainerContent);
@@ -277,10 +298,20 @@ class UmpConsentGateway implements ConsentGateway {
     }
     await Future<void>.delayed(_attPromptDelay);
     try {
-      final result = await _sdk.requestTrackingAuthorization();
-      return result == AttStatus.denied;
+      await _sdk.requestTrackingAuthorization();
     } catch (e) {
-      _lastError = asAdFlowError(e, AdFlowErrorKind.consent);
+      _lastError ??= asAdFlowError(e, AdFlowErrorKind.consent);
+    }
+  }
+
+  /// Whether the device's TCF record says the user refused GDPR purpose 1.
+  ///
+  /// An unreadable record reads as "no record": the question is then asked,
+  /// as for a user outside the EEA (where UMP writes no record at all).
+  Future<bool> _refusedDeviceAccess() async {
+    try {
+      return (await _readTcfConsent())?.refusedDeviceAccess ?? false;
+    } catch (_) {
       return false;
     }
   }
@@ -313,8 +344,10 @@ class UmpConsentGateway implements ConsentGateway {
     }
   }
 
+  /// Records a broken presenter, keeping an earlier error of this run (the
+  /// first failure is the one worth reporting).
   void _recordPresenterError(Object error) {
-    _lastError = error is AdFlowError
+    _lastError ??= error is AdFlowError
         ? error
         : AdFlowError(
             AdFlowErrorKind.consent,

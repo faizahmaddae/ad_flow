@@ -1,7 +1,16 @@
 # PROGRESS — ad_flow v2/v3/v4/v5
 
 ## Current phase
-**Phase 32 — 5.4.0 simpler integration + large banners (2026-10-24)** — ✅
+**Phase 33 — 5.5.0 consent order: GDPR first, ATT last (2026-11-18)** — implemented on branch `claude/ads-package-review-a0fe65`, NOT yet released (no PR, no tag). ADR-082.
+
+Started from Faiz's request (in Persian) for a full review and, if needed, a rewrite. The review (`docs/ad_flow_v2/REVIEW_2026-11.md`) concluded: keep the engine, rebuild the surface as v6; ship the App Store fix first. It used real usage from Faiz's 9 apps (paths in SKILL §6).
+
+- **Done:** `UmpConsentGateway._run` reordered (info update → consent primer → form → ATT primer → prompt); ATT skipped after a GDPR purpose-1 refusal (`lib/src/consent/tcf_consent.dart`, `readDeviceTcfConsent`) and deferred when the GDPR flow failed; `skipConsentPrimerIfAttDenied` deprecated; README, example (`useExplainer = false` default), CHANGELOG, MIGRATION, RESEARCH §5, SKILL §6, CLAUDE.md updated; version 5.5.0.
+- **Verify:** `flutter analyze` clean; `flutter test` → 665 green (645 + 20). Neuter-verified (TCF skip: 2 tests; GDPR-failed deferral: 3 tests).
+- **Next (ordered):** (1) Faiz: PR + merge + tag `v5.5.0` (tag-triggered publish; main needs `--admin` merge); (2) migrate nahjal_balagha off its `ConsentThenAttGateway` + native TCF channel (pass `attExplainer` again); (3) v6 Phase 2 per REVIEW_2026-11.md — `show()` awaits dismissal, `canShow`, `showAtLaunch(maxWait:)`, test ads automatic in debug, narrower exports.
+- **Not done / not verified:** no device run of the new order (unit tests only); the TCF read on a real iOS device is verified from plugin source, not on hardware.
+
+**Previous phase:** **Phase 32 — 5.4.0 simpler integration + large banners (2026-10-24)** — ✅
 **SHIPPED & PUBLISHED (2026-10-24).** Minor: additive API, one dependency
 floor raise, no migration required. ADR-078, ADR-079, ADR-080, ADR-081.
 

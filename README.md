@@ -237,11 +237,14 @@ the rewarded interstitial, whose intro + skip screen must show first (AdMob
 policy). Leave that slot out of your production config and you can leave the
 presenter out too.
 
-### Add consent + ATT priming (recommended for EEA / iOS)
+### Optional: your own consent + ATT primers
 
-Show your own soft primer before the UMP GDPR form and Apple's ATT prompt —
-opt-in, additive, better opt-in rates. Two more presenters (details and copy
-localization in [§5](#5-consent--privacy)):
+The simplest compliant setup passes no primers at all: UMP shows the GDPR form
+and, if you configure the IDFA message in the AdMob console, the ATT explainer
+and Apple's prompt — GDPR first, ATT last. If you would rather show your own
+soft primers, pass two more presenters (details and copy localization in
+[§5](#5-consent--privacy)). ad_flow keeps the same order: GDPR first, the
+tracking question last.
 
 ```dart
 await AdFlow.initialize(
@@ -618,14 +621,23 @@ full-screen ad on screen is not interrupted).
 
 ### ATT (iOS App Tracking Transparency) — two modes
 
-- **UMP-driven (default).** Pass no `attExplainer`. On iOS, UMP drives the
-  ATT explainer and system prompt for you — configure the IDFA message in
-  AdMob's *Privacy & messaging*. `ad_flow` makes no ATT calls itself.
-- **Client-driven (opt-in).** Pass an `attExplainer` (below). Then
-  `ad_flow` runs your own ATT primer → a short delay (200 ms, Apple's
-  guidance) → Apple's system prompt, **before** the GDPR flow. In this mode
-  do **not** also configure the UMP IDFA message in the AdMob console — that
-  would double-prompt.
+**The order is fixed: the GDPR flow first, Apple's tracking question last.**
+App Review rejects an app whose user answers the tracking prompt and is then
+shown a consent form asking them to agree to tracking (Guideline 5.1.1(iv)).
+Before 5.5.0, client-driven ATT ran first and produced exactly that.
+
+- **UMP-driven (default, simplest).** Pass no `attExplainer`. On iOS, UMP
+  drives the ATT explainer and system prompt for you, after the GDPR message —
+  configure the IDFA message in AdMob's *Privacy & messaging*. `ad_flow`
+  makes no ATT calls itself.
+- **Client-driven (opt-in).** Pass an `attExplainer` (below). After the GDPR
+  flow has finished, `ad_flow` runs your ATT primer → a short delay (200 ms,
+  Apple's guidance) → Apple's system prompt. It does not ask at all when the
+  user has just refused device storage/access (TCF purpose 1) in the GDPR
+  form, and it waits for a later attempt when the consent flow failed
+  (offline), so the tracking question can never come before the form. In
+  this mode do **not** also configure the UMP IDFA message in the AdMob
+  console.
 
 Either way, add `NSUserTrackingUsageDescription` to `Info.plist`.
 
@@ -643,10 +655,10 @@ final navigatorKey = GlobalKey<NavigatorState>();
 
 final ads = await AdFlow.initialize(
   myConfig,
-  // iOS: your ATT primer → 200 ms → Apple's system prompt, before GDPR.
-  attExplainer: AttExplainerScreen.presenter(navigatorKey),
   // Shown before the GDPR form (EEA only).
   consentExplainer: ConsentExplainerScreen.presenter(navigatorKey),
+  // iOS, after the GDPR flow: your ATT primer → 200 ms → Apple's prompt.
+  attExplainer: AttExplainerScreen.presenter(navigatorKey),
   // Optional: localize / customize the copy.
   // attExplainerContent: const AttExplainerContent(title: 'Autoriser le suivi ?'),
 );
@@ -657,11 +669,10 @@ The ready-made presenters show their screen on the navigator of
 `BuildContext` — and skip the primer (the real prompt still follows) if no
 navigator is mounted. For custom UI, pass your own presenter:
 `(content) async { /* resolve a context, show your screen */ }`.
-`skipConsentPrimerIfAttDenied` (default true) skips the optional consent
-*primer* when the user just denied ATT. It never suppresses the GDPR form
-itself: a required consent form (EEA/UK/CH) is always shown, because ATT
-(Apple) and GDPR (EU) are independent regimes — denying tracking does not
-satisfy GDPR consent.
+A required consent form (EEA/UK/CH) is always shown; nothing suppresses it.
+`skipConsentPrimerIfAttDenied` is deprecated and has no effect since 5.5.0:
+the tracking question now comes after the consent flow, so there is no
+earlier ATT answer to react to.
 
 Testing EEA behavior:
 
@@ -835,10 +846,12 @@ mediation.
 - [ ] iOS: `SKAdNetworkItems` in `Info.plist` (see §2 — missing entries cost
       real iOS revenue silently)
 - [ ] iOS ATT — pick exactly ONE, never both:
+  - **UMP-driven** (no `attExplainer`, recommended): configure the IDFA message
+    in the AdMob console and let UMP show it after the GDPR message;
   - **client-driven** (you pass `attExplainer`): do **not** configure the IDFA
-    message in the AdMob console, or the user is prompted twice;
-  - **UMP-driven** (no `attExplainer`): configure the IDFA message in the AdMob
-    console and let UMP show it.
+    message in the AdMob console. ad_flow asks after the GDPR flow.
+- [ ] iOS: never ask for tracking before the GDPR form, from any code of your
+      own either (App Store Guideline 5.1.1(iv))
 
 ## License
 

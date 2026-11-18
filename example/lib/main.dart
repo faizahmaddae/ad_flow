@@ -2,19 +2,25 @@ import 'dart:async';
 
 import 'package:ad_flow/ad_flow.dart';
 import 'package:flutter/foundation.dart';
+// Deprecated in Flutter 3.50 in favour of package:material_ui, which needs
+// Flutter >= 3.47 and does not share Material types with apps on older
+// Flutter; migrate once the package floor reaches 3.50.
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 
 // ad_flow example — every ad format over Google's sample IDs, in BOTH of the
 // two initialization modes:
 //
-//   • SIMPLE (useExplainer = false): the minimal drop-in. UMP handles the whole
-//     consent flow, and — if you configure the IDFA message in the AdMob
-//     console — the iOS ATT prompt too. No client-side priming screens.
+//   • SIMPLE (useExplainer = false, the default and the recommended setup): the
+//     minimal drop-in. UMP handles the whole consent flow, and — if you
+//     configure the IDFA message in the AdMob console — the iOS ATT prompt
+//     too, after the GDPR message. No client-side priming screens.
 //
 //   • WITH EXPLAINER (useExplainer = true): the same, PLUS opt-in priming
-//     screens — your own ATT primer before Apple's system prompt (client-driven
-//     ATT, iOS) and your own consent primer before the UMP GDPR form (EEA).
-//     Recommended for EEA audiences and iOS: a soft explainer lifts opt-in rates.
+//     screens — your own consent primer before the UMP GDPR form (EEA) and
+//     your own ATT primer before Apple's system prompt (client-driven ATT,
+//     iOS). The order is fixed: the GDPR flow first, the tracking question
+//     last (App Store Guideline 5.1.1(iv)).
 //
 // BOTH modes are NON-BLOCKING: AdFlow.initialize() builds the graph
 // and returns immediately; consent, ATT and SDK init all run in the BACKGROUND.
@@ -23,7 +29,7 @@ import 'package:flutter/material.dart';
 //
 // Flip the flag below to switch modes. (Non-const on purpose, so BOTH init
 // helpers stay referenced and the example analyzes clean either way.)
-bool useExplainer = true;
+bool useExplainer = false;
 
 /// The app's navigator key. The ready-made presenters
 /// (`RewardedIntroScreen.presenter(navigatorKey)` and friends) show their
@@ -83,13 +89,14 @@ Future<AdFlow> _initSimple() {
 /// WITH-EXPLAINER mode — everything in [_initSimple], PLUS opt-in priming
 /// screens, shown on the navigatorKey by the ready-made presenters.
 ///
-/// - `attExplainer` shows your ATT primer, then (after a 200 ms delay) Apple's
-///   system tracking prompt — client-driven ATT (iOS; a no-op elsewhere). In
-///   this mode do NOT also configure the UMP IDFA message in the AdMob console,
-///   or the user sees two prompts.
 /// - `consentExplainer` shows your consent primer before the UMP GDPR form, and
 ///   only when a form will actually appear (EEA users only — non-EEA users
 ///   never see it).
+/// - `attExplainer` shows your ATT primer, then (after a 200 ms delay) Apple's
+///   system tracking prompt — client-driven ATT (iOS; a no-op elsewhere),
+///   always AFTER the GDPR flow, and not at all for a user who just refused it.
+///   In this mode do NOT also configure the UMP IDFA message in the AdMob
+///   console.
 Future<AdFlow> _initWithExplainer() {
   return AdFlow.initialize(
     AdFlowConfig.test(appOpenTriggerMode: _appOpenTriggerMode),

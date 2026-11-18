@@ -3,6 +3,10 @@ import 'dart:async';
 import 'package:ad_flow/ad_flow.dart';
 import 'package:ad_flow/ad_flow_testing.dart';
 import 'package:fake_async/fake_async.dart';
+// Deprecated in Flutter 3.50 in favour of package:material_ui, which needs
+// Flutter >= 3.47 and does not share Material types with apps on older
+// Flutter; migrate once the package floor reaches 3.50.
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -593,7 +597,8 @@ void main() {
       owned.dispose();
       expect(
         () => ownedConsent.privacyOptionsRequired.addListener(() {}),
-        throwsFlutterError,
+        // A FlutterError up to Flutter 3.47, a StateError from 3.50 on.
+        throwsA(anyOf(isA<FlutterError>(), isA<StateError>())),
         reason: 'AdFlow owns a self-created gateway and must dispose it',
       );
       sdk.privacyOptionsRequirement = PrivacyOptionsRequirement.required;
@@ -630,8 +635,8 @@ void main() {
   });
 
   group('explainer / ATT priming (slice 4)', () {
-    test('end to end: ATT primer + prompt, then consent primer + form, then '
-        'the gate opens and preloads run', () async {
+    test('end to end: consent primer + form, then ATT primer + prompt '
+        '(ADR-082), then the gate opens and preloads run', () async {
       final events = <String>[];
       sdk.attStatus = AttStatus.notDetermined;
       sdk.attRequestResult = AttStatus.authorized;
@@ -657,7 +662,9 @@ void main() {
       await ads.whenReady;
       await Future<void>.delayed(Duration.zero);
 
-      expect(events, ['att-primer', 'consent-primer', 'form']);
+      // GDPR first, the tracking question last — the ATT-first order got apps
+      // rejected under App Store Guideline 5.1.1(iv).
+      expect(events, ['consent-primer', 'form', 'att-primer']);
       expect(sdk.requestTrackingAuthorizationCalls, 1);
       expect(sdk.loadAndShowConsentFormCalls, 1);
       // The gate opened → the interstitial preloaded (enforceConsentGate

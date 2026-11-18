@@ -197,18 +197,18 @@ class AdFlow {
   /// additive (pass none and behaviour is exactly as before):
   ///
   /// - [attExplainer] — the app's ATT primer shown before Apple's system
-  ///   tracking prompt (client-driven ATT, iOS). Supplying it also opts into
-  ///   running ATT *before* the GDPR flow. In this mode do **not** also
-  ///   configure the UMP IDFA message in the AdMob console (avoids a double
-  ///   prompt).
+  ///   tracking prompt (client-driven ATT, iOS). The tracking question always
+  ///   comes **after** the GDPR flow, and is not asked of a user who has just
+  ///   refused GDPR purpose 1 (ADR-082 — the pre-5.5.0 ATT-first order got
+  ///   apps rejected under App Store Guideline 5.1.1(iv)). Pass none to let
+  ///   UMP drive ATT from the IDFA message configured in the AdMob console —
+  ///   the simplest compliant setup. Do not use both.
   /// - [consentExplainer] — the app's consent primer shown before the UMP
   ///   GDPR form, only when a form will actually appear.
   /// - [consentExplainerContent] / [attExplainerContent] — the copy for the
   ///   presenters (localize by overriding).
-  /// - [skipConsentPrimerIfAttDenied] — skip the optional consent *primer*
-  ///   (not the form) when the user just denied ATT (default true). A required
-  ///   GDPR form always shows regardless — ATT and GDPR are independent
-  ///   regimes (ADR-031).
+  /// - [skipConsentPrimerIfAttDenied] — no effect since 5.5.0 (the tracking
+  ///   question now comes after the consent flow).
   ///
   /// [forwardConsent] is the **fail-closed consent-forwarding barrier**: an
   /// async callback that pushes the user's consent to mediation networks
@@ -252,6 +252,10 @@ class AdFlow {
     ConsentExplainerContent consentExplainerContent =
         const ConsentExplainerContent(),
     AttExplainerContent attExplainerContent = const AttExplainerContent(),
+    @Deprecated(
+      'No effect since 5.5.0: the tracking question now comes after the '
+      'GDPR flow (ADR-082). Remove the argument.',
+    )
     bool skipConsentPrimerIfAttDenied = true,
     Future<void> Function()? forwardConsent,
   }) async {
@@ -273,7 +277,6 @@ class AdFlow {
             attExplainer: attExplainer,
             consentExplainerContent: consentExplainerContent,
             attExplainerContent: attExplainerContent,
-            skipConsentPrimerIfAttDenied: skipConsentPrimerIfAttDenied,
           ),
       // Only dispose a consent gateway this facade created itself — an
       // injected one may be shared/reused by the caller beyond dispose().
