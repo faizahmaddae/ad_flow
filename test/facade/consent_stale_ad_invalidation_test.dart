@@ -39,10 +39,10 @@ void main() {
       ),
     );
     await ads.whenReady;
-    await ads.interstitial.load();
+    await ads.interstitial!.load();
     await pumpEventQueue();
     final stale = sdk.interstitials.single;
-    expect(ads.interstitial.state.value, isA<AdLoaded>());
+    expect(ads.interstitial!.state.value, isA<AdLoaded>());
 
     // The user changes consent in the privacy-options form.
     await ads.consent.showPrivacyOptions();
@@ -73,12 +73,12 @@ void main() {
       ),
     );
     await ads.whenReady;
-    await ads.interstitial.load();
+    await ads.interstitial!.load();
     await pumpEventQueue();
     final showing = sdk.interstitials.single;
-    await dispatch(ads.interstitial.show());
+    await dispatch(ads.interstitial!.show());
     showing.simulateShowed();
-    expect(ads.interstitial.state.value, isA<AdShowing>());
+    expect(ads.interstitial!.state.value, isA<AdShowing>());
 
     await ads.consent.showPrivacyOptions();
     await pumpEventQueue();
@@ -88,7 +88,7 @@ void main() {
       isFalse,
       reason: 'an ad on screen must not be torn out from under the user',
     );
-    expect(ads.interstitial.state.value, isA<AdShowing>());
+    expect(ads.interstitial!.state.value, isA<AdShowing>());
     ads.dispose();
   });
 

@@ -54,7 +54,7 @@ void main() {
     // The old graph's controllers are really disposed — a disposed
     // ChangeNotifier throws on addListener, which is the unambiguous proof.
     expect(
-      () => first.interstitial.state.addListener(() {}),
+      () => first.interstitial!.state.addListener(() {}),
       // A FlutterError up to Flutter 3.47, a StateError from 3.50 on.
       throwsA(anyOf(isA<FlutterError>(), isA<StateError>())),
       reason: 'the previous graph must be torn down, not left running',
@@ -84,7 +84,7 @@ void main() {
     await first.whenReady;
     await pumpEventQueue();
     // Show + dismiss an interstitial: its minGap timestamp persists.
-    await dispatch(first.interstitial.show());
+    await dispatch(first.interstitial!.show());
     sdk.interstitials.last.simulateDismissed();
     await pumpEventQueue();
 
@@ -98,7 +98,7 @@ void main() {
     await pumpEventQueue();
 
     expect(
-      await dispatch(second.interstitial.show()),
+      await dispatch(second.interstitial!.show()),
       isFalse,
       reason:
           'the 30s default minGap from the impression recorded under the '

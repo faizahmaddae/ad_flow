@@ -9,6 +9,10 @@ abstract interface class FrequencyCapPolicy {
   /// Whether [slot] may show now (its own cap AND the global cap).
   Future<bool> canShow(String slot);
 
+  /// The same answer, synchronously, from what is known right now — a hint
+  /// for UI (`FullScreenAdController.canShow`). [canShow] is the authority.
+  bool allowsNow(String slot);
+
   /// Records an impression for [slot] (and globally).
   Future<void> recordImpression(String slot);
 }
@@ -157,6 +161,18 @@ class StoredFrequencyCapPolicy implements FrequencyCapPolicy {
   @override
   Future<bool> canShow(String slot) async {
     if (!_hydrationDone) await _hydrated;
+    return _decide(slot);
+  }
+
+  @override
+  bool allowsNow(String slot) {
+    // Starts the (lazy) hydration if nothing else has; until it lands, the
+    // answer comes from this session's impressions alone.
+    if (!_hydrationDone) unawaited(_hydrated);
+    return _decide(slot);
+  }
+
+  bool _decide(String slot) {
     final cap = _slotCaps[slot];
     if (cap != null && !_allows(slot, cap)) return false;
     // The slot's OWN cap always applies. The global cap only gates involuntary

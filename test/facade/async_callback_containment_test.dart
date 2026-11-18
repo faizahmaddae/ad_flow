@@ -59,7 +59,7 @@ void main() {
       throw StateError('analytics async bug');
     };
 
-    await ads.interstitial.load();
+    await ads.interstitial!.load();
     await pumpEventQueue();
     sdk.interstitials.last.simulatePaid(
       const AdPaidEvent(
@@ -92,7 +92,7 @@ void main() {
 
     // Force a block: Remove-Ads on, then load.
     ads.disableAds();
-    await ads.interstitial.load();
+    await ads.interstitial!.load();
     await pumpEventQueue();
 
     expect(
@@ -131,10 +131,10 @@ void main() {
       ),
     );
     await ads.whenReady;
-    await ads.rewarded.load();
+    await ads.rewarded!.load();
     await pumpEventQueue();
     await dispatch(
-      ads.rewarded.show(
+      ads.rewarded!.show(
         onReward: (reward) async {
           await Future<void>.delayed(Duration.zero);
           throw StateError('grant async bug');
@@ -159,7 +159,7 @@ void main() {
     final ads = await boot(interstitialCfg);
     await ads.whenReady;
     ads.onPaidEvent = (event) async => Future<void>.delayed(Duration.zero);
-    await ads.interstitial.load();
+    await ads.interstitial!.load();
     await pumpEventQueue();
     sdk.interstitials.last.simulatePaid(
       const AdPaidEvent(

@@ -156,7 +156,7 @@ class _StartupScreenState extends State<StartupScreen> {
     // Immediately before entering main content: take the cold-launch
     // opportunity. Waits up to 3 s for the ad, shows it and completes when it
     // closes — or at once when there is none. One-shot per process launch.
-    await widget.ads.appOpenOrNull?.showAtLaunch();
+    await widget.ads.appOpen?.showAtLaunch();
     if (!mounted) return;
 
     Navigator.of(context).pushReplacement(
@@ -224,27 +224,27 @@ class _HomeScreenState extends State<HomeScreen> {
           _StateTile(
             title: 'Interstitial',
             subtitle: 'Natural breaks only; caps + action pacing apply.',
-            state: ads.interstitial.state,
+            state: ads.interstitial!.state,
             onPressed: () {
               // Tell the pacer a natural break happened, then try to show.
-              ads.interstitial.recordUserAction();
-              ads.interstitial.show();
+              ads.interstitial!.recordUserAction();
+              ads.interstitial!.show();
             },
             buttonLabel: 'Show interstitial',
           ),
           _StateTile(
             title: 'Rewarded',
             subtitle: 'User-initiated; grants coins via onReward.',
-            state: ads.rewarded.state,
-            onPressed: () => ads.rewarded.show(onReward: _grantReward),
+            state: ads.rewarded!.state,
+            onPressed: () => ads.rewarded!.show(onReward: _grantReward),
             buttonLabel: 'Watch ad, earn coins',
           ),
           _StateTile(
             title: 'Rewarded interstitial',
             subtitle: 'Always shows the intro + skip screen first (policy).',
-            state: ads.rewardedInterstitial.state,
+            state: ads.rewardedInterstitial!.state,
             onPressed: () =>
-                ads.rewardedInterstitial.show(onReward: _grantReward),
+                ads.rewardedInterstitial!.show(onReward: _grantReward),
             buttonLabel: 'Show rewarded interstitial',
           ),
           _StateTile(
@@ -252,7 +252,7 @@ class _HomeScreenState extends State<HomeScreen> {
             subtitle:
                 'Shows on a warm return, and at cold launch from the startup '
                 'screen (waits up to 3 s for the ad).',
-            state: ads.appOpenController.state,
+            state: ads.appOpen!.controller.state,
           ),
           // Remove-Ads hides the WHOLE decorated Card — title, padding and
           // border — not just the ad inside it: AdFlowNativeAd collapses to

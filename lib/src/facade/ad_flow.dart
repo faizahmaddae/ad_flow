@@ -874,64 +874,21 @@ class AdFlow {
     _recheckAll();
   }
 
-  T _require<T>(T? controller, String format) {
-    final resolved = controller;
-    if (resolved == null) {
-      throw AdFlowError(
-        AdFlowErrorKind.invalidConfig,
-        'The $format slot is not configured for ${_platform.name} '
-        '(missing config or platform ad unit ID).',
-      );
-    }
-    return resolved;
-  }
+  /// The interstitial slot, or null when it is not configured for this
+  /// platform (6.0: one nullable getter per slot — `ads.interstitial?.show()`).
+  InterstitialAdController? get interstitial => _interstitial;
 
-  /// The interstitial controller. Throws if the slot is unconfigured.
-  InterstitialAdController get interstitial =>
-      _require(_interstitial, 'interstitial');
+  /// The rewarded slot, or null when it is not configured for this platform.
+  RewardedAdController? get rewarded => _rewarded;
 
-  /// The rewarded controller. Throws if the slot is unconfigured.
-  RewardedAdController get rewarded => _require(_rewarded, 'rewarded');
-
-  /// The rewarded interstitial controller. Throws if the slot is
-  /// unconfigured.
-  RewardedInterstitialAdController get rewardedInterstitial =>
-      _require(_rewardedInterstitial, 'rewardedInterstitial');
-
-  /// The app open manager. Throws if the slot is unconfigured.
-  AppOpenAdManager get appOpen => _require(_appOpen, 'appOpen');
-
-  /// The app open controller (state inspection). Throws if unconfigured.
-  AppOpenAdController get appOpenController =>
-      _require(_appOpenController, 'appOpen');
-
-  // ── Null-safe slot access ─────────────────────────────────────────────
-  //
-  // The throwing getters above fail fast on a MISCONFIGURATION. But a slot
-  // can be absent by DESIGN — most commonly an ad unit configured for one
-  // platform only — and shared cross-platform code should degrade, not
-  // crash, on the platform without it (2026-07 audit).
-
-  /// The interstitial controller, or null when the slot is not configured
-  /// for this platform.
-  InterstitialAdController? get interstitialOrNull => _interstitial;
-
-  /// The rewarded controller, or null when the slot is not configured for
+  /// The rewarded interstitial slot, or null when it is not configured for
   /// this platform.
-  RewardedAdController? get rewardedOrNull => _rewarded;
-
-  /// The rewarded interstitial controller, or null when the slot is not
-  /// configured for this platform.
-  RewardedInterstitialAdController? get rewardedInterstitialOrNull =>
+  RewardedInterstitialAdController? get rewardedInterstitial =>
       _rewardedInterstitial;
 
-  /// The app open manager, or null when the slot is not configured for this
-  /// platform.
-  AppOpenAdManager? get appOpenOrNull => _appOpen;
-
-  /// The app open controller, or null when the slot is not configured for
-  /// this platform.
-  AppOpenAdController? get appOpenControllerOrNull => _appOpenController;
+  /// The app open slot (its manager; the controller is `appOpen?.controller`),
+  /// or null when it is not configured for this platform.
+  AppOpenAdManager? get appOpen => _appOpen;
 
   /// Creates a fresh banner controller (one per placement; give it to an
   /// `AdFlowBanner` with `ownsController: true`). [override] replaces the

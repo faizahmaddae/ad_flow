@@ -9,6 +9,9 @@ import 'package:flutter_test/flutter_test.dart';
 /// Wraps a cap policy so its `canShow` can be HELD, parking a show in its
 /// pre-dispatch window across ops.
 class _HoldableCaps implements FrequencyCapPolicy {
+  @override
+  bool allowsNow(String slot) => true;
+
   _HoldableCaps(this._inner);
 
   final FrequencyCapPolicy _inner;

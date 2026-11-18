@@ -26,6 +26,9 @@ import '../support/show.dart';
 /// — exactly what a corrupt `shared_preferences` backend (PlatformException)
 /// does on a real device.
 class _ThrowingCaps implements FrequencyCapPolicy {
+  @override
+  bool allowsNow(String slot) => true;
+
   bool throwOnCanShow = false;
   bool throwOnRecord = false;
 
@@ -83,6 +86,9 @@ class _ExitThrowsOnceCoordinator extends FullScreenAdCoordinator {
 
 /// A cap policy whose answer the test sets.
 class _SwitchCaps implements FrequencyCapPolicy {
+  @override
+  bool allowsNow(String slot) => true;
+
   bool allow = true;
 
   @override

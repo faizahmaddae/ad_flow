@@ -341,7 +341,7 @@ void main() {
       // Show an interstitial and collect revenue.
       final paid = <AdPaidEvent>[];
       ads.onPaidEvent = paid.add;
-      expect(await dispatch(ads.interstitial.show()), isTrue);
+      expect(await dispatch(ads.interstitial!.show()), isTrue);
       const event = AdPaidEvent(
         adUnitId: 'i-a',
         valueMicros: 5000,
@@ -469,7 +469,7 @@ void main() {
     );
 
     test(
-      'unconfigured slots build no controllers and throw on access',
+      'unconfigured slots build no controllers and read as null (6.0)',
       () async {
         final ads = await boot(
           config: const AdFlowConfig(
@@ -482,17 +482,10 @@ void main() {
         await Future<void>.delayed(Duration.zero);
 
         expect(sdk.loadLog, ['interstitial:i-a']);
-        expect(
-          () => ads.rewarded,
-          throwsA(
-            isA<AdFlowError>().having(
-              (e) => e.kind,
-              'kind',
-              AdFlowErrorKind.invalidConfig,
-            ),
-          ),
-        );
-        expect(() => ads.appOpen, throwsA(isA<AdFlowError>()));
+        expect(ads.interstitial, isNotNull);
+        expect(ads.rewarded, isNull);
+        expect(ads.rewardedInterstitial, isNull);
+        expect(ads.appOpen, isNull);
         ads.dispose();
       },
     );
@@ -554,8 +547,8 @@ void main() {
 
       final ads1 = await boot(config: launchConfig);
       await pumpEventQueue(); // let the app-open preload land
-      expect(ads1.appOpenController.isReady, isTrue);
-      final launch = ads1.appOpen.showAtLaunch();
+      expect(ads1.appOpen!.controller.isReady, isTrue);
+      final launch = ads1.appOpen!.showAtLaunch();
       await pumpEventQueue();
       expect(sdk.appOpens.single.showCalls, 1);
       sdk.appOpens.single.simulateDismissed();
@@ -569,9 +562,9 @@ void main() {
       // Reinitialize AdFlow in the SAME process — the latch must persist.
       final ads2 = await boot(config: launchConfig);
       await pumpEventQueue();
-      expect(ads2.appOpenController.isReady, isTrue);
+      expect(ads2.appOpen!.controller.isReady, isTrue);
       expect(
-        (await ads2.appOpen.showAtLaunch()).shown,
+        (await ads2.appOpen!.showAtLaunch()).shown,
         isFalse,
         reason: 'the cold-launch moment is spent; reinit gets no second launch',
       );
@@ -722,7 +715,7 @@ void main() {
 
       ads.disableAds();
       expect(ads.adsEnabled.value, isFalse);
-      expect(await dispatch(ads.interstitial.show()), isFalse);
+      expect(await dispatch(ads.interstitial!.show()), isFalse);
 
       final banner = ads.banner();
       await banner.load(width: 320);
@@ -730,7 +723,7 @@ void main() {
       banner.dispose();
 
       ads.enableAds();
-      expect(await dispatch(ads.interstitial.show()), isTrue);
+      expect(await dispatch(ads.interstitial!.show()), isTrue);
       ads.dispose();
     });
   });
@@ -814,7 +807,7 @@ void main() {
       await ads.whenReady; // background startup (preloads) finishes
       await Future<void>.delayed(Duration.zero);
 
-      expect(await dispatch(ads.interstitial.show()), isTrue);
+      expect(await dispatch(ads.interstitial!.show()), isTrue);
       // Dismiss it so the coordinator is clear — only the cap remains. The
       // impression is recorded on this dismiss (ADR-040).
       sdk.interstitials.single.simulateShowed();
@@ -822,13 +815,13 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       // An APP-OPEN ad is involuntary: the global 10-minute gap blocks it.
-      expect(ads.appOpenController.isReady, isTrue);
-      expect(await dispatch(ads.appOpenController.show()), isFalse);
+      expect(ads.appOpen!.controller.isReady, isTrue);
+      expect(await dispatch(ads.appOpen!.controller.show()), isFalse);
 
       // A REWARDED ad is one the user asked for, in exchange for a reward: the
       // global gap must never silently swallow it (ADR-039).
-      expect(ads.rewarded.isReady, isTrue);
-      expect(await dispatch(ads.rewarded.show(onReward: (_) {})), isTrue);
+      expect(ads.rewarded!.isReady, isTrue);
+      expect(await dispatch(ads.rewarded!.show(onReward: (_) {})), isTrue);
       ads.dispose();
     },
   );

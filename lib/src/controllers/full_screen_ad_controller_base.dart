@@ -184,6 +184,23 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   /// Whether a loaded ad is warm and ready to show.
   bool get isReady => _state.value is AdLoaded && _handle != null;
 
+  /// Whether [show] would show an ad right now: one is warm and unexpired, ads
+  /// are enabled, no other full-screen ad is on screen, and the frequency caps
+  /// and pacing allow it (6.0).
+  ///
+  /// A synchronous HINT for UI — enable a "Watch ad" button, or decide whether
+  /// to pause at a natural break for an interstitial. It replaces mirroring
+  /// the caps in app code. [show] re-checks everything (including live
+  /// consent) and remains the only authority.
+  bool get canShow =>
+      !_disposed &&
+      isReady &&
+      !isExpired &&
+      _gate.isEnabled &&
+      !_coordinator.isFullScreenAdVisible &&
+      _caps.allowsNow(slot) &&
+      canShowExtra();
+
   /// Which network filled the warm ad (mediation observability), or null
   /// when nothing is loaded / the SDK reported nothing.
   AdResponseSummary? get response => _handle?.response;

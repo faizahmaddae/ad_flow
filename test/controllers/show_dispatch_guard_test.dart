@@ -18,6 +18,9 @@ import 'package:flutter_test/flutter_test.dart';
 /// A cap policy whose `canShow` can be HELD by a completer, to open the
 /// check-to-dispatch window in `showEngine`.
 class _HoldableCaps implements FrequencyCapPolicy {
+  @override
+  bool allowsNow(String slot) => true;
+
   Completer<void>? canShowHold;
 
   @override

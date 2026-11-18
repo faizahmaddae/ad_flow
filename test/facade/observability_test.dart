@@ -83,7 +83,7 @@ void main() {
     );
     sdk.interstitials.single.responseSummary = summary;
 
-    expect(ads.interstitial.response, summary);
+    expect(ads.interstitial!.response, summary);
     ads.dispose();
   });
 }
