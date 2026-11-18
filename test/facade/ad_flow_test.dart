@@ -597,7 +597,8 @@ void main() {
       owned.dispose();
       expect(
         () => ownedConsent.privacyOptionsRequired.addListener(() {}),
-        throwsFlutterError,
+        // A FlutterError up to Flutter 3.47, a StateError from 3.50 on.
+        throwsA(anyOf(isA<FlutterError>(), isA<StateError>())),
         reason: 'AdFlow owns a self-created gateway and must dispose it',
       );
       sdk.privacyOptionsRequirement = PrivacyOptionsRequirement.required;

@@ -1,5 +1,6 @@
 import 'package:ad_flow/ad_flow.dart';
 import 'package:ad_flow/ad_flow_testing.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// `AdFlow.initialize()` is idempotent (ADR-044).
@@ -53,7 +54,8 @@ void main() {
     // ChangeNotifier throws on addListener, which is the unambiguous proof.
     expect(
       () => first.interstitial.state.addListener(() {}),
-      throwsFlutterError,
+      // A FlutterError up to Flutter 3.47, a StateError from 3.50 on.
+      throwsA(anyOf(isA<FlutterError>(), isA<StateError>())),
       reason: 'the previous graph must be torn down, not left running',
     );
 
