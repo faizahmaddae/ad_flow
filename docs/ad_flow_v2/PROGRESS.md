@@ -75,13 +75,40 @@ Done (one commit each, tree green after each):
     an App Store reviewer read it as asking twice. The ATT primer stays. The
     public API is 68 types + 4 helpers now.
 
+16. Device check, iOS simulator (iPhone 18 Pro, iOS 27, debug, Google's
+    sample units), all as designed:
+    - first install: home at once, no launch ad (no earlier consent);
+      outside the EU, UMP's IDFA message then Apple's prompt;
+    - every format loads; the native validator reports no issues; paid
+      events arrive; AdMob refreshes the banner server-side;
+    - `show()` completes on the close (the SnackBar came ~12 s after the
+      dispatch, longer than a SnackBar lives) and the next ad is preloaded
+      at once; first interstitial tap → `userActionPacing` (2 actions);
+      rewarded and RI grant the reward; RI intro first, skip →
+      `introSkipped`; an RI 8 s after the rewarded closed →
+      `frequencyCapped` (15 s global gap from the close, ADR-040);
+    - app open on a warm return; a second return within 4 min →
+      `frequencyCapped`; cold relaunch with consent stored → the launch ad
+      over the loading screen, home after the close;
+    - EU (debug geography): the GDPR form is the first screen, Apple's
+      prompt only after the answer, no second tracking question; the
+      privacy-settings button shows; Remove-Ads blocks every slot and
+      removes the banner and the native card.
+    Not covered: the client-driven `attExplainer` primer on a device —
+    Google's sample app ID has a console IDFA message, so UMP asks itself
+    and ad_flow (correctly) skips its own step; needs a real app ID without
+    that message. Android not run on a device/emulator (the APK builds).
+    Flutter 3.50 migrated the example's iOS target to 15.0 (Flutter ≥ 3.47
+    needs iOS 15) — committed with the example.
+
 ## Next (ordered)
 
 1. Faiz: merge PR #19 (5.5.0) and tag `v5.5.0` — the App Store fix.
 2. Rebase `claude/ad-flow-v6` onto main after #19 merges
    (`git rebase --onto origin/main <last 5.5.0 commit>`), open the 6.0.0 PR.
-3. Device check of the example on Android + iOS (show-and-wait, launch ad,
-   ATT order) — not done yet; unit tests only.
+3. Device check left: Android (emulator or phone), and the client-driven
+   `attExplainer` primer with a real app ID that has no console IDFA message
+   (iOS done, item 16).
 4. Migrate the nine apps (one session per app, in its own repo), deleting their
    wrappers: wait-for-close adapters, `FullScreenPacing`, `PrivacyOptionsMirror`,
    nahjal's `ConsentThenAttGateway` + TCF channel, launch-wait code, debug
@@ -95,6 +122,12 @@ Done (one commit each, tree green after each):
 && `dart pub publish --dry-run`.
 
 ## Traps hit this phase
+
+- Google's sample app ID has a console IDFA message, so on a device UMP asks
+  ATT itself and the client-driven `attExplainer` step is (correctly)
+  skipped — that path cannot be exercised with sample IDs.
+- In test mode Google's native ad validator pops up again after every
+  full-screen ad: Google's overlay, not ours.
 
 - Since 6.0 `show()` completes on the CLOSE: a test that `await`s a successful
   show before simulating the dismissal hangs. Use `dispatch()` from

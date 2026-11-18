@@ -254,7 +254,9 @@ class _HomeScreenState extends State<HomeScreen> {
           if (interstitial != null)
             _StateTile(
               title: 'Interstitial',
-              subtitle: 'Natural breaks only; caps + action pacing apply.',
+              subtitle:
+                  'Natural breaks only: from the 2nd tap (action pacing), '
+                  'at most every 30 s.',
               state: interstitial.state,
               onPressed: () async {
                 // Tell the pacer a natural break happened, then try to show.
