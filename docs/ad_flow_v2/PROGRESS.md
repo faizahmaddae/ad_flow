@@ -31,9 +31,11 @@ Done (one commit each, tree green after each):
 9. CI on PR #19 broke when CI moved to Flutter 3.50 (`2011fad` on the 5.5.0
    branch, pushed): targeted ignores on the deprecated `material.dart`
    imports; the example's Android build now matches the 3.50 template
-   (Gradle 9.5.0, AGP 9.3.1, Kotlin 2.4.20). Not built locally — the disk was
-   full (708 MB free) when Gradle 9.5 downloaded; CI verifies it. The v6 branch
-   is rebased on top of it.
+   (Gradle 9.5.0, AGP 9.3.1, Kotlin 2.4.20). The v6 branch is rebased on top
+   of it, and its example now builds locally too (`flutter build apk --debug`,
+   2026-11-18). If a build fails at once with "Cannot lock execution history
+   cache … already locked by this process", a Gradle daemon from an earlier
+   aborted build holds the lock: `cd example/android && ./gradlew --stop`.
 
 10. Independent review (fresh agent) before release: 3 should-fix issues and
     several nits, all fixed (ADR-083 addendum): presentation-only show
@@ -50,7 +52,7 @@ Done (one commit each, tree green after each):
     `AdFlowErrorKind.timeout`, `TestAdUnitIds` wording; `banner()`/`native()`
     and both widgets now document that a slot with no ID for the running
     platform throws `invalidConfig` (README, CHANGELOG and MIGRATION say so
-    too); the library doc has a quick start.
+    too); the library doc has a quick start. `pana --no-warning .`: 160/160.
 
 ## Next (ordered)
 
