@@ -28,6 +28,13 @@ Done (one commit each, tree green after each):
 8. Docs: README rewritten (845 → ~330 lines), CHANGELOG/MIGRATION 6.0.0,
    MEDIATION_SETUP, this file, CLAUDE.md, SKILL §0/§6, ADR-083; version 6.0.0.
 
+9. CI on PR #19 broke when CI moved to Flutter 3.50 (`2011fad` on the 5.5.0
+   branch, pushed): targeted ignores on the deprecated `material.dart`
+   imports; the example's Android build now matches the 3.50 template
+   (Gradle 9.5.0, AGP 9.3.1, Kotlin 2.4.20). Not built locally — the disk was
+   full (708 MB free) when Gradle 9.5 downloaded; CI verifies it. The v6 branch
+   is rebased on top of it.
+
 ## Next (ordered)
 
 1. Faiz: merge PR #19 (5.5.0) and tag `v5.5.0` — the App Store fix.

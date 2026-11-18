@@ -221,8 +221,26 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// `show()` completes when the ad has CLOSED (or at once when nothing was
+  /// shown) — this is where a game would start its next level.
+  void _report(String format, AdShowResult result) {
+    if (!mounted) return;
+    final text = result.shown
+        ? '$format closed — back in the app'
+        : result.blockReason != null
+        ? '$format not shown: ${result.blockReason!.name}'
+        : '$format failed: ${result.error?.message}';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
   @override
   Widget build(BuildContext context) {
+    // A slot is null when it is not configured for this platform; this
+    // example configures all of them, but `?.` / null checks are the habit.
+    final interstitial = ads.interstitial;
+    final rewarded = ads.rewarded;
+    final rewardedInterstitial = ads.rewardedInterstitial;
+    final appOpen = ads.appOpen;
     return Scaffold(
       appBar: AppBar(
         title: const Text('ad_flow example'),
@@ -238,39 +256,50 @@ class _HomeScreenState extends State<HomeScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _StateTile(
-            title: 'Interstitial',
-            subtitle: 'Natural breaks only; caps + action pacing apply.',
-            state: ads.interstitial!.state,
-            onPressed: () {
-              // Tell the pacer a natural break happened, then try to show.
-              ads.interstitial!.recordUserAction();
-              ads.interstitial!.show();
-            },
-            buttonLabel: 'Show interstitial',
-          ),
-          _StateTile(
-            title: 'Rewarded',
-            subtitle: 'User-initiated; grants coins via onReward.',
-            state: ads.rewarded!.state,
-            onPressed: () => ads.rewarded!.show(onReward: _grantReward),
-            buttonLabel: 'Watch ad, earn coins',
-          ),
-          _StateTile(
-            title: 'Rewarded interstitial',
-            subtitle: 'Always shows the intro + skip screen first (policy).',
-            state: ads.rewardedInterstitial!.state,
-            onPressed: () =>
-                ads.rewardedInterstitial!.show(onReward: _grantReward),
-            buttonLabel: 'Show rewarded interstitial',
-          ),
-          _StateTile(
-            title: 'App open',
-            subtitle:
-                'Shows on a warm return, and at cold launch from the startup '
-                'screen (waits up to 3 s for the ad).',
-            state: ads.appOpen!.controller.state,
-          ),
+          if (interstitial != null)
+            _StateTile(
+              title: 'Interstitial',
+              subtitle: 'Natural breaks only; caps + action pacing apply.',
+              state: interstitial.state,
+              onPressed: () async {
+                // Tell the pacer a natural break happened, then try to show.
+                // `interstitial.canShow` answers "would it show now?" first,
+                // if your game wants to decide whether to pause for it.
+                interstitial.recordUserAction();
+                _report('Interstitial', await interstitial.show());
+              },
+              buttonLabel: 'Show interstitial',
+            ),
+          if (rewarded != null)
+            _StateTile(
+              title: 'Rewarded',
+              subtitle: 'User-initiated; grants coins via onReward.',
+              state: rewarded.state,
+              onPressed: () async => _report(
+                'Rewarded ad',
+                await rewarded.show(onReward: _grantReward),
+              ),
+              buttonLabel: 'Watch ad, earn coins',
+            ),
+          if (rewardedInterstitial != null)
+            _StateTile(
+              title: 'Rewarded interstitial',
+              subtitle: 'Always shows the intro + skip screen first (policy).',
+              state: rewardedInterstitial.state,
+              onPressed: () async => _report(
+                'Rewarded interstitial',
+                await rewardedInterstitial.show(onReward: _grantReward),
+              ),
+              buttonLabel: 'Show rewarded interstitial',
+            ),
+          if (appOpen != null)
+            _StateTile(
+              title: 'App open',
+              subtitle:
+                  'Shows on a warm return, and at cold launch from the '
+                  'startup screen (waits up to 3 s for the ad).',
+              state: appOpen.controller.state,
+            ),
           // Remove-Ads hides the WHOLE decorated Card — title, padding and
           // border — not just the ad inside it: AdFlowNativeAd collapses to
           // zero, but a parent decoration around it would stay visible (an
