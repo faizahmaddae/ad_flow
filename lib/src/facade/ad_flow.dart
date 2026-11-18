@@ -199,10 +199,8 @@ class AdFlow {
   ///   apps rejected under App Store Guideline 5.1.1(iv)). Pass none to let
   ///   UMP drive ATT from the IDFA message configured in the AdMob console —
   ///   the simplest compliant setup. Do not use both.
-  /// - [consentExplainer] — the app's consent primer shown before the UMP
-  ///   GDPR form, only when a form will actually appear.
-  /// - [consentExplainerContent] / [attExplainerContent] — the copy for the
-  ///   presenters (localize by overriding).
+  /// - [attExplainerContent] — the copy for the ATT presenter (localize by
+  ///   overriding).
   ///
   /// These apply only to a gateway this facade creates. If you inject your
   /// own [consent], construct it with these options yourself.
@@ -218,10 +216,7 @@ class AdFlow {
     AdPlatform? platform,
     RewardedIntroPresenter? rewardedIntroPresenter,
     ConsentDebugOptions? consentDebug,
-    ConsentExplainerPresenter? consentExplainer,
     AttExplainerPresenter? attExplainer,
-    ConsentExplainerContent consentExplainerContent =
-        const ConsentExplainerContent(),
     AttExplainerContent attExplainerContent = const AttExplainerContent(),
   }) async {
     // Fail fast on nonsense (empty ad unit strings, negative durations) —
@@ -238,9 +233,7 @@ class AdFlow {
           UmpConsentGateway(
             resolvedSdk,
             tagForUnderAgeOfConsent: config.tagForUnderAgeOfConsent,
-            consentExplainer: consentExplainer,
             attExplainer: attExplainer,
-            consentExplainerContent: consentExplainerContent,
             attExplainerContent: attExplainerContent,
           ),
       // Only dispose a consent gateway this facade created itself — an

@@ -54,29 +54,6 @@ void main() {
     },
   );
 
-  testWidgets('the consent primer stays dismissable at 200% text scale', (
-    tester,
-  ) async {
-    await pumpAt(
-      tester,
-      const ConsentExplainerScreen(content: ConsentExplainerContent()),
-    );
-
-    expect(
-      tester.takeException(),
-      isNull,
-      reason:
-          'an overflowing primer pushes its only dismiss button '
-          'off-screen — an un-escapable dead end before the GDPR form',
-    );
-    final continueButton = find.text(
-      const ConsentExplainerContent().continueLabel,
-    );
-    await tester.ensureVisible(continueButton);
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-  });
-
   testWidgets('the ATT primer stays dismissable at 200% text scale', (
     tester,
   ) async {

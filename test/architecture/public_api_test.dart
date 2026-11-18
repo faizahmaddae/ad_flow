@@ -102,7 +102,7 @@ Set<String> _topLevelNames(String source) {
   }.where((name) => !name.startsWith('_')).toSet();
 }
 
-/// The pinned public API of `package:ad_flow/ad_flow.dart`: 71 types and
+/// The pinned public API of `package:ad_flow/ad_flow.dart`: 68 types and
 /// 4 helper functions (6.0.0).
 const expected = <String>{
   'AdBlockReason',
@@ -143,9 +143,6 @@ const expected = <String>{
   'CollapsiblePlacement',
   'ConsentDebugGeography',
   'ConsentDebugOptions',
-  'ConsentExplainerContent',
-  'ConsentExplainerPresenter',
-  'ConsentExplainerScreen',
   'ConsentGateway',
   'FixedBannerSize',
   'FrequencyCap',

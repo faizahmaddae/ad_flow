@@ -16,11 +16,10 @@ import 'package:flutter/material.dart';
 //     configure the IDFA message in the AdMob console — the iOS ATT prompt
 //     too, after the GDPR message. No client-side priming screens.
 //
-//   • WITH EXPLAINER (useExplainer = true): the same, PLUS opt-in priming
-//     screens — your own consent primer before the UMP GDPR form (EEA) and
-//     your own ATT primer before Apple's system prompt (client-driven ATT,
-//     iOS). The order is fixed: the GDPR flow first, the tracking question
-//     last (App Store Guideline 5.1.1(iv)).
+//   • WITH EXPLAINER (useExplainer = true): the same, PLUS your own ATT
+//     primer before Apple's system prompt (client-driven ATT, iOS). The order
+//     is fixed: the GDPR flow first, the tracking question last (App Store
+//     Guideline 5.1.1(iv)).
 //
 // BOTH modes are NON-BLOCKING: AdFlow.initialize() builds the graph
 // and returns immediately; consent, ATT and SDK init all run in the BACKGROUND.
@@ -98,12 +97,9 @@ Future<AdFlow> _initSimple() {
   );
 }
 
-/// WITH-EXPLAINER mode — everything in [_initSimple], PLUS opt-in priming
-/// screens, shown on the navigatorKey by the ready-made presenters.
+/// WITH-EXPLAINER mode — everything in [_initSimple], PLUS an opt-in ATT
+/// primer, shown on the navigatorKey by the ready-made presenter.
 ///
-/// - `consentExplainer` shows your consent primer before the UMP GDPR form, and
-///   only when a form will actually appear (EEA users only — non-EEA users
-///   never see it).
 /// - `attExplainer` shows your ATT primer, then (after a 200 ms delay) Apple's
 ///   system tracking prompt — client-driven ATT (iOS; a no-op elsewhere),
 ///   always AFTER the GDPR flow, and not at all for a user who just refused it.
@@ -114,7 +110,6 @@ Future<AdFlow> _initWithExplainer() {
     _config,
     rewardedIntroPresenter: RewardedIntroScreen.presenter(navigatorKey),
     attExplainer: AttExplainerScreen.presenter(navigatorKey),
-    consentExplainer: ConsentExplainerScreen.presenter(navigatorKey),
   );
 }
 

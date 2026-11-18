@@ -281,11 +281,12 @@ to tracking (Guideline 5.1.1(iv)).
 - **ATT, your own primer.** Pass `attExplainer:
   AttExplainerScreen.presenter(navigatorKey)`. ad_flow asks after the GDPR
   flow, never after a GDPR refusal, and never before the form on an offline
-  launch. Do not also configure the console IDFA message.
-- **Consent primer** (optional, EEA only): `consentExplainer:
-  ConsentExplainerScreen.presenter(navigatorKey)`, shown before the form only
-  when a form will appear. Localize with `consentExplainerContent` /
-  `attExplainerContent`.
+  launch. Do not also configure the console IDFA message. Localize its copy
+  with `attExplainerContent`.
+
+Nothing of your own goes before the GDPR form: Google's message explains the
+choice itself (style it under *Privacy & messaging*), and an extra screen in
+front of it reads as asking twice.
 
 Show the privacy-options entry point where users can find it (e.g. Settings);
 it appears only when UMP requires it:

@@ -23,6 +23,7 @@ Most apps change a few lines — and delete the wrapper code they wrote around
 | `BannerConfig(minRefresh: …)` | remove; set the refresh rate on the ad unit in the AdMob console |
 | `ads.setBlockingViewAdVisible(…)` | remove |
 | `skipConsentPrimerIfAttDenied: …` | remove |
+| `consentExplainer: …` / `consentExplainerContent: …` / `ConsentExplainerScreen` | remove — nothing of yours before the GDPR form; Google's message explains the choice (style it under *Privacy & messaging*). `attExplainer` stays |
 | `AdGate`, `StoredFrequencyCapPolicy`, `FullScreenAdCoordinator`, `RetryPolicy`, `InMemoryKeyValueStore`, `FullScreenAdControllerBase`, seam handles/events (`InterstitialHandle`, `AdShowedEvent`, …) | import `package:ad_flow/ad_flow_testing.dart` (in tests) |
 | `SharedPrefsKeyValueStore()` / `config.toRequestConfig()` | remove: omit `store:` for the default store; the request configuration is internal |
 | your own `FrequencyCapPolicy` / `FullScreenAdController` | add `allowsNow` / `canShow` |

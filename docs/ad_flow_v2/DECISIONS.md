@@ -163,3 +163,32 @@ would differ again (ADR-083 addendum).
 **Consequences.** A forgotten ID shows as an empty slot plus one debug log
 line, not a crash. Other `AdFlowError`s still propagate.
 
+## ADR-086 — No primer before the GDPR form · accepted (2026-11-18)
+
+**Context.** Review open decision 4. Since ADR-082 the order is GDPR first,
+ATT last, so an EU user on iOS with both primers met four privacy screens in
+a row: consent primer → UMP form → ATT primer → Apple's prompt. dehkhoda's App
+Store reviewer read primer + prompts as asking twice. The default primer copy
+also asked for consent before the form did ("we'd like your consent on the next
+screen"), which a regulator can read as nudging. Four apps pass
+`consentExplainer` (novels, jadval, nahjal_balagha, dehkhoda). Faiz left the
+call to Claude.
+
+**Decision.** The consent primer goes: `consentExplainer`,
+`consentExplainerContent`, `ConsentExplainerScreen`, `ConsentExplainerContent`,
+`ConsentExplainerPresenter`, and the gateway's primer step. The UMP form is
+the first thing the user sees; the app's wording belongs in the message
+itself (Privacy & messaging). The ATT primer stays: Apple allows a screen
+that explains the prompt, and it now runs after the GDPR flow. The seam keeps
+`getConsentStatus()` / `isConsentFormAvailable()` (UMP primitives a custom
+gateway may use). The public API drops to 68 types + 4 helpers (ADR-084's
+pin updated).
+
+**Rejected.** Keeping it opt-in: every app that used it got the four-screen
+start, and its removal costs each of them one argument in a migration they
+make anyway.
+
+**Consequences.** Breaking (6.0.0; CHANGELOG, MIGRATION). The ordering test in
+`consent_gateway_test.dart` now also asserts that nothing of the app runs
+before the form.
+

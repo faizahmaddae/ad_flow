@@ -78,6 +78,5 @@ export 'src/seam/ad_sdk_types.dart'
 export 'src/widgets/ad_flow_banner.dart';
 export 'src/widgets/ad_flow_native_ad.dart';
 export 'src/widgets/att_explainer_screen.dart';
-export 'src/widgets/consent_explainer_screen.dart';
 export 'src/widgets/privacy_options_button.dart';
 export 'src/widgets/rewarded_intro_screen.dart';

@@ -1,7 +1,6 @@
 import 'package:ad_flow/src/config/ad_flow_config.dart';
 import 'package:ad_flow/src/consent/explainer_content.dart';
 import 'package:ad_flow/src/widgets/att_explainer_screen.dart';
-import 'package:ad_flow/src/widgets/consent_explainer_screen.dart';
 import 'package:ad_flow/src/widgets/rewarded_intro_screen.dart';
 // Deprecated in Flutter 3.50 in favour of package:material_ui, which needs
 // Flutter >= 3.47 and does not share Material types with apps on older
@@ -76,35 +75,6 @@ void main() {
         'mounted (Apple\'s prompt still follows)', (tester) async {
       final key = GlobalKey<NavigatorState>();
       await AttExplainerScreen.presenter(key)(const AttExplainerContent());
-    });
-  });
-
-  group('ConsentExplainerScreen.presenter', () {
-    testWidgets('shows the primer and completes when it is dismissed', (
-      tester,
-    ) async {
-      final key = await pumpApp(tester);
-      var done = false;
-      final shown = ConsentExplainerScreen.presenter(key)(
-        const ConsentExplainerContent(),
-      ).then((_) => done = true);
-      await tester.pumpAndSettle();
-      expect(find.byType(ConsentExplainerScreen), findsOneWidget);
-      expect(done, isFalse, reason: 'it waits for the user');
-      await tester.tap(
-        find.text(const ConsentExplainerContent().continueLabel),
-      );
-      await tester.pumpAndSettle();
-      await shown;
-      expect(done, isTrue);
-    });
-
-    testWidgets('completes without throwing when the navigator is not '
-        'mounted (the GDPR form still follows)', (tester) async {
-      final key = GlobalKey<NavigatorState>();
-      await ConsentExplainerScreen.presenter(key)(
-        const ConsentExplainerContent(),
-      );
     });
   });
 }

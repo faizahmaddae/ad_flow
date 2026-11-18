@@ -70,19 +70,23 @@ Done (one commit each, tree green after each):
     `SizedBox.shrink()` where their slot has no config or no ID for the
     platform (debug prints why) instead of throwing in `initState`.
 
+15. The consent primer is gone (ADR-086, Faiz left the call to Claude): with
+    ATT after GDPR it made four privacy screens in a row for EU iOS users, and
+    an App Store reviewer read it as asking twice. The ATT primer stays. The
+    public API is 68 types + 4 helpers now.
+
 ## Next (ordered)
 
 1. Faiz: merge PR #19 (5.5.0) and tag `v5.5.0` — the App Store fix.
 2. Rebase `claude/ad-flow-v6` onto main after #19 merges
    (`git rebase --onto origin/main <last 5.5.0 commit>`), open the 6.0.0 PR.
-3. Faiz decides before 6.0 ships: keep or drop the consent primer (review
-   open decision 4; four apps pass it)?
-4. Device check of the example on Android + iOS (show-and-wait, launch ad,
+3. Device check of the example on Android + iOS (show-and-wait, launch ad,
    ATT order) — not done yet; unit tests only.
-5. Migrate the nine apps (one session per app, in its own repo), deleting their
+4. Migrate the nine apps (one session per app, in its own repo), deleting their
    wrappers: wait-for-close adapters, `FullScreenPacing`, `PrivacyOptionsMirror`,
    nahjal's `ConsentThenAttGateway` + TCF channel, launch-wait code, debug
-   placeholder IDs. The README's "Set up with AI" prompt is written for this.
+   placeholder IDs, and the `consentExplainer` argument (novels, jadval,
+   nahjal_balagha, dehkhoda). The README's "Set up with AI" prompt is written for this.
 
 ## How to verify
 

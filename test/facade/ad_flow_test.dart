@@ -633,8 +633,8 @@ void main() {
   });
 
   group('explainer / ATT priming (slice 4)', () {
-    test('end to end: consent primer + form, then ATT primer + prompt '
-        '(ADR-082), then the gate opens and preloads run', () async {
+    test('end to end: GDPR form, then ATT primer + prompt (ADR-082), then '
+        'the gate opens and preloads run', () async {
       final events = <String>[];
       sdk.attStatus = AttStatus.notDetermined;
       sdk.attRequestResult = AttStatus.authorized;
@@ -653,7 +653,6 @@ void main() {
         platform: AdPlatform.android,
         rewardedIntroPresenter: (_) async => true,
         attExplainer: (_) async => events.add('att-primer'),
-        consentExplainer: (_) async => events.add('consent-primer'),
       );
       // initialize() returns before the (background) explainer/consent flow;
       // wait for it, then a microtask for the preloads to land.
@@ -662,7 +661,7 @@ void main() {
 
       // GDPR first, the tracking question last — the ATT-first order got apps
       // rejected under App Store Guideline 5.1.1(iv).
-      expect(events, ['consent-primer', 'form', 'att-primer']);
+      expect(events, ['form', 'att-primer']);
       expect(sdk.requestTrackingAuthorizationCalls, 1);
       expect(sdk.loadAndShowConsentFormCalls, 1);
       // The gate opened → the interstitial preloaded (enforceConsentGate

@@ -32,7 +32,7 @@ mapping (most apps change a handful of lines and delete their wrappers).
   once when no consent is stored yet or ads are disabled, and completes when
   the ad closes. The slot now preloads at startup. `AppOpenTriggerMode` /
   `triggerMode` → `AppOpenConfig.showOnResume` (default true).
-- **`package:ad_flow/ad_flow.dart` exports only what app code uses** — 71
+- **`package:ad_flow/ad_flow.dart` exports only what app code uses** — 68
   types (5.x: 105). Moved to `package:ad_flow/ad_flow_testing.dart`: `AdGate`,
   `FrequencyCapPolicy`, `StoredFrequencyCapPolicy`, `FullScreenAdCoordinator`,
   `RetryPolicy`, `InMemoryKeyValueStore`, `FullScreenAdControllerBase`,
@@ -81,6 +81,12 @@ for the handle, event and load-spec types.
 - `FullScreenAdControllerBase.onLoaded()` / `finalizeLoadedHandle()` /
   `currentHandle`.
 - `skipConsentPrimerIfAttDenied` (deprecated in 5.5.0).
+- **The consent primer** before the GDPR form: `consentExplainer`,
+  `consentExplainerContent`, `ConsentExplainerScreen`,
+  `ConsentExplainerContent`, `ConsentExplainerPresenter`. With ATT after the
+  GDPR flow (5.5.0), an EU user on iOS met four privacy screens in a row, and
+  an App Store reviewer read primer + prompts as asking twice; Google's message
+  already explains the choice. The ATT primer (`attExplainer`) stays.
 
 ## 5.5.0
 
