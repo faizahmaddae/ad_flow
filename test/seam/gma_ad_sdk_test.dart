@@ -723,22 +723,6 @@ void main() {
       expect(await future, isA<RewardedHandle>());
     });
 
-    test('runtime SSV update reaches the channel', () async {
-      final sdk = GmaAdSdk();
-      final future = sdk.loadRewarded('unit-r', const AdRequestOptions());
-      await pumpEventQueue();
-      await sendAdEvent(0, 'onAdLoaded');
-      final handle = await future;
-
-      await handle.updateServerSideVerification(
-        const ServerSideVerification(userId: 'late-user'),
-      );
-      expect(
-        log.map((c) => c.method),
-        contains('setServerSideVerificationOptions'),
-      );
-    });
-
     test(
       'rewarded interstitial: loads and dismisses through the channel',
       () async {

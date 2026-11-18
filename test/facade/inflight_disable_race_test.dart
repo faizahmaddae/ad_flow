@@ -39,6 +39,7 @@ void main() {
       'published as AdLoaded, and recovers on enableAds()', () async {
     final ads = await boot(
       const AdFlowConfig(
+        testMode: false,
         banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
       ),
     );
@@ -86,6 +87,7 @@ void main() {
       'published as AdLoaded, and recovers on enableAds()', () async {
     final ads = await boot(
       const AdFlowConfig(
+        testMode: false,
         nativeAd: NativeConfig(
           adUnitId: PlatformAdUnitId(android: 'n-a'),
           templateKind: NativeTemplateKind.small,

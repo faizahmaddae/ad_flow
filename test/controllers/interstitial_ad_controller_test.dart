@@ -14,6 +14,7 @@ import 'package:ad_flow/src/policy/retry_policy.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/show.dart';
 
 void main() {
   late FakeAdSdk sdk;
@@ -76,7 +77,7 @@ void main() {
       'show without a loaded ad returns false and warms a preload',
       () async {
         final c = controller();
-        expect(await c.show(), isFalse);
+        expect(await dispatch(c.show()), isFalse);
         await Future<void>.delayed(Duration.zero); // let the preload land
         expect(sdk.interstitials, hasLength(1)); // preload kicked off
         c.dispose();
@@ -93,7 +94,7 @@ void main() {
         await c.load();
         expect(c.isReady, isTrue);
 
-        final shown = await c.show();
+        final shown = await dispatch(c.show());
         await Future<void>.delayed(Duration.zero);
 
         expect(shown, isTrue);
@@ -117,9 +118,9 @@ void main() {
     test('never double-shows while an ad is on screen', () async {
       final c = controller();
       await c.load();
-      await c.show();
+      await dispatch(c.show());
 
-      expect(await c.show(), isFalse);
+      expect(await dispatch(c.show()), isFalse);
       expect(sdk.interstitials.single.showCalls, 1);
       c.dispose();
     });
@@ -128,23 +129,23 @@ void main() {
       final c = controller();
       await c.load();
       coordinator.enter(); // e.g. an app-open ad is showing
-      expect(await c.show(), isFalse);
+      expect(await dispatch(c.show()), isFalse);
       coordinator.exit();
-      expect(await c.show(), isTrue);
+      expect(await dispatch(c.show()), isTrue);
       c.dispose();
     });
 
     test('frequency cap blocks the next show until the gap elapses', () async {
       final c = controller();
       await c.load();
-      await c.show();
+      await dispatch(c.show());
       sdk.interstitials.single.simulateDismissed(); // reload starts
       await Future<void>.delayed(Duration.zero);
       expect(c.isReady, isTrue);
 
-      expect(await c.show(), isFalse); // 30s minGap not yet elapsed
+      expect(await dispatch(c.show()), isFalse); // 30s minGap not yet elapsed
       now = now.add(const Duration(seconds: 30));
-      expect(await c.show(), isTrue);
+      expect(await dispatch(c.show()), isTrue);
       c.dispose();
     });
 
@@ -152,7 +153,7 @@ void main() {
         'immediately (invariant 7)', () async {
       final c = controller();
       await c.load();
-      await c.show();
+      await dispatch(c.show());
       final first = sdk.interstitials.single;
 
       first.simulateDismissed();
@@ -174,10 +175,13 @@ void main() {
         'not ready',
       );
 
-      final shown = await c.show();
+      final result = await c.show();
       await Future<void>.delayed(Duration.zero);
 
-      expect(shown, isTrue); // dispatched; failure arrived via the event
+      // Dispatched, then the SDK reported AdFailedToShowEvent: the show's
+      // result is the failure (6.0).
+      expect(result.shown, isFalse);
+      expect(result.error?.kind, AdFlowErrorKind.showFailed);
       expect(coordinator.isFullScreenAdVisible, isFalse);
       expect(handle.disposed, isTrue);
       expect(sdk.interstitials, hasLength(2));
@@ -222,9 +226,11 @@ void main() {
         // checks, so joining a consent flow here would freeze EVERY
         // full-screen format behind it.
         hangSettle = true;
-        var shown = false;
-        unawaited(c.show().then((v) => shown = v));
+        // Pending = dispatched, waiting for the ad to close (6.0).
+        var shown = true;
+        unawaited(c.show().then((v) => shown = v.shown));
         async.flushMicrotasks();
+        expect(sdk.interstitials.single.showCalls, 1);
 
         expect(
           shown,
@@ -244,7 +250,7 @@ void main() {
     test('inactive until the first recordUserAction call', () async {
       final c = controller();
       await c.load();
-      expect(await c.show(), isTrue); // no tracking → caps only
+      expect(await dispatch(c.show()), isTrue); // no tracking → caps only
       c.dispose();
     });
 
@@ -265,19 +271,19 @@ void main() {
 
       await c.load();
       c.recordUserAction();
-      expect(await c.show(), isFalse); // 1 of 2 actions
+      expect(await dispatch(c.show()), isFalse); // 1 of 2 actions
 
       c.recordUserAction();
-      expect(await c.show(), isTrue);
+      expect(await dispatch(c.show()), isTrue);
       sdk.interstitials.first.simulateDismissed();
       await Future<void>.delayed(Duration.zero);
 
       // Counter reset on show: two fresh actions needed again.
       now = now.add(const Duration(minutes: 5));
-      expect(await c.show(), isFalse);
+      expect(await dispatch(c.show()), isFalse);
       c.recordUserAction();
       c.recordUserAction();
-      expect(await c.show(), isTrue);
+      expect(await dispatch(c.show()), isTrue);
       c.dispose();
     });
   });
@@ -403,7 +409,7 @@ void main() {
 
         final f1 = c.show();
         final f2 = c.show();
-        final results = await Future.wait([f1, f2]);
+        final results = await Future.wait([dispatch(f1), dispatch(f2)]);
 
         expect(results.where((r) => r).length, 1); // exactly one succeeded
         expect(sdk.interstitials.single.showCalls, 1);
@@ -421,7 +427,7 @@ void main() {
       first.showRejectsWith = Exception('ad already released');
 
       // Must not throw uncaught, must not return true, must roll back.
-      final shown = await c.show();
+      final shown = await dispatch(c.show());
       expect(shown, isFalse);
       expect(coordinator.isFullScreenAdVisible, isFalse);
 
@@ -430,7 +436,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       expect(sdk.interstitials, hasLength(2));
       expect(c.isReady, isTrue);
-      expect(await c.show(), isTrue);
+      expect(await dispatch(c.show()), isTrue);
 
       c.dispose();
     });
@@ -456,10 +462,10 @@ void main() {
       await appOpen.load();
       sdk.interstitials.single.showRejectsWith = Exception('rejected');
 
-      await c.show();
+      await dispatch(c.show());
       // Before the fix, the coordinator stays claimed forever, so every
       // OTHER full-screen controller is wedged too.
-      expect(await appOpen.show(), isTrue);
+      expect(await dispatch(appOpen.show()), isTrue);
 
       c.dispose();
       appOpen.dispose();

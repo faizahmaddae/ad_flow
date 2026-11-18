@@ -26,18 +26,6 @@ class FullScreenAdCoordinator {
   /// Whether a full-screen ad is currently showing.
   bool get isFullScreenAdVisible => _depth > 0;
 
-  /// Set by the app while a **blocking** banner or native ad occupies the
-  /// screen, so an app-open ad will not be stacked on top of it (ADR-042).
-  ///
-  /// AdMob objects to an app-open ad covering content that is itself already
-  /// showing an ad. ad_flow cannot know this on its own — whether a given
-  /// banner is "blocking" is a question about the app's own layout (a small
-  /// anchored banner under the content usually is not; a large interstitial-ish
-  /// native card filling the screen is). So the app declares it, via
-  /// `AdFlow.setBlockingViewAdVisible`. Defaults to false; placement remains
-  /// partly the integrator's responsibility.
-  bool blockingViewAdVisible = false;
-
   bool _viewAdOpened = false;
   DateTime? _viewAdClosedAt;
 

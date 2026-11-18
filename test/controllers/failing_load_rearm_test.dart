@@ -90,17 +90,13 @@ void main() {
     isEnabled: () => true,
   );
 
-  BannerAdController banner(RetryPolicy retry, {Duration? minRefresh}) =>
-      BannerAdController(
-        sdk: sdk,
-        gate: gate(),
-        config: BannerConfig(
-          adUnitId: const PlatformAdUnitId(android: 'unit-b'),
-          minRefresh: minRefresh,
-        ),
-        adUnitId: 'unit-b',
-        retry: retry,
-      );
+  BannerAdController banner(RetryPolicy retry) => BannerAdController(
+    sdk: sdk,
+    gate: gate(),
+    config: BannerConfig(adUnitId: const PlatformAdUnitId(android: 'unit-b')),
+    adUnitId: 'unit-b',
+    retry: retry,
+  );
 
   NativeAdController native(RetryPolicy retry) => NativeAdController(
     sdk: sdk,
@@ -247,31 +243,6 @@ void main() {
             loaded: () => sdk.loadLog.isNotEmpty,
           );
           expect(sdk.loadLog, hasLength(1));
-          c.dispose();
-        });
-      });
-
-      test('banner: a refresh that keeps failing re-arms at most once a '
-          'second, and the ad on screen stays', () {
-        fakeAsync((async) {
-          sdk.alwaysLoadError = null; // the first load fills
-          final c = banner(retry(), minRefresh: const Duration(seconds: 30));
-          c.load(width: 320);
-          async.flushMicrotasks();
-          expect(c.state.value, const AdLoaded());
-          final onScreen = c.handle;
-          sdk.alwaysLoadError = _noFill; // every refresh fails from now on
-
-          keepFailing(
-            async,
-            // The first refresh, 30 s after the load.
-            start: () => async.elapse(const Duration(seconds: 30)),
-            perTurn: perTurn,
-            state: c.state,
-            loaded: () => c.revision.value > 0, // a refresh swapped in
-          );
-          expect(sdk.loadLog, hasLength(2));
-          expect(c.handle, isNot(same(onScreen)));
           c.dispose();
         });
       });

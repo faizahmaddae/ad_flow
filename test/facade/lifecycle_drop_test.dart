@@ -19,6 +19,7 @@ void main() {
   late FakeAdSdk sdk;
 
   const config = AdFlowConfig(
+    testMode: false,
     banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
     interstitial: InterstitialConfig(
       adUnitId: PlatformAdUnitId(android: 'i-a'),
@@ -75,13 +76,13 @@ void main() {
     test('drops WARM full-screen inventory', () async {
       final ads = await boot();
       await pumpEventQueue(); // let the background preloads land
-      expect(ads.interstitial.isReady, isTrue);
+      expect(ads.interstitial!.isReady, isTrue);
       final warm = sdk.interstitials.single;
 
       ads.disableAds();
       await pumpEventQueue();
 
-      expect(ads.interstitial.isReady, isFalse);
+      expect(ads.interstitial!.isReady, isFalse);
       expect(warm.disposed, isTrue);
       ads.dispose();
     });
@@ -205,7 +206,7 @@ void main() {
         reason: 'an ad loaded under withdrawn consent must not stay mounted',
       );
       expect(liveBanner.disposed, isTrue);
-      expect(ads.interstitial.isReady, isFalse);
+      expect(ads.interstitial!.isReady, isFalse);
       expect(warmInterstitial.disposed, isTrue);
       banner.dispose();
       ads.dispose();

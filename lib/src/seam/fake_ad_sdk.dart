@@ -124,8 +124,7 @@ class FakeAdSdk implements AdSdk {
 
   /// Called with each newly-created full-screen handle, right after it is
   /// added to its list, before [loadRewarded] et al. return. Lets a test
-  /// configure the not-yet-visible handle — e.g. arm its [FakeFullScreenAdHandle.ssvUpdateHold]
-  /// to hold the runtime-SSV re-attach that finalizes a load in flight.
+  /// configure the not-yet-visible handle.
   void Function(FakeFullScreenAdHandle handle)? onFullScreenHandleCreated;
 
   /// If set, [requestConsentInfoUpdate] throws this.
@@ -474,15 +473,20 @@ class FakeFullScreenAdHandle
   /// If set, [show] throws this instead of completing normally — simulates
   /// the real plugin's `Ad.show()` Future *rejecting* (ad already
   /// released, channel error, mediation failure), which the documented
-  /// [AdSdk.show] contract says should never happen (failures are meant to
-  /// arrive via [AdFailedToShowEvent] on [contentEvents] instead) but a
-  /// real implementation can still violate. Controllers must be robust to
+  /// [FullScreenAdHandle.show] contract says should never happen (failures
+  /// are meant to arrive via [AdFailedToShowEvent] on [contentEvents]
+  /// instead) but a real implementation can still violate. Controllers must be robust to
   /// this regardless of what the contract promises.
   Object? showRejectsWith;
 
   /// Whether [show] automatically emits [AdShowedEvent] (default true). Turn
   /// off to drive the showed event manually.
   bool autoEmitShowed = true;
+
+  /// If set, [show] awaits this before doing anything else (after recording
+  /// the call) — leave it incomplete to simulate a platform show call that
+  /// never replies.
+  Completer<void>? showHold;
 
   /// Whether [simulateDismissed] has fired — the ad's lifecycle has ended,
   /// matching the real SDK's single-use ad instances.
@@ -494,26 +498,6 @@ class FakeFullScreenAdHandle
   @override
   AdResponseSummary? get response => responseSummary;
 
-  /// SSV payloads applied via [updateServerSideVerification], in order.
-  final List<ServerSideVerification> ssvUpdates = [];
-
-  /// If set, [updateServerSideVerification] throws this.
-  Object? ssvUpdateError;
-
-  /// If set, [updateServerSideVerification] awaits this before recording —
-  /// leave it incomplete to hold an attach in flight (e.g. to dispose the
-  /// controller mid-attach and prove no crash / no stale install).
-  Completer<void>? ssvUpdateHold;
-
-  @override
-  Future<void> updateServerSideVerification(ServerSideVerification ssv) async {
-    final hold = ssvUpdateHold;
-    if (hold != null) await hold.future;
-    final error = ssvUpdateError;
-    if (error != null) throw error;
-    ssvUpdates.add(ssv);
-  }
-
   @override
   Stream<FullScreenAdEvent> get contentEvents => _content.stream;
 
@@ -524,6 +508,8 @@ class FakeFullScreenAdHandle
   Future<void> show({OnUserEarnedReward? onUserEarnedReward}) async {
     showCalls++;
     lastOnUserEarnedReward = onUserEarnedReward;
+    final hold = showHold;
+    if (hold != null) await hold.future;
     final rejectsWith = showRejectsWith;
     if (rejectsWith != null) throw rejectsWith;
     if (showCalls > 1) {

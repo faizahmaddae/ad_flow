@@ -8,6 +8,7 @@ import '../controllers/banner_ad_controller.dart';
 import '../core/ad_block_reason.dart';
 import '../core/ad_load_state.dart';
 import '../facade/ad_flow.dart';
+import 'placement_mint.dart';
 
 /// Drop-in banner widget.
 ///
@@ -58,6 +59,11 @@ class AdFlowBanner extends StatefulWidget {
        );
 
   /// The facade to mint this placement's controller from (recommended path).
+  ///
+  /// Where the slot is not configured for the running platform (no banner
+  /// config, or no ad unit ID for this platform) the widget renders nothing,
+  /// like the nullable full-screen getters, and a debug build prints why —
+  /// shared layouts need no platform check (ADR-085).
   final AdFlow? adFlow;
 
   /// Per-placement override of the global banner config ([adFlow] mode).
@@ -72,8 +78,7 @@ class AdFlowBanner extends StatefulWidget {
 
   /// Height reserved before the ad loads.
   ///
-  /// When omitted, the default depends on the banner [kind]
-  /// (see [_AdFlowBannerState._placeholderHeight]):
+  /// When omitted, the default depends on the slot's [BannerConfig.kind]:
   /// - **fixed** — the slot's exact configured height (no shift when it loads);
   /// - **anchored adaptive** — the height an earlier banner of the same width
   ///   rendered at in this `AdFlow` (so a banner on a new screen does not grow
@@ -142,6 +147,10 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
   bool _loadRequested = false;
   int? _requestedWidth;
 
+  /// The widget-first slot is not configured for this platform: there is no
+  /// controller, and the widget renders nothing (ADR-085).
+  bool _unconfigured = false;
+
   @override
   void initState() {
     super.initState();
@@ -149,16 +158,22 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
   }
 
   void _adopt() {
-    final adFlow = widget.adFlow;
-    if (adFlow != null) {
-      _controller = adFlow.banner(widget.config);
-      _ownsController = true;
-    } else {
-      _controller = widget.controller!;
-      _ownsController = widget.ownsController;
-    }
     _loadRequested = false;
     _requestedWidth = null;
+    final adFlow = widget.adFlow;
+    if (adFlow == null) {
+      _controller = widget.controller!;
+      _ownsController = widget.ownsController;
+      _unconfigured = false;
+      return;
+    }
+    final minted = mintPlacement(
+      () => adFlow.banner(widget.config),
+      widgetName: 'AdFlowBanner',
+    );
+    _unconfigured = minted == null;
+    _ownsController = minted != null;
+    if (minted != null) _controller = minted;
   }
 
   @override
@@ -198,6 +213,8 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
 
   @override
   Widget build(BuildContext context) {
+    // No slot on this platform: no footprint at all, safe-area inset included.
+    if (_unconfigured) return const SizedBox.shrink();
     // In widget-first mode, listen to the facade's Remove-Ads notifier so the
     // banner collapses SYNCHRONOUSLY the instant disableAds() flips it — before
     // the asynchronous controller recheckGate() has run. In advanced
@@ -248,18 +265,11 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
           }
         }
         return ListenableBuilder(
-          // Both state and revision, not just `state`: a client-side refresh
-          // swap (ADR-041) goes AdLoaded → AdLoaded, which does not notify, so
-          // a widget listening only to `state` would keep rendering the old,
-          // disposed handle. Plus adsEnabled (widget-first mode) so Remove-Ads
+          // The state, plus adsEnabled (widget-first mode) so Remove-Ads
           // collapses the box on the same frame it is toggled.
           // Listenable.merge tolerates a null entry, so adsEnabled (absent in
           // advanced controller mode) is passed straight through.
-          listenable: Listenable.merge([
-            _controller.state,
-            _controller.revision,
-            adsEnabled,
-          ]),
+          listenable: Listenable.merge([_controller.state, adsEnabled]),
           builder: (context, _) {
             final state = _controller.state.value;
             // Remove-Ads must reclaim ALL layout space: a disabled banner has a
@@ -291,7 +301,7 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
       // listenable) changes.
       return ValueListenableBuilder(
         valueListenable: handle.dimensions,
-        // Keyed by HANDLE IDENTITY, so a refresh swap (ADR-041) unmounts the
+        // Keyed by HANDLE IDENTITY, so a new handle (a reload) unmounts the
         // old AdWidget element and mounts a fresh one. The plugin's AdWidget
         // has no didUpdateWidget: its platform view captures the ad id at
         // creation and the framework only recreates a platform view when its

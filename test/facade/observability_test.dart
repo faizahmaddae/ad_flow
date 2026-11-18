@@ -9,6 +9,7 @@ void main() {
   late FakeAdSdk sdk;
 
   const config = AdFlowConfig(
+    testMode: false,
     banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
     interstitial: InterstitialConfig(
       adUnitId: PlatformAdUnitId(android: 'i-a'),
@@ -83,7 +84,7 @@ void main() {
     );
     sdk.interstitials.single.responseSummary = summary;
 
-    expect(ads.interstitial.response, summary);
+    expect(ads.interstitial!.response, summary);
     ads.dispose();
   });
 }

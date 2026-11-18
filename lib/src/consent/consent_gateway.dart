@@ -63,8 +63,8 @@ class UmpConsentGateway implements ConsentGateway {
   /// the consent form itself has no timeout, because the user may
   /// legitimately keep it open for minutes.
   ///
-  /// The remaining parameters are the **opt-in** pre-consent / pre-ATT
-  /// priming ("explainer") flow. All are optional and additive.
+  /// The remaining parameters are the **opt-in** pre-ATT priming
+  /// ("explainer") flow. All are optional and additive.
   ///
   /// **Order (ADR-082): the GDPR flow always comes first, Apple's tracking
   /// question last.** App Review rejects an app whose user answers the
@@ -73,9 +73,6 @@ class UmpConsentGateway implements ConsentGateway {
   /// (ATT first) produced. GDPR-then-ATT is also UMP's own order when the IDFA
   /// message is configured in the AdMob console.
   ///
-  /// - [consentExplainer] — presents the app's consent primer before the UMP
-  ///   GDPR form, but **only when a form will actually appear** (non-EEA
-  ///   users never see it).
   /// - [attExplainer] — presents the app's ATT primer before Apple's system
   ///   tracking prompt (client-driven ATT, iOS): primer → [attPromptDelay] →
   ///   system prompt, run once this run's GDPR flow has settled. It is skipped
@@ -84,37 +81,28 @@ class UmpConsentGateway implements ConsentGateway {
   ///   for a later run when this run's GDPR flow failed (offline), so a
   ///   tracking question can never precede the consent form. When null, no ATT
   ///   call is made at all (UMP-driven / console-configured ATT, recommended).
-  /// - [consentExplainerContent] / [attExplainerContent] — the copy passed to
-  ///   the respective presenters (localize by overriding).
+  /// - [attExplainerContent] — the copy passed to the ATT presenter (localize
+  ///   by overriding).
+  ///
+  /// There is no primer before the GDPR form (6.0, ADR-086): the UMP message
+  /// explains the choice itself, and an extra screen in front of it reads as
+  /// asking twice.
   /// - [attPromptDelay] — brief pause between the ATT primer and the system
   ///   prompt (Apple's guidance; default 200 ms).
   /// - [readTcfConsent] — reads the device's TCF record; defaults to
   ///   [readDeviceTcfConsent]. Injectable for tests.
-  /// - [skipConsentPrimerIfAttDenied] — **no effect since 5.5.0.** It skipped
-  ///   the consent primer after an ATT denial; the tracking question now comes
-  ///   after the consent flow, so there is no earlier denial to react to.
   UmpConsentGateway(
     this._sdk, {
     bool? tagForUnderAgeOfConsent,
     Duration infoUpdateTimeout = const Duration(seconds: 30),
-    ConsentExplainerPresenter? consentExplainer,
     AttExplainerPresenter? attExplainer,
-    ConsentExplainerContent consentExplainerContent =
-        const ConsentExplainerContent(),
     AttExplainerContent attExplainerContent = const AttExplainerContent(),
     Duration attPromptDelay = const Duration(milliseconds: 200),
-    @Deprecated(
-      'No effect since 5.5.0: the tracking question now comes after the '
-      'GDPR flow (ADR-082). Remove the argument.',
-    )
-    bool skipConsentPrimerIfAttDenied = true,
     TcfConsentReader readTcfConsent = readDeviceTcfConsent,
     Future<void> Function()? waitBeforePresenting,
   }) : _tagForUnderAgeOfConsent = tagForUnderAgeOfConsent,
        _infoUpdateTimeout = infoUpdateTimeout,
-       _consentExplainer = consentExplainer,
        _attExplainer = attExplainer,
-       _consentExplainerContent = consentExplainerContent,
        _attExplainerContent = attExplainerContent,
        _attPromptDelay = attPromptDelay,
        _readTcfConsent = readTcfConsent,
@@ -123,7 +111,7 @@ class UmpConsentGateway implements ConsentGateway {
   /// Waits (bounded) for the app's first frame before presenting a primer.
   ///
   /// The consent flow starts in the background the moment `initialize()`
-  /// runs (ADR-032) — on a fast device the ATT/consent primer can be reached
+  /// runs (ADR-032) — on a fast device the ATT primer can be reached
   /// BEFORE the navigator has mounted, and the presenter's own
   /// `navigatorKey.currentContext == null` guard then silently drops the
   /// primer on the one launch where it matters most (2026-07 audit). Bounded
@@ -142,9 +130,7 @@ class UmpConsentGateway implements ConsentGateway {
   final AdSdk _sdk;
   final bool? _tagForUnderAgeOfConsent;
   final Duration _infoUpdateTimeout;
-  final ConsentExplainerPresenter? _consentExplainer;
   final AttExplainerPresenter? _attExplainer;
-  final ConsentExplainerContent _consentExplainerContent;
   final AttExplainerContent _attExplainerContent;
   final Duration _attPromptDelay;
   final TcfConsentReader _readTcfConsent;
@@ -193,9 +179,6 @@ class UmpConsentGateway implements ConsentGateway {
           )
           .timeout(_infoUpdateTimeout);
       await _refreshPrivacyRequirement();
-      // The OPTIONAL consent primer — only when a form will actually appear
-      // (non-EEA users never see a pointless dialog). It never gates the form.
-      await _maybeShowConsentPrimer();
       // The GDPR form itself. ALWAYS called: the plugin no-ops when no form is
       // required, and shows the REQUIRED form (EEA/UK/CH) otherwise. Nothing
       // may suppress it — ATT (Apple) and GDPR (EU) are independent regimes.
@@ -311,34 +294,6 @@ class UmpConsentGateway implements ConsentGateway {
   Future<bool> _refusedDeviceAccess() async {
     try {
       return (await _readTcfConsent())?.refusedDeviceAccess ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// Presents the consent primer when [_consentExplainer] is set and a GDPR
-  /// form will actually appear. A throwing presenter is caught and recorded;
-  /// the real form still follows.
-  Future<void> _maybeShowConsentPrimer() async {
-    final consentExplainer = _consentExplainer;
-    if (consentExplainer == null) return;
-    if (!await _willConsentFormShow()) return;
-    await _waitBeforePresenting();
-    try {
-      await consentExplainer(_consentExplainerContent);
-    } catch (e) {
-      _recordPresenterError(e);
-    }
-  }
-
-  /// Whether `loadAndShowConsentFormIfRequired` will actually display a form:
-  /// consent is required *and* a form is available. Best-effort — if the
-  /// status can't be read, returns false (skip the primer, not the form).
-  Future<bool> _willConsentFormShow() async {
-    try {
-      final status = await _sdk.getConsentStatus();
-      if (status != AdConsentStatus.required) return false;
-      return await _sdk.isConsentFormAvailable();
     } catch (_) {
       return false;
     }

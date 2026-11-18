@@ -10,7 +10,6 @@ import 'package:ad_flow/src/policy/retry_policy.dart';
 import 'package:ad_flow/src/seam/ad_sdk_types.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
 import 'package:ad_flow/src/widgets/ad_flow_banner.dart';
-import 'package:fake_async/fake_async.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -63,24 +62,6 @@ void main() {
     await c.load(width: 402);
     expect(requested(0), AnchoredBannerSize.classic);
     c.dispose();
-  });
-
-  test('a client-side refresh of a classic placement stays classic', () {
-    fakeAsync((async) {
-      final c = controller(
-        config: const BannerConfig(
-          adUnitId: PlatformAdUnitId(android: 'unit-b'),
-          anchoredSize: AnchoredBannerSize.classic,
-          minRefresh: Duration(seconds: 60),
-        ),
-      );
-      unawaited(c.load(width: 402));
-      async.flushMicrotasks();
-      async.elapse(const Duration(seconds: 61));
-      expect(sdk.bannerSpecs, hasLength(2), reason: 'the refresh ran');
-      expect(requested(1), AnchoredBannerSize.classic);
-      c.dispose();
-    });
   });
 
   test(
@@ -149,6 +130,7 @@ void main() {
       'size', (tester) async {
     final ads = await AdFlow.initialize(
       const AdFlowConfig(
+        testMode: false,
         banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
       ),
       sdk: sdk,

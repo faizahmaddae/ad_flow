@@ -32,13 +32,11 @@ class AdGate {
     required bool Function() isEnabled,
     Future<bool> Function()? settleRequestConfig,
     Future<void> Function()? settleConsent,
-    Future<bool> Function()? settleConsentForwarding,
     int Function()? consentGeneration,
   }) : _canRequestAds = canRequestAds,
        _isEnabled = isEnabled,
        _settleRequestConfig = settleRequestConfig,
        _settleConsent = settleConsent,
-       _settleConsentForwarding = settleConsentForwarding,
        _consentGeneration = consentGeneration;
 
   final Future<bool> Function() _canRequestAds;
@@ -67,19 +65,9 @@ class AdGate {
   /// A controller captures this right after its load passes the gate and
   /// compares it once the ad actually installs: if it advanced in between, a
   /// consent change landed WHILE the request was in flight, so the ad carries
-  /// a stale consent/forwarding state and must be dropped and re-requested
-  /// (release gate #2 — the mid-load window). 0 when consent tracking is not
-  /// wired (isolated controller tests).
+  /// a stale consent state and must be dropped and re-requested (the mid-load
+  /// window). 0 when consent tracking is not wired (isolated controller tests).
   int get consentGeneration => _consentGeneration?.call() ?? 0;
-
-  /// Joins (and if needed re-attempts) the bounded consent-forwarding barrier
-  /// — the app's `forwardConsent`. Answers whether a MEDIATION-CAPABLE load may
-  /// proceed: `false` blocks the load with [AdBlockReason.consentNotForwarded]
-  /// (the fail-closed default), so no partner request goes out before its
-  /// privacy signal is forwarded. Checked only AFTER consent is granted (a
-  /// declined user makes no request). Must be BOUNDED so the gate never parks a
-  /// load indefinitely. Null when the publisher did not supply `forwardConsent`.
-  final Future<bool> Function()? _settleConsentForwarding;
 
   /// Whether [slot] may load an ad now.
   Future<bool> canLoad(String slot) async =>
@@ -106,8 +94,9 @@ class AdGate {
       // here while the background init/config is still in flight; loading now
       // would send an untagged/untest-flagged first request (review-fix #5).
       // The settle callback JOINS the bounded apply attempt; when it answers
-      // false (the apply failed and the policy is fail-closed), the load is
-      // refused — visibly, with retries continuing in the background (4.0).
+      // false (init still running, or the apply failed and the config carries
+      // policy-critical fields), the load is refused — visibly, with retries
+      // continuing in the background (4.0).
       if (!(await _settleRequestConfig?.call() ?? true)) {
         return AdBlockReason.requestConfigNotApplied;
       }
@@ -131,29 +120,6 @@ class AdGate {
       await _settleConsent?.call();
       if (!_isEnabled()) return AdBlockReason.adsDisabled;
       if (!await _canRequestAds()) return AdBlockReason.consentNotGranted;
-      // Ads ARE permitted. Before the (mediation-capable) request goes out,
-      // make sure the app's per-network privacy signal has been forwarded —
-      // fail-CLOSED by default: a partner must not receive a request without
-      // its GDPR/US-state/age flag. Runs the forwarder once per consent
-      // generation, joined by concurrent loads, and re-attempts a failure on
-      // the controller's backoff (4.1 audit / release gate).
-      if (!(await _settleConsentForwarding?.call() ?? true)) {
-        return AdBlockReason.consentNotForwarded;
-      }
-      // Re-settle request configuration AFTER the forwarding barrier (5.2.0).
-      // For a `forwardConsent` adopter the Ads SDK's init only STARTS once
-      // forwarding succeeds — i.e. AFTER the first `_settleRequestConfig` above
-      // ran (with init not yet in flight, so a fail-open config let it pass).
-      // No request may go out while that real init future is in flight, so
-      // re-run the (bounded) config settle now that init may have been kicked:
-      // it blocks with `requestConfigNotApplied` until init completes and config
-      // applies, then the slot recovers on its backoff. For a non-adopter this
-      // is a cheap no-op (config was already applied / decided at the first
-      // check). It does NOT re-dispatch a duplicate config call — the settle
-      // joins the in-flight/applied state.
-      if (!(await _settleRequestConfig?.call() ?? true)) {
-        return AdBlockReason.requestConfigNotApplied;
-      }
       return null;
     } catch (error, stack) {
       _reportGateError(error, stack);

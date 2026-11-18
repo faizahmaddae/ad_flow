@@ -14,11 +14,13 @@ void main() {
   late FakeAdSdk sdk;
 
   const sensitiveConfig = AdFlowConfig(
+    testMode: false,
     banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
     tagForChildDirectedTreatment: true,
   );
 
   const vacuousConfig = AdFlowConfig(
+    testMode: false,
     banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
   );
 
@@ -36,106 +38,69 @@ void main() {
     platform: AdPlatform.android,
   );
 
-  group('auto policy', () {
-    test('child-directed + failing config apply → loads BLOCK visibly, then '
-        'recover on the slot\'s own backoff once the apply succeeds', () {
-      fakeAsync((async) {
+  group(
+    'request configuration gating (policy-critical fields fail closed)',
+    () {
+      test('child-directed + failing config apply → loads BLOCK visibly, then '
+          'recover on the slot\'s own backoff once the apply succeeds', () {
+        fakeAsync((async) {
+          sdk.updateRequestConfigurationError = const AdFlowError(
+            AdFlowErrorKind.unknown,
+            'config boom',
+          );
+          AdFlow? ads;
+          unawaited(boot(sensitiveConfig).then((f) => ads = f));
+          async.flushMicrotasks();
+
+          final banner = ads!.banner();
+          unawaited(banner.load(width: 320));
+          async.elapse(const Duration(seconds: 1));
+
+          expect(
+            sdk.bannerSpecs,
+            isEmpty,
+            reason:
+                'a child-directed app must never send an untagged ad request '
+                'because a config call failed — that is a COPPA violation, '
+                'not a degradation',
+          );
+          expect(banner.state.value, isA<AdBlocked>());
+          expect(banner.lastBlockReason, AdBlockReason.requestConfigNotApplied);
+
+          // The channel heals: the rate-limited retry re-applies, and the
+          // slot's own gate-recheck backoff picks it up — no app code needed.
+          sdk.updateRequestConfigurationError = null;
+          async.elapse(const Duration(minutes: 3));
+          async.flushMicrotasks();
+          expect(sdk.requestConfigs, isNotEmpty);
+          expect(sdk.bannerSpecs, isNotEmpty);
+          banner.dispose();
+          ads!.dispose();
+        });
+      });
+
+      test('vacuous config + failing apply → loads proceed (nothing of policy '
+          'value was lost)', () async {
         sdk.updateRequestConfigurationError = const AdFlowError(
           AdFlowErrorKind.unknown,
           'config boom',
         );
-        AdFlow? ads;
-        unawaited(boot(sensitiveConfig).then((f) => ads = f));
-        async.flushMicrotasks();
-
-        final banner = ads!.banner();
-        unawaited(banner.load(width: 320));
-        async.elapse(const Duration(seconds: 1));
-
-        expect(
-          sdk.bannerSpecs,
-          isEmpty,
-          reason:
-              'a child-directed app must never send an untagged ad request '
-              'because a config call failed — that is a COPPA violation, '
-              'not a degradation',
-        );
-        expect(banner.state.value, isA<AdBlocked>());
-        expect(banner.lastBlockReason, AdBlockReason.requestConfigNotApplied);
-
-        // The channel heals: the rate-limited retry re-applies, and the
-        // slot's own gate-recheck backoff picks it up — no app code needed.
-        sdk.updateRequestConfigurationError = null;
-        async.elapse(const Duration(minutes: 3));
-        async.flushMicrotasks();
-        expect(sdk.requestConfigs, isNotEmpty);
-        expect(sdk.bannerSpecs, isNotEmpty);
+        final ads = await boot(vacuousConfig);
+        final banner = ads.banner();
+        await banner.load(width: 320);
+        expect(sdk.bannerSpecs, hasLength(1));
         banner.dispose();
-        ads!.dispose();
+        ads.dispose();
       });
-    });
-
-    test('vacuous config + failing apply → loads proceed (nothing of policy '
-        'value was lost)', () async {
-      sdk.updateRequestConfigurationError = const AdFlowError(
-        AdFlowErrorKind.unknown,
-        'config boom',
-      );
-      final ads = await boot(vacuousConfig);
-      final banner = ads.banner();
-      await banner.load(width: 320);
-      expect(sdk.bannerSpecs, hasLength(1));
-      banner.dispose();
-      ads.dispose();
-    });
-  });
-
-  group('explicit policies', () {
-    test('failOpen: even a child-directed config failure lets loads proceed '
-        '(the publisher explicitly chose revenue over the tag)', () async {
-      sdk.updateRequestConfigurationError = const AdFlowError(
-        AdFlowErrorKind.unknown,
-        'config boom',
-      );
-      final ads = await boot(
-        const AdFlowConfig(
-          banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
-          tagForChildDirectedTreatment: true,
-          requestConfigPolicy: RequestConfigFailurePolicy.failOpen,
-        ),
-      );
-      final banner = ads.banner();
-      await banner.load(width: 320);
-      expect(sdk.bannerSpecs, hasLength(1));
-      banner.dispose();
-      ads.dispose();
-    });
-
-    test('failClosed: a vacuous config failure still blocks loads', () async {
-      sdk.updateRequestConfigurationError = const AdFlowError(
-        AdFlowErrorKind.unknown,
-        'config boom',
-      );
-      final ads = await boot(
-        const AdFlowConfig(
-          banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
-          requestConfigPolicy: RequestConfigFailurePolicy.failClosed,
-        ),
-      );
-      final banner = ads.banner();
-      await banner.load(width: 320);
-      expect(sdk.bannerSpecs, isEmpty);
-      expect(banner.lastBlockReason, AdBlockReason.requestConfigNotApplied);
-      banner.dispose();
-      ads.dispose();
-    });
-  });
+    },
+  );
 
   group('mediation integration surfaces (4.0)', () {
     test('per-slot AdRequestOptions reach every format\'s request', () async {
       const request = AdRequestOptions(keywords: ['games']);
       final ads = await AdFlow.initialize(
         const AdFlowConfig(
+          testMode: false,
           banner: BannerConfig(
             adUnitId: PlatformAdUnitId(android: 'b-a'),
             request: request,
@@ -181,6 +146,7 @@ void main() {
 
       final ads = await AdFlow.initialize(
         const AdFlowConfig(
+          testMode: false,
           banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
         ),
         sdk: sdk,

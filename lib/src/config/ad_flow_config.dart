@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../core/ad_flow_error.dart';
 import '../seam/ad_sdk_types.dart';
 import 'ad_platform.dart';
@@ -162,65 +164,6 @@ class RewardIntroContent {
   final String skipLabel;
 }
 
-/// What happens to ad loading when the SDK request configuration
-/// (`updateRequestConfiguration`: test devices, COPPA/under-age tags, max
-/// content rating) could not be applied — it failed, timed out, or SDK init
-/// never completed (4.0 audit).
-///
-/// Never blocks app UI either way: this only decides whether ad REQUESTS may
-/// go out unconfigured. The apply is retried in the background regardless,
-/// and blocked slots recover the moment it succeeds.
-enum RequestConfigFailurePolicy {
-  /// Fail-closed exactly when it matters (the default): loads wait for the
-  /// configuration iff it carries policy-critical fields
-  /// ([AdFlowConfig.requestConfigIsPolicySensitive] — child-directed /
-  /// under-age tags, a content rating, or test device IDs). A config with
-  /// none of those set loses nothing by loading without it, so it fails
-  /// open.
-  auto,
-
-  /// Always load even if the configuration was never applied. Only sensible
-  /// when every field is best-effort for you — a child-directed app must
-  /// NOT choose this.
-  failOpen,
-
-  /// Never load until the configuration has been applied, even when it
-  /// carries no policy-critical fields.
-  failClosed,
-}
-
-/// What happens to **mediation-capable** ad serving when the consent
-/// forwarding barrier ([AdFlow.initialize]'s `forwardConsent`) could not be
-/// completed — the forwarder failed or timed out (release gate).
-///
-/// This only takes effect when the publisher has OPTED IN by supplying
-/// `forwardConsent`. It never blocks app UI — only whether an ad REQUEST
-/// (which any configured mediation adapter may fill) goes out, and whether
-/// the Google Mobile Ads SDK is INITIALIZED, before the required per-network
-/// privacy signal is in place. (Mediation adapters read their privacy flags
-/// while the GMA SDK initializes — verified against Google's Android/iOS
-/// docs — so ad_flow runs `forwardConsent` BEFORE `MobileAds.initialize()`.)
-enum MediationConsentFailurePolicy {
-  /// The default. Do NOT let mediation adapters initialize or a
-  /// mediation-capable ad request go out before consent has been forwarded:
-  /// `forwardConsent` runs before the GMA SDK is initialized, and if it fails
-  /// the SDK is not initialized and loads are blocked
-  /// ([AdBlockReason.consentNotForwarded]) while the forwarder is retried in
-  /// the background — everything recovers the moment forwarding succeeds.
-  /// Quietly initializing adapters or requesting anyway is the exact policy
-  /// risk this exists to prevent.
-  failClosed,
-
-  /// **Revenue-first and unmistakably unsafe.** Initialize the GMA SDK and
-  /// serve ads even if consent was never forwarded. A partner SDK may then
-  /// initialize (and be requested) without its required GDPR / US-state / age
-  /// signal. Only choose this if every mediation network you use reads the IAB
-  /// TCF/GPP strings itself (so `forwardConsent` is a belt-and-suspenders
-  /// convenience, not a requirement). The `unsafe` prefix is deliberate — it
-  /// makes this impossible to select by accident or reach for without noticing.
-  unsafeFailOpen,
-}
-
 /// How a banner slot is sized.
 enum BannerKind {
   /// Anchored adaptive (the recommended, revenue-optimized default).
@@ -243,7 +186,6 @@ class BannerConfig {
     this.fixedSize = FixedBannerSize.banner,
     this.maxInlineHeight,
     this.collapsible,
-    this.minRefresh,
     this.request = const AdRequestOptions(),
   });
 
@@ -280,25 +222,6 @@ class BannerConfig {
   /// only; auto-refresh does not re-request collapsible ads).
   final CollapsiblePlacement? collapsible;
 
-  /// Opt-in **client-side** refresh interval. **Null (the default) means no
-  /// client-side refresh at all** — no timer runs (ADR-041).
-  ///
-  /// Leave this null unless you know you need it. AdMob already refreshes
-  /// banner ad units **server-side**, configured per ad unit in the AdMob
-  /// console and **on by default**. A client-side timer on top of that is a
-  /// second, unsynchronised refresh loop for the same placement: up to 2x the
-  /// ad requests, for no extra revenue. Configure the refresh rate in the
-  /// console instead.
-  ///
-  /// Set it only when the console refresh is deliberately off and you want the
-  /// client to drive it. Values below 30s are clamped by the banner controller
-  /// (Duration comparisons are not allowed in const asserts, so this cannot be
-  /// a constructor assert); AdMob's own guidance is 60s or more.
-  ///
-  /// When set, a refresh never blanks the slot: the current ad keeps rendering
-  /// until its replacement has actually loaded (ADR-041).
-  final Duration? minRefresh;
-
   // Value equality (3.0): the widget-first ad widgets compare configs in
   // didUpdateWidget to decide whether to re-mint their controller — identity
   // comparison would re-mint (and re-request an ad!) on every rebuild that
@@ -313,7 +236,6 @@ class BannerConfig {
       other.fixedSize == fixedSize &&
       other.maxInlineHeight == maxInlineHeight &&
       other.collapsible == collapsible &&
-      other.minRefresh == minRefresh &&
       other.request == request;
 
   @override
@@ -324,7 +246,6 @@ class BannerConfig {
     fixedSize,
     maxInlineHeight,
     collapsible,
-    minRefresh,
     request,
   );
 }
@@ -514,31 +435,6 @@ class NativeConfig {
   );
 }
 
-/// When an app-open ad may be shown (5.1).
-///
-/// App-open ads legitimately serve two distinct product moments — a cold
-/// process launch and a genuine background→foreground return. Pick the one (or
-/// both) your app actually uses. A cold launch is NEVER faked from a lifecycle
-/// event (`AppStateEventNotifier` does not emit one); it is an explicit,
-/// one-shot opportunity you take from your loading screen via
-/// [AppOpenAdManager.showAtLaunchIfReady].
-enum AppOpenTriggerMode {
-  /// Show only at a real cold process launch — call
-  /// [AppOpenAdManager.showAtLaunchIfReady] from your loading screen, before
-  /// entering main content. A genuine warm return does NOT auto-show. An ad is
-  /// still preloaded so one can be ready for the launch moment.
-  launchOnly,
-
-  /// Show only on a genuine background→foreground return (the v5 default and
-  /// behaviour). The launch path ([AppOpenAdManager.showAtLaunchIfReady]) is a
-  /// no-op in this mode.
-  resumeOnly,
-
-  /// Show at cold launch (via [AppOpenAdManager.showAtLaunchIfReady]) AND on
-  /// foreground returns — without a startup duplicate.
-  launchAndResume,
-}
-
 /// Configuration for the app open slot.
 class AppOpenConfig {
   /// Creates app open configuration.
@@ -547,7 +443,7 @@ class AppOpenConfig {
     this.cap = const FrequencyCap(minGap: Duration(minutes: 4)),
     this.expiry = const Duration(hours: 4),
     this.request = const AdRequestOptions(),
-    this.triggerMode = AppOpenTriggerMode.resumeOnly,
+    this.showOnResume = true,
   });
 
   /// Per-platform app open ad unit IDs.
@@ -563,17 +459,21 @@ class AppOpenConfig {
   /// (Google mandates 4 hours).
   final Duration expiry;
 
-  /// Which moment(s) an app-open ad may appear. Defaults to
-  /// [AppOpenTriggerMode.resumeOnly] — the v5 behaviour.
-  final AppOpenTriggerMode triggerMode;
+  /// Whether an app-open ad is shown when the user comes back to the app
+  /// (a genuine background→foreground return). On by default.
+  ///
+  /// The cold-launch moment is separate and opt-in: call
+  /// `AppOpenAdManager.showAtLaunch()` from your loading screen. With this off
+  /// and [AppOpenAdManager.showAtLaunch] called, the slot is launch-only.
+  final bool showOnResume;
 }
 
 // 3.0: `showOnColdStart` (deprecated + ignored since 2.1.0/ADR-043) is
 // REMOVED. It never could show an ad on a cold launch — no foreground event
 // exists for one — and the first warm return shows by default.
 
-/// Google's official sample ad unit IDs (safe to click; used by
-/// [AdFlowConfig.test] and whenever [AdFlowConfig.testMode] is on).
+/// Google's official sample ad unit IDs (safe to click; served whenever
+/// [AdFlowConfig.usesTestAds] is true).
 abstract final class TestAdUnitIds {
   /// Sample banner IDs — the ADAPTIVE units, matching the default
   /// [BannerKind.anchoredAdaptive]. Prefer [forBannerKind] over reading this
@@ -658,13 +558,11 @@ class AdFlowConfig {
       minGap: Duration(seconds: 15),
     ),
     this.retry = const RetryConfig(),
-    this.testMode = false,
+    this.testMode,
     this.testDeviceIds = const [],
     this.maxAdContentRating,
     this.tagForUnderAgeOfConsent,
     this.tagForChildDirectedTreatment,
-    this.requestConfigPolicy = RequestConfigFailurePolicy.auto,
-    this.mediationConsentPolicy = MediationConsentFailurePolicy.failClosed,
   });
 
   /// Validates the configuration, throwing an
@@ -680,21 +578,8 @@ class AdFlowConfig {
       if (!ok) throw AdFlowError(AdFlowErrorKind.invalidConfig, message);
     }
 
-    void checkUnitId(PlatformAdUnitId id, String slot) {
-      check(
-        id.android != null || id.ios != null,
-        '$slot.adUnitId has no platform IDs — configure android and/or ios, '
-        'or leave the slot null.',
-      );
-      check(
-        id.android == null || id.android!.trim().isNotEmpty,
-        '$slot.adUnitId.android is an empty string.',
-      );
-      check(
-        id.ios == null || id.ios!.trim().isNotEmpty,
-        '$slot.adUnitId.ios is an empty string.',
-      );
-    }
+    void checkUnitId(PlatformAdUnitId id, String slot) =>
+        _checkAdUnitId(id, slot, testMode: testMode);
 
     void checkCap(FrequencyCap cap, String name) {
       check(cap.minGap >= Duration.zero, '$name.minGap is negative.');
@@ -717,15 +602,7 @@ class AdFlowConfig {
 
     final banner = this.banner;
     if (banner != null) {
-      checkUnitId(banner.adUnitId, 'banner');
-      check(
-        banner.maxInlineHeight == null || banner.maxInlineHeight! > 0,
-        'banner.maxInlineHeight must be positive.',
-      );
-      check(
-        banner.minRefresh == null || banner.minRefresh! > Duration.zero,
-        'banner.minRefresh must be positive (or null to disable).',
-      );
+      validateBannerConfig(banner, name: 'banner', testMode: testMode);
     }
     final interstitial = this.interstitial;
     if (interstitial != null) {
@@ -751,12 +628,7 @@ class AdFlowConfig {
     }
     final nativeAd = this.nativeAd;
     if (nativeAd != null) {
-      checkUnitId(nativeAd.adUnitId, 'nativeAd');
-      check(
-        (nativeAd.templateKind != null) ^ (nativeAd.factoryId != null),
-        'nativeAd must set exactly one of templateKind or factoryId.',
-      );
-      checkAge(nativeAd.maxAdAge, 'nativeAd.maxAdAge');
+      validateNativeConfig(nativeAd, name: 'nativeAd', testMode: testMode);
     }
     final appOpen = this.appOpen;
     if (appOpen != null) {
@@ -786,36 +658,6 @@ class AdFlowConfig {
     }
   }
 
-  /// A configuration that serves Google's official test ads for every
-  /// format. Use during development; never ship it.
-  factory AdFlowConfig.test({
-    FrequencyCap? globalFrequencyCap,
-    RetryConfig? retry,
-    AppOpenTriggerMode appOpenTriggerMode = AppOpenTriggerMode.resumeOnly,
-  }) => AdFlowConfig(
-    banner: const BannerConfig(adUnitId: TestAdUnitIds.banner),
-    interstitial: const InterstitialConfig(
-      adUnitId: TestAdUnitIds.interstitial,
-    ),
-    rewarded: const RewardedConfig(adUnitId: TestAdUnitIds.rewarded),
-    rewardedInterstitial: const RewardedInterstitialConfig(
-      adUnitId: TestAdUnitIds.rewardedInterstitial,
-    ),
-    nativeAd: const NativeConfig(
-      adUnitId: TestAdUnitIds.native,
-      templateKind: NativeTemplateKind.medium,
-    ),
-    appOpen: AppOpenConfig(
-      adUnitId: TestAdUnitIds.appOpen,
-      triggerMode: appOpenTriggerMode,
-    ),
-    globalFrequencyCap:
-        globalFrequencyCap ??
-        const FrequencyCap(maxPerSession: 100, minGap: Duration(seconds: 15)),
-    retry: retry ?? const RetryConfig(),
-    testMode: true,
-  );
-
   /// Banner slot config, or null to disable banners.
   final BannerConfig? banner;
 
@@ -840,10 +682,25 @@ class AdFlowConfig {
   /// Load-retry tuning shared by all slots.
   final RetryConfig retry;
 
-  /// When true, every slot serves Google's sample test IDs regardless of
-  /// the configured IDs. **Explicit flag — never derived from resolved IDs**
-  /// (v1's derivation produced false positives, ADR-012).
-  final bool testMode;
+  /// Whether every slot serves Google's sample test ads instead of the
+  /// configured IDs.
+  ///
+  /// **Null (the default) = automatic (6.0): test ads in debug builds, your
+  /// IDs in release and profile builds.** A debug run that requests live ads
+  /// puts impressions — and the developer's own clicks — on real inventory,
+  /// which AdMob treats as invalid traffic. `true` forces test ads; `false`
+  /// forces your IDs (to check them from a debug build, register the device
+  /// in [testDeviceIds] so it receives test ads with them).
+  ///
+  /// Test ads stand in only on a platform the slot has an ID for, so debug
+  /// and release builds agree on which slots exist. With `testMode: true` a
+  /// slot may leave its IDs out entirely (`PlatformAdUnitId()`): it then
+  /// serves the sample unit on every platform.
+  final bool? testMode;
+
+  /// Whether this configuration serves Google's sample test ads: [testMode],
+  /// or — when that is null — whether this is a debug build.
+  bool get usesTestAds => testMode ?? kDebugMode;
 
   /// Devices that always receive test ads (with real IDs).
   final List<String> testDeviceIds;
@@ -857,23 +714,10 @@ class AdFlowConfig {
   /// COPPA tag; null = unspecified.
   final bool? tagForChildDirectedTreatment;
 
-  /// What happens to ad loading when the request configuration could not be
-  /// applied — see [RequestConfigFailurePolicy]. Default: [RequestConfigFailurePolicy.auto].
-  final RequestConfigFailurePolicy requestConfigPolicy;
-
-  /// What happens to mediation-capable serving when consent forwarding
-  /// (`forwardConsent`) could not be completed — see
-  /// [MediationConsentFailurePolicy]. Default:
-  /// [MediationConsentFailurePolicy.failClosed] (do not initialize the GMA SDK
-  /// or serve a mediation request without the forwarded privacy signal;
-  /// retry). Only takes effect when the publisher supplies `forwardConsent`;
-  /// non-adopters are unaffected.
-  final MediationConsentFailurePolicy mediationConsentPolicy;
-
   /// Whether this configuration carries fields whose silent loss is a policy
   /// or invalid-traffic risk: child-directed / under-age tags, a maximum
-  /// content rating, or registered test devices. Drives
-  /// [RequestConfigFailurePolicy.auto].
+  /// content rating, or registered test devices. When it does, no ad is
+  /// requested until the request configuration has been applied.
   bool get requestConfigIsPolicySensitive =>
       tagForChildDirectedTreatment != null ||
       tagForUnderAgeOfConsent != null ||
@@ -881,9 +725,9 @@ class AdFlowConfig {
       testDeviceIds.isNotEmpty;
 
   /// The banner ad unit ID to actually request for [platform]
-  /// (the test ID when [testMode] is on), or null if the slot is off.
+  /// (the test ID when [usesTestAds]), or null if the slot is off.
   ///
-  /// [kind] selects the matching sample unit while [testMode] is on — Google
+  /// [kind] selects the matching sample unit while [usesTestAds] — Google
   /// publishes a different one per banner format, and asking the fixed-size
   /// unit for an adaptive slot yields a creative that cannot fill it. Defaults
   /// to this config's own banner kind; pass the per-placement kind when a
@@ -920,16 +764,8 @@ class AdFlowConfig {
   String? appOpenAdUnitId(AdPlatform platform) =>
       _effective(appOpen?.adUnitId, TestAdUnitIds.appOpen, platform);
 
-  /// The request configuration to push to the SDK at initialization.
-  AdRequestConfig toRequestConfig() => AdRequestConfig(
-    testDeviceIds: testDeviceIds.isEmpty ? null : testDeviceIds,
-    maxAdContentRating: maxAdContentRating,
-    tagForChildDirectedTreatment: tagForChildDirectedTreatment,
-    tagForUnderAgeOfConsent: tagForUnderAgeOfConsent,
-  );
-
   /// Test-mode substitution: a configured slot resolves to the sample ID
-  /// while [testMode] is on. An unconfigured slot stays null — it never
+  /// while [usesTestAds]. An unconfigured slot stays null — it never
   /// loads, so it must not resolve to anything (v1 bug, ADR-012).
   String? _effective(
     PlatformAdUnitId? configured,
@@ -937,6 +773,108 @@ class AdFlowConfig {
     AdPlatform platform,
   ) {
     if (configured == null) return null;
-    return (testMode ? testIds : configured).resolve(platform);
+    return resolveAdUnitId(
+      configured: configured,
+      testIds: testIds,
+      platform: platform,
+      testAds: usesTestAds,
+      allowPlaceholder: testMode == true,
+    );
   }
 }
+
+/// The ad unit ID a slot requests on [platform]: its own, or — with [testAds]
+/// — the matching sample unit from [testIds].
+///
+/// A sample unit stands in only where the slot exists in a release build too
+/// (it has an ID for [platform]), so a slot configured for one platform does
+/// not appear on the other in debug only. An ID-less slot
+/// (`PlatformAdUnitId()`) is a test placeholder for every platform only when
+/// [allowPlaceholder] is set — an explicit `testMode: true`; with the
+/// automatic default it resolves to nothing in debug as in release.
+/// Internal: not exported.
+String? resolveAdUnitId({
+  required PlatformAdUnitId configured,
+  required PlatformAdUnitId testIds,
+  required AdPlatform platform,
+  required bool testAds,
+  required bool allowPlaceholder,
+}) {
+  final own = configured.resolve(platform);
+  if (!testAds) return own;
+  final placeholder =
+      allowPlaceholder && configured.android == null && configured.ios == null;
+  return own != null || placeholder ? testIds.resolve(platform) : null;
+}
+
+/// Checks a banner slot config: the global one in [AdFlowConfig.validate],
+/// a per-placement one in `AdFlow.banner()` (6.0 — the same rules, so a
+/// per-placement config cannot behave differently in debug and release).
+/// Throws [AdFlowError] (`invalidConfig`). Internal: not exported.
+void validateBannerConfig(
+  BannerConfig banner, {
+  required String name,
+  required bool? testMode,
+}) {
+  _checkAdUnitId(banner.adUnitId, name, testMode: testMode);
+  _require(
+    banner.maxInlineHeight == null || banner.maxInlineHeight! > 0,
+    '$name.maxInlineHeight must be positive.',
+  );
+}
+
+/// Checks a native slot config — see [validateBannerConfig].
+/// Internal: not exported.
+void validateNativeConfig(
+  NativeConfig nativeAd, {
+  required String name,
+  required bool? testMode,
+}) {
+  _checkAdUnitId(nativeAd.adUnitId, name, testMode: testMode);
+  _require(
+    (nativeAd.templateKind != null) ^ (nativeAd.factoryId != null),
+    '$name must set exactly one of templateKind or factoryId.',
+  );
+  final age = nativeAd.maxAdAge;
+  _require(
+    age == null || age > Duration.zero,
+    '$name.maxAdAge must be positive.',
+  );
+}
+
+/// Only an EXPLICIT `testMode: true` may leave IDs out. With the automatic
+/// default a missing ID must fail in debug too — not first in a release
+/// build, where initialize() rejecting would cost every ad (6.0).
+void _checkAdUnitId(
+  PlatformAdUnitId id,
+  String slot, {
+  required bool? testMode,
+}) {
+  if (testMode == true) return;
+  _require(
+    id.android != null || id.ios != null,
+    '$slot.adUnitId has no platform IDs — configure android and/or ios, '
+    'or leave the slot null.',
+  );
+  _require(
+    id.android == null || id.android!.trim().isNotEmpty,
+    '$slot.adUnitId.android is an empty string.',
+  );
+  _require(
+    id.ios == null || id.ios!.trim().isNotEmpty,
+    '$slot.adUnitId.ios is an empty string.',
+  );
+}
+
+void _require(bool ok, String message) {
+  if (!ok) throw AdFlowError(AdFlowErrorKind.invalidConfig, message);
+}
+
+/// The request configuration [config] pushes to the SDK at initialization
+/// (internal: hidden from the public barrel, like [resolveAdUnitId]).
+AdRequestConfig requestConfigFrom(AdFlowConfig config) => AdRequestConfig(
+  testDeviceIds: config.testDeviceIds.isEmpty ? null : config.testDeviceIds,
+  maxAdContentRating: config.maxAdContentRating,
+  tagForChildDirectedTreatment: config.tagForChildDirectedTreatment,
+  tagForUnderAgeOfConsent: config.tagForUnderAgeOfConsent,
+);

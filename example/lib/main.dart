@@ -16,11 +16,10 @@ import 'package:flutter/material.dart';
 //     configure the IDFA message in the AdMob console — the iOS ATT prompt
 //     too, after the GDPR message. No client-side priming screens.
 //
-//   • WITH EXPLAINER (useExplainer = true): the same, PLUS opt-in priming
-//     screens — your own consent primer before the UMP GDPR form (EEA) and
-//     your own ATT primer before Apple's system prompt (client-driven ATT,
-//     iOS). The order is fixed: the GDPR flow first, the tracking question
-//     last (App Store Guideline 5.1.1(iv)).
+//   • WITH EXPLAINER (useExplainer = true): the same, PLUS your own ATT
+//     primer before Apple's system prompt (client-driven ATT, iOS). The order
+//     is fixed: the GDPR flow first, the tracking question last (App Store
+//     Guideline 5.1.1(iv)).
 //
 // BOTH modes are NON-BLOCKING: AdFlow.initialize() builds the graph
 // and returns immediately; consent, ATT and SDK init all run in the BACKGROUND.
@@ -65,10 +64,24 @@ Future<void> main() async {
   runApp(ExampleApp(ads: ads));
 }
 
-/// SIMPLE mode's app-open config is `resumeOnly` (the default). This example
-/// opts into `launchAndResume` so it can also demonstrate the cold-launch
-/// opportunity below. Both helpers request it via `AdFlowConfig.test`.
-const _appOpenTriggerMode = AppOpenTriggerMode.launchAndResume;
+/// Every format, with Google's sample ad units standing in for your own.
+///
+/// Put your real `ca-app-pub-…/…` IDs here. Test ads need no switch: while
+/// `testMode` is left out, debug builds serve Google's test ads automatically
+/// and release builds serve the IDs below.
+const _config = AdFlowConfig(
+  banner: BannerConfig(adUnitId: TestAdUnitIds.banner),
+  interstitial: InterstitialConfig(adUnitId: TestAdUnitIds.interstitial),
+  rewarded: RewardedConfig(adUnitId: TestAdUnitIds.rewarded),
+  rewardedInterstitial: RewardedInterstitialConfig(
+    adUnitId: TestAdUnitIds.rewardedInterstitial,
+  ),
+  nativeAd: NativeConfig(
+    adUnitId: TestAdUnitIds.native,
+    templateKind: NativeTemplateKind.medium,
+  ),
+  appOpen: AppOpenConfig(adUnitId: TestAdUnitIds.appOpen),
+);
 
 /// SIMPLE mode — the minimal drop-in. UMP drives the whole consent flow (and
 /// iOS ATT if you set the console IDFA message); no client-side priming.
@@ -79,19 +92,14 @@ const _appOpenTriggerMode = AppOpenTriggerMode.launchAndResume;
 /// the presenter too.
 Future<AdFlow> _initSimple() {
   return AdFlow.initialize(
-    // Google sample ads everywhere. Replace with your production config:
-    //   AdFlowConfig(banner: BannerConfig(adUnitId: PlatformAdUnitId(...)), ...)
-    AdFlowConfig.test(appOpenTriggerMode: _appOpenTriggerMode),
+    _config,
     rewardedIntroPresenter: RewardedIntroScreen.presenter(navigatorKey),
   );
 }
 
-/// WITH-EXPLAINER mode — everything in [_initSimple], PLUS opt-in priming
-/// screens, shown on the navigatorKey by the ready-made presenters.
+/// WITH-EXPLAINER mode — everything in [_initSimple], PLUS an opt-in ATT
+/// primer, shown on the navigatorKey by the ready-made presenter.
 ///
-/// - `consentExplainer` shows your consent primer before the UMP GDPR form, and
-///   only when a form will actually appear (EEA users only — non-EEA users
-///   never see it).
 /// - `attExplainer` shows your ATT primer, then (after a 200 ms delay) Apple's
 ///   system tracking prompt — client-driven ATT (iOS; a no-op elsewhere),
 ///   always AFTER the GDPR flow, and not at all for a user who just refused it.
@@ -99,10 +107,9 @@ Future<AdFlow> _initSimple() {
 ///   console.
 Future<AdFlow> _initWithExplainer() {
   return AdFlow.initialize(
-    AdFlowConfig.test(appOpenTriggerMode: _appOpenTriggerMode),
+    _config,
     rewardedIntroPresenter: RewardedIntroScreen.presenter(navigatorKey),
     attExplainer: AttExplainerScreen.presenter(navigatorKey),
-    consentExplainer: ConsentExplainerScreen.presenter(navigatorKey),
   );
 }
 
@@ -131,11 +138,9 @@ class ExampleApp extends StatelessWidget {
 ///
 /// It renders its own UI immediately (never a blank/blocked first frame), does
 /// the app's genuine startup work, then — right before entering main content —
-/// calls [AppOpenAdManager.showAtLaunchIfReady]. That call NEVER waits for a
-/// load: if an ad is not already warm at this instant (the usual case at a true
-/// cold launch, since consent + the first load have not finished yet) it
-/// returns false immediately and we proceed. So this screen exists to do work,
-/// not to wait for an ad.
+/// calls [AppOpenAdManager.showAtLaunch]. That call waits a few seconds at most
+/// for the app-open ad to load (never on a first launch, before consent), shows
+/// it, and completes when the user closes it; then we enter the app.
 class StartupScreen extends StatefulWidget {
   const StartupScreen({required this.ads, super.key});
 
@@ -161,9 +166,9 @@ class _StartupScreenState extends State<StartupScreen> {
     if (!mounted) return;
 
     // Immediately before entering main content: take the cold-launch
-    // opportunity. Shows an already-ready ad (and awaits its dismissal); if
-    // none is ready it returns false at once. One-shot per process launch.
-    await widget.ads.appOpenOrNull?.showAtLaunchIfReady();
+    // opportunity. Waits up to 3 s for the ad, shows it and completes when it
+    // closes — or at once when there is none. One-shot per process launch.
+    await widget.ads.appOpen?.showAtLaunch();
     if (!mounted) return;
 
     Navigator.of(context).pushReplacement(
@@ -211,8 +216,26 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// `show()` completes when the ad has CLOSED (or at once when nothing was
+  /// shown) — this is where a game would start its next level.
+  void _report(String format, AdShowResult result) {
+    if (!mounted) return;
+    final text = result.shown
+        ? '$format closed — back in the app'
+        : result.blockReason != null
+        ? '$format not shown: ${result.blockReason!.name}'
+        : '$format failed: ${result.error?.message}';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
   @override
   Widget build(BuildContext context) {
+    // A slot is null when it is not configured for this platform; this
+    // example configures all of them, but `?.` / null checks are the habit.
+    final interstitial = ads.interstitial;
+    final rewarded = ads.rewarded;
+    final rewardedInterstitial = ads.rewardedInterstitial;
+    final appOpen = ads.appOpen;
     return Scaffold(
       appBar: AppBar(
         title: const Text('ad_flow example'),
@@ -228,39 +251,52 @@ class _HomeScreenState extends State<HomeScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _StateTile(
-            title: 'Interstitial',
-            subtitle: 'Natural breaks only; caps + action pacing apply.',
-            state: ads.interstitial.state,
-            onPressed: () {
-              // Tell the pacer a natural break happened, then try to show.
-              ads.interstitial.recordUserAction();
-              ads.interstitial.show();
-            },
-            buttonLabel: 'Show interstitial',
-          ),
-          _StateTile(
-            title: 'Rewarded',
-            subtitle: 'User-initiated; grants coins via onReward.',
-            state: ads.rewarded.state,
-            onPressed: () => ads.rewarded.show(onReward: _grantReward),
-            buttonLabel: 'Watch ad, earn coins',
-          ),
-          _StateTile(
-            title: 'Rewarded interstitial',
-            subtitle: 'Always shows the intro + skip screen first (policy).',
-            state: ads.rewardedInterstitial.state,
-            onPressed: () =>
-                ads.rewardedInterstitial.show(onReward: _grantReward),
-            buttonLabel: 'Show rewarded interstitial',
-          ),
-          _StateTile(
-            title: 'App open',
-            subtitle:
-                'launchAndResume: shows on the first warm return, and at cold '
-                'launch via the startup screen when an ad is already ready.',
-            state: ads.appOpenController.state,
-          ),
+          if (interstitial != null)
+            _StateTile(
+              title: 'Interstitial',
+              subtitle:
+                  'Natural breaks only: from the 2nd tap (action pacing), '
+                  'at most every 30 s.',
+              state: interstitial.state,
+              onPressed: () async {
+                // Tell the pacer a natural break happened, then try to show.
+                // `interstitial.canShow` answers "would it show now?" first,
+                // if your game wants to decide whether to pause for it.
+                interstitial.recordUserAction();
+                _report('Interstitial', await interstitial.show());
+              },
+              buttonLabel: 'Show interstitial',
+            ),
+          if (rewarded != null)
+            _StateTile(
+              title: 'Rewarded',
+              subtitle: 'User-initiated; grants coins via onReward.',
+              state: rewarded.state,
+              onPressed: () async => _report(
+                'Rewarded ad',
+                await rewarded.show(onReward: _grantReward),
+              ),
+              buttonLabel: 'Watch ad, earn coins',
+            ),
+          if (rewardedInterstitial != null)
+            _StateTile(
+              title: 'Rewarded interstitial',
+              subtitle: 'Always shows the intro + skip screen first (policy).',
+              state: rewardedInterstitial.state,
+              onPressed: () async => _report(
+                'Rewarded interstitial',
+                await rewardedInterstitial.show(onReward: _grantReward),
+              ),
+              buttonLabel: 'Show rewarded interstitial',
+            ),
+          if (appOpen != null)
+            _StateTile(
+              title: 'App open',
+              subtitle:
+                  'Shows on a warm return, and at cold launch from the '
+                  'startup screen (waits up to 3 s for the ad).',
+              state: appOpen.controller.state,
+            ),
           // Remove-Ads hides the WHOLE decorated Card — title, padding and
           // border — not just the ad inside it: AdFlowNativeAd collapses to
           // zero, but a parent decoration around it would stay visible (an

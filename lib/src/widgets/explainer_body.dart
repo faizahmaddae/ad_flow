@@ -5,19 +5,19 @@
 import 'package:flutter/material.dart';
 
 /// Shared layout for ad_flow's package-supplied full-screen screens (the
-/// rewarded-interstitial intro and the two consent/ATT primers).
+/// rewarded-interstitial intro and the ATT primer).
 ///
 /// Centres [children] when they fit, and SCROLLS them when they do not.
 ///
-/// This is not cosmetic. All three screens put their dismiss control last: the
-/// rewarded intro's mandatory **skip** option, and the primers' only way out.
+/// This is not cosmetic. Both screens put their dismiss control last: the
+/// rewarded intro's mandatory **skip** option, and the primer's only way out.
 /// A plain centred `Column` overflows on a small device at a large
 /// accessibility text scale (measured: 128 logical px of overflow for the
-/// intro, 704 for the ATT primer and 1536 for the consent primer at 320x568 /
-/// 200% scale with the package's own default copy), which pushes exactly those
-/// controls off-screen where they are also not hit-testable. For the rewarded
-/// intro that turns an AdMob-mandated opt-out into an unreachable one; for the
-/// primers it is an un-escapable dead end in front of the GDPR form.
+/// intro and 704 for the ATT primer at 320x568 / 200% scale with the
+/// package's own default copy), which pushes exactly those controls
+/// off-screen where they are also not hit-testable. For the rewarded intro
+/// that turns an AdMob-mandated opt-out into an unreachable one; for the
+/// primer it is an un-escapable dead end in front of Apple's prompt.
 ///
 /// Localized copy is routinely longer than English, so this is reachable well
 /// below 200% scale for many of the maintainer's users.

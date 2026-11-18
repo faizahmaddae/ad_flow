@@ -18,6 +18,9 @@ import 'package:flutter_test/flutter_test.dart';
 /// A cap policy whose `canShow` can be HELD by a completer, to open the
 /// check-to-dispatch window in `showEngine`.
 class _HoldableCaps implements FrequencyCapPolicy {
+  @override
+  bool allowsNow(String slot) => true;
+
   Completer<void>? canShowHold;
 
   @override
@@ -132,7 +135,7 @@ void main() {
 
     // Release the cap check; the show reaches the dispatch boundary.
     caps.canShowHold!.complete();
-    final shown = await showFuture;
+    final shown = (await showFuture).shown;
 
     expect(shown, isFalse, reason: 'a revoked ad must not be dispatched');
     expect(
@@ -168,7 +171,7 @@ void main() {
     generation = 1; // a consent mutation landed while we were awaiting the cap
 
     caps.canShowHold!.complete();
-    final shown = await showFuture;
+    final shown = (await showFuture).shown;
 
     expect(shown, isFalse);
     expect(
@@ -201,7 +204,7 @@ void main() {
     clock = clock.add(const Duration(hours: 2)); // age past maxAdAge mid-show
 
     caps.canShowHold!.complete();
-    final shown = await showFuture;
+    final shown = (await showFuture).shown;
 
     expect(shown, isFalse);
     expect(handle.showCalls, 0, reason: 'an expired ad must not be dispatched');
@@ -226,7 +229,7 @@ void main() {
     Future<void> expectOneCleanReload(
       FullScreenAdControllerBase controller,
       List<FakeFullScreenAdHandle> handles, {
-      required Future<bool> Function() show,
+      required Future<Object?> Function() show,
       required Completer<void> window,
       required void Function() makeStale,
       required bool holdReload,

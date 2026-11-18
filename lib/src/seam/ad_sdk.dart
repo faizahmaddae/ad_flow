@@ -38,33 +38,20 @@ abstract interface class FullScreenAdHandle {
 abstract interface class InterstitialHandle implements FullScreenAdHandle {}
 
 /// A loaded rewarded ad.
-abstract interface class RewardedHandle implements FullScreenAdHandle {
-  /// Applies (or replaces) server-side verification options on this
-  /// already-loaded ad — call any time before `show()`.
-  ///
-  /// Real apps set the SSV `userId` after login and per-show `customData`
-  /// (which mission/level earned the reward), long after the ad preloaded
-  /// (2026-07 audit). Throws an `AdFlowError` on failure — a caller granting
-  /// high-value rewards must know its verification payload did not attach.
-  Future<void> updateServerSideVerification(ServerSideVerification ssv);
-}
+abstract interface class RewardedHandle implements FullScreenAdHandle {}
 
 /// A loaded rewarded interstitial ad.
 ///
 /// Policy: callers must present an intro screen with clear reward messaging
 /// and a skip option *before* showing this ad.
 abstract interface class RewardedInterstitialHandle
-    implements FullScreenAdHandle {
-  /// Applies (or replaces) server-side verification options on this
-  /// already-loaded ad — see [RewardedHandle.updateServerSideVerification].
-  Future<void> updateServerSideVerification(ServerSideVerification ssv);
-}
+    implements FullScreenAdHandle {}
 
 /// A loaded app open ad.
 ///
-/// Policy: shown on a warm return by default (`resumeOnly`), with opt-in
-/// `launchOnly` / `launchAndResume` trigger modes — see
-/// `AppOpenConfig.triggerMode` and `AppOpenAdManager`. A loaded ad expires 4
+/// Policy: shown on a warm return by default (`AppOpenConfig.showOnResume`),
+/// and at cold launch only when the app asks (`AppOpenAdManager.showAtLaunch`).
+/// A loaded ad expires 4
 /// hours after load — the owner tracks load time and discards stale handles.
 abstract interface class AppOpenHandle implements FullScreenAdHandle {}
 

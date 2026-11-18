@@ -268,54 +268,6 @@ void main() {
     });
   });
 
-  group('refresh', () {
-    test('disposes the old handle and reloads after minRefresh, reusing '
-        'the width', () {
-      fakeAsync((async) {
-        final c = controller(
-          config: const BannerConfig(
-            adUnitId: PlatformAdUnitId(android: 'unit-b'),
-            minRefresh: Duration(seconds: 60),
-          ),
-        );
-        c.load(width: 360);
-        async.flushMicrotasks();
-        final first = sdk.banners.single;
-
-        async.elapse(const Duration(seconds: 60));
-        expect(first.disposed, isTrue);
-        expect(sdk.banners, hasLength(2));
-        expect(c.state.value, const AdLoaded());
-        expect(
-          sdk.bannerSpecs.last.size,
-          isA<AnchoredAdaptiveSizeSpec>().having((s) => s.width, 'width', 360),
-        );
-
-        c.dispose();
-      });
-    });
-
-    test('minRefresh below the 30s floor is clamped', () {
-      fakeAsync((async) {
-        final c = controller(
-          config: const BannerConfig(
-            adUnitId: PlatformAdUnitId(android: 'unit-b'),
-            minRefresh: Duration(seconds: 1),
-          ),
-        );
-        c.load(width: 320);
-        async.flushMicrotasks();
-
-        async.elapse(const Duration(seconds: 29));
-        expect(sdk.banners, hasLength(1));
-        async.elapse(const Duration(seconds: 1));
-        expect(sdk.banners, hasLength(2));
-
-        c.dispose();
-      });
-    });
-  });
-
   group('gate-blocked recovery', () {
     test('a load blocked by a closed gate re-checks and recovers once the '
         'gate reopens (does not die forever)', () {
@@ -323,7 +275,6 @@ void main() {
         final c = controller(
           config: const BannerConfig(
             adUnitId: PlatformAdUnitId(android: 'unit-b'),
-            minRefresh: Duration(seconds: 60),
           ),
           retryConfig: const RetryConfig(cooldown: Duration(minutes: 5)),
         );
@@ -331,9 +282,11 @@ void main() {
         async.flushMicrotasks();
         expect(c.state.value, const AdLoaded());
 
-        // User buys Remove-Ads right as the refresh timer fires.
+        // User buys Remove-Ads: AdFlow.disableAds() re-checks every live
+        // controller's gate.
         enabled = false;
-        async.elapse(const Duration(seconds: 60));
+        unawaited(c.recheckGate());
+        async.flushMicrotasks();
         expect(sdk.banners.single.disposed, isTrue);
         expect(c.state.value, const AdBlocked(AdBlockReason.adsDisabled));
 

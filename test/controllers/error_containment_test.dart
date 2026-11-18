@@ -20,11 +20,15 @@ import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/show.dart';
 
 /// A cap policy whose store/clock machinery blows up with a NON-[AdFlowError]
 /// — exactly what a corrupt `shared_preferences` backend (PlatformException)
 /// does on a real device.
 class _ThrowingCaps implements FrequencyCapPolicy {
+  @override
+  bool allowsNow(String slot) => true;
+
   bool throwOnCanShow = false;
   bool throwOnRecord = false;
 
@@ -82,6 +86,9 @@ class _ExitThrowsOnceCoordinator extends FullScreenAdCoordinator {
 
 /// A cap policy whose answer the test sets.
 class _SwitchCaps implements FrequencyCapPolicy {
+  @override
+  bool allowsNow(String slot) => true;
+
   bool allow = true;
 
   @override
@@ -138,7 +145,7 @@ void main() {
         expect(controller.state.value, isA<AdLoaded>());
 
         caps.throwOnCanShow = true;
-        final shown = await controller.show();
+        final shown = await dispatch(controller.show());
 
         expect(shown, isFalse);
         expect(
@@ -160,7 +167,7 @@ void main() {
       expect(controller.state.value, isA<AdLoaded>());
 
       boom = true;
-      final shown = await controller.show();
+      final shown = await dispatch(controller.show());
 
       expect(shown, isFalse);
       expect(coordinator.isFullScreenAdVisible, isFalse);
@@ -171,10 +178,10 @@ void main() {
       final controller = build();
       await controller.load();
       caps.throwOnCanShow = true;
-      await controller.show();
+      await dispatch(controller.show());
 
       caps.throwOnCanShow = false;
-      final shown = await controller.show();
+      final shown = await dispatch(controller.show());
       expect(
         shown,
         isTrue,
@@ -254,7 +261,11 @@ void main() {
       AdBlockReason reason,
     ) async {
       coordinator.throwOnNextExit = true;
-      expect(await controller.show(), isFalse, reason: 'a refusal, no throw');
+      expect(
+        await dispatch(controller.show()),
+        isFalse,
+        reason: 'a refusal, no throw',
+      );
       expect(coordinator.exitCalls, 2, reason: 'the catch retries it once');
       expect(coordinator.isFullScreenAdVisible, isFalse);
       expect(
@@ -311,13 +322,13 @@ void main() {
       final controller = await warmInterstitial();
       caps.allow = false;
       coordinator.throwOnNextExit = true;
-      expect(await controller.show(), isFalse);
+      expect(await dispatch(controller.show()), isFalse);
 
       // The first exit() released the claim, the retry found nothing left to
       // release: the next ad holds the claim while on screen, and its dismiss
       // frees it.
       caps.allow = true;
-      expect(await controller.show(), isTrue);
+      expect(await dispatch(controller.show()), isTrue);
       expect(coordinator.isFullScreenAdVisible, isTrue);
       sdk.interstitials.single.simulateDismissed();
       expect(coordinator.isFullScreenAdVisible, isFalse);
@@ -620,7 +631,7 @@ void main() {
 
       // And show()'s notReady path (also a noteBlocked call site):
       enabled = true;
-      final shown = await controller.show();
+      final shown = await dispatch(controller.show());
       expect(shown, isFalse);
       controller.dispose();
     });

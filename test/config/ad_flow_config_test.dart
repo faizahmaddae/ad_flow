@@ -45,6 +45,7 @@ void main() {
 
   group('ad unit resolution', () {
     const config = AdFlowConfig(
+      testMode: false,
       banner: BannerConfig(
         adUnitId: PlatformAdUnitId(android: 'prod-banner-a'),
       ),
@@ -86,7 +87,9 @@ void main() {
         config.bannerAdUnitId(AdPlatform.android),
         TestAdUnitIds.banner.android,
       );
-      expect(config.bannerAdUnitId(AdPlatform.ios), TestAdUnitIds.banner.ios);
+      // No iOS ID configured: no iOS slot in release, so none in test mode
+      // either (6.0 — debug and release agree on which slots exist).
+      expect(config.bannerAdUnitId(AdPlatform.ios), isNull);
     });
 
     // ADR-073 / issue #15: Google publishes a different sample banner unit per
@@ -183,47 +186,126 @@ void main() {
     test('production IDs containing the test publisher do not flip the '
         'flag — testMode is storage, not inference', () {
       final config = AdFlowConfig(
+        testMode: false,
         banner: BannerConfig(adUnitId: TestAdUnitIds.banner),
       );
       expect(config.testMode, isFalse);
     });
 
-    test('AdFlowConfig.test enables every format with sample IDs', () {
-      final config = AdFlowConfig.test();
-      expect(config.testMode, isTrue);
-      // The ADAPTIVE sample unit — AdFlowConfig.test's banner uses the default
-      // anchoredAdaptive kind, and the fixed-size unit only serves fixed IAB
-      // creatives that cannot fill an adaptive slot (ADR-073 / issue #15).
+    test('test ads are AUTOMATIC by default — on in a debug build (tests run '
+        'in debug) — standing in for the configured IDs (6.0)', () {
+      const config = AdFlowConfig(
+        interstitial: InterstitialConfig(
+          adUnitId: PlatformAdUnitId(
+            android: 'ca-app-pub-1/1',
+            ios: 'ca-app-pub-1/2',
+          ),
+        ),
+        banner: BannerConfig(
+          adUnitId: PlatformAdUnitId(android: 'ca-app-pub-1/3'),
+        ),
+      );
+      expect(config.testMode, isNull);
+      expect(config.usesTestAds, isTrue);
+      config.validate();
+      expect(
+        config.interstitialAdUnitId(AdPlatform.ios),
+        TestAdUnitIds.interstitial.ios,
+      );
+      // The ADAPTIVE sample unit for the default anchored kind (ADR-073).
       expect(
         config.bannerAdUnitId(AdPlatform.android),
         'ca-app-pub-3940256099942544/9214589741',
       );
-      expect(
-        config.interstitialAdUnitId(AdPlatform.ios),
-        'ca-app-pub-3940256099942544/4411468910',
+    });
+
+    test('a test ad stands in only on a platform the slot has an ID for — '
+        'debug and release agree on which slots exist', () {
+      const banner = BannerConfig(
+        adUnitId: PlatformAdUnitId(android: 'ca-app-pub-1/3'),
       );
+      const debug = AdFlowConfig(banner: banner);
+      const release = AdFlowConfig(testMode: false, banner: banner);
+      expect(debug.bannerAdUnitId(AdPlatform.ios), isNull);
+      expect(release.bannerAdUnitId(AdPlatform.ios), isNull);
+      expect(debug.bannerAdUnitId(AdPlatform.android), isNotNull);
+    });
+
+    test('an ID-less slot needs an EXPLICIT testMode: true — with the '
+        'automatic default it fails in debug, not first in release', () {
+      const auto = AdFlowConfig(
+        interstitial: InterstitialConfig(adUnitId: PlatformAdUnitId()),
+      );
+      expect(auto.validate, throwsA(isA<AdFlowError>()));
+
+      const explicit = AdFlowConfig(
+        testMode: true,
+        interstitial: InterstitialConfig(adUnitId: PlatformAdUnitId()),
+      );
+      explicit.validate();
+      expect(
+        explicit.interstitialAdUnitId(AdPlatform.ios),
+        TestAdUnitIds.interstitial.ios,
+      );
+      expect(
+        explicit.interstitialAdUnitId(AdPlatform.android),
+        TestAdUnitIds.interstitial.android,
+      );
+    });
+
+    test('an ID-less slot is a test placeholder only with an explicit '
+        'testMode: true, never under the automatic default', () {
+      const idLess = PlatformAdUnitId();
+      final automatic = resolveAdUnitId(
+        configured: idLess,
+        testIds: TestAdUnitIds.banner,
+        platform: AdPlatform.ios,
+        testAds: true, // a debug build under the automatic default
+        allowPlaceholder: false,
+      );
+      expect(automatic, isNull, reason: 'release resolves nothing either');
+      final explicit = resolveAdUnitId(
+        configured: idLess,
+        testIds: TestAdUnitIds.banner,
+        platform: AdPlatform.ios,
+        testAds: true,
+        allowPlaceholder: true,
+      );
+      expect(explicit, TestAdUnitIds.banner.ios);
+      // The automatic default's slot accessor follows the same rule.
+      const auto = AdFlowConfig(
+        interstitial: InterstitialConfig(adUnitId: PlatformAdUnitId()),
+      );
+      expect(auto.interstitialAdUnitId(AdPlatform.ios), isNull);
+    });
+
+    test('testMode: false uses your IDs — and validates them', () {
+      const config = AdFlowConfig(
+        testMode: false,
+        interstitial: InterstitialConfig(adUnitId: PlatformAdUnitId()),
+      );
+      expect(config.usesTestAds, isFalse);
+      expect(config.validate, throwsA(isA<AdFlowError>()));
+    });
+
+    test('testMode: true forces test ads whatever the build', () {
+      const config = AdFlowConfig(
+        testMode: true,
+        rewarded: RewardedConfig(
+          adUnitId: PlatformAdUnitId(android: 'ca-app-pub-1/2'),
+        ),
+      );
+      expect(config.usesTestAds, isTrue);
       expect(
         config.rewardedAdUnitId(AdPlatform.android),
-        'ca-app-pub-3940256099942544/5224354917',
-      );
-      expect(
-        config.rewardedInterstitialAdUnitId(AdPlatform.android),
-        'ca-app-pub-3940256099942544/5354046379',
-      );
-      expect(
-        config.nativeAdUnitId(AdPlatform.ios),
-        'ca-app-pub-3940256099942544/3986624511',
-      );
-      expect(
-        config.appOpenAdUnitId(AdPlatform.android),
-        'ca-app-pub-3940256099942544/9257395921',
+        TestAdUnitIds.rewarded.android,
       );
     });
   });
 
   group('defaults and validation', () {
     test('global defaults follow policy-safe values', () {
-      const config = AdFlowConfig();
+      const config = AdFlowConfig(testMode: false);
       expect(config.globalFrequencyCap.maxPerSession, 100);
       expect(config.globalFrequencyCap.minGap, const Duration(seconds: 15));
       expect(config.retry.maxAttempts, 3);
@@ -237,7 +319,6 @@ void main() {
       expect(banner.kind, BannerKind.anchoredAdaptive);
       // The client-side refresh is OFF by default (ADR-041): AdMob already
       // auto-refreshes banner ad units server-side, from the console.
-      expect(banner.minRefresh, isNull);
 
       const interstitial = InterstitialConfig(
         adUnitId: PlatformAdUnitId(android: 'a'),
@@ -298,14 +379,15 @@ void main() {
       expect(base == differentAge, isFalse);
     });
 
-    test('toRequestConfig maps config to seam AdRequestConfig', () {
+    test('requestConfigFrom maps config to seam AdRequestConfig', () {
       const config = AdFlowConfig(
+        testMode: false,
         testDeviceIds: ['dev-1'],
         maxAdContentRating: MaxContentRating.t,
         tagForChildDirectedTreatment: false,
         tagForUnderAgeOfConsent: true,
       );
-      final rc = config.toRequestConfig();
+      final rc = requestConfigFrom(config);
       expect(rc.testDeviceIds, ['dev-1']);
       expect(rc.maxAdContentRating, MaxContentRating.t);
       expect(rc.tagForChildDirectedTreatment, isFalse);
@@ -313,7 +395,10 @@ void main() {
     });
 
     test('empty testDeviceIds maps to null (leave SDK default untouched)', () {
-      expect(const AdFlowConfig().toRequestConfig().testDeviceIds, isNull);
+      expect(
+        requestConfigFrom(const AdFlowConfig(testMode: false)).testDeviceIds,
+        isNull,
+      );
     });
   });
 
@@ -328,15 +413,20 @@ void main() {
         ),
       );
 
-      test('a healthy config (and the test config) validates clean', () {
-        const AdFlowConfig().validate();
-        AdFlowConfig.test().validate();
+      test('a healthy config validates clean', () {
+        const AdFlowConfig(testMode: false).validate();
+        const AdFlowConfig(
+          testMode: true,
+          banner: BannerConfig(adUnitId: PlatformAdUnitId()),
+          appOpen: AppOpenConfig(adUnitId: PlatformAdUnitId()),
+        ).validate();
       });
 
       test('an EMPTY ad unit string is rejected (it would silently no-fill '
           'forever in production)', () {
         expect(
           () => const AdFlowConfig(
+            testMode: false,
             banner: BannerConfig(adUnitId: PlatformAdUnitId(android: '')),
           ).validate(),
           throwsInvalidConfig,
@@ -346,6 +436,7 @@ void main() {
       test('a slot with NO platform IDs at all is rejected', () {
         expect(
           () => const AdFlowConfig(
+            testMode: false,
             interstitial: InterstitialConfig(adUnitId: PlatformAdUnitId()),
           ).validate(),
           throwsInvalidConfig,
@@ -355,12 +446,14 @@ void main() {
       test('negative durations are rejected', () {
         expect(
           () => const AdFlowConfig(
+            testMode: false,
             globalFrequencyCap: FrequencyCap(minGap: Duration(seconds: -1)),
           ).validate(),
           throwsInvalidConfig,
         );
         expect(
           () => const AdFlowConfig(
+            testMode: false,
             rewarded: RewardedConfig(
               adUnitId: PlatformAdUnitId(android: 'r'),
               maxAdAge: Duration.zero,
@@ -370,6 +463,7 @@ void main() {
         );
         expect(
           () => const AdFlowConfig(
+            testMode: false,
             nativeAd: NativeConfig(
               adUnitId: PlatformAdUnitId(android: 'n'),
               templateKind: NativeTemplateKind.small,
@@ -380,6 +474,7 @@ void main() {
         );
         expect(
           () => const AdFlowConfig(
+            testMode: false,
             retry: RetryConfig(baseDelay: Duration.zero),
           ).validate(),
           throwsInvalidConfig,
@@ -389,6 +484,7 @@ void main() {
       test('a non-positive maxInlineHeight is rejected', () {
         expect(
           () => const AdFlowConfig(
+            testMode: false,
             banner: BannerConfig(
               adUnitId: PlatformAdUnitId(android: 'b'),
               kind: BannerKind.inlineAdaptive,

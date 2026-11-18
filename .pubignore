@@ -8,6 +8,9 @@ coverage/
 # Build artifacts
 build/
 
+# Generated API docs (`dart doc`)
+doc/api/
+
 # GitHub workflows
 .github/
 

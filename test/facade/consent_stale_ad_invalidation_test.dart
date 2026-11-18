@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:ad_flow/ad_flow.dart';
 import 'package:ad_flow/ad_flow_testing.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/show.dart';
 
 /// After a consent / privacy-options mutation, an ad ALREADY loaded under the
 /// previous consent is privacy-stale: showing/rendering it makes no new ad
@@ -32,16 +33,17 @@ void main() {
       'DROPPED and reloaded after a privacy-options change', () async {
     final ads = await boot(
       const AdFlowConfig(
+        testMode: false,
         interstitial: InterstitialConfig(
           adUnitId: PlatformAdUnitId(android: 'i-a'),
         ),
       ),
     );
     await ads.whenReady;
-    await ads.interstitial.load();
+    await ads.interstitial!.load();
     await pumpEventQueue();
     final stale = sdk.interstitials.single;
-    expect(ads.interstitial.state.value, isA<AdLoaded>());
+    expect(ads.interstitial!.state.value, isA<AdLoaded>());
 
     // The user changes consent in the privacy-options form.
     await ads.consent.showPrivacyOptions();
@@ -66,18 +68,19 @@ void main() {
       'impression already fired', () async {
     final ads = await boot(
       const AdFlowConfig(
+        testMode: false,
         interstitial: InterstitialConfig(
           adUnitId: PlatformAdUnitId(android: 'i-a'),
         ),
       ),
     );
     await ads.whenReady;
-    await ads.interstitial.load();
+    await ads.interstitial!.load();
     await pumpEventQueue();
     final showing = sdk.interstitials.single;
-    await ads.interstitial.show();
+    await dispatch(ads.interstitial!.show());
     showing.simulateShowed();
-    expect(ads.interstitial.state.value, isA<AdShowing>());
+    expect(ads.interstitial!.state.value, isA<AdShowing>());
 
     await ads.consent.showPrivacyOptions();
     await pumpEventQueue();
@@ -87,7 +90,7 @@ void main() {
       isFalse,
       reason: 'an ad on screen must not be torn out from under the user',
     );
-    expect(ads.interstitial.state.value, isA<AdShowing>());
+    expect(ads.interstitial!.state.value, isA<AdShowing>());
     ads.dispose();
   });
 
@@ -95,6 +98,7 @@ void main() {
       'after a consent change', () async {
     final ads = await boot(
       const AdFlowConfig(
+        testMode: false,
         banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
       ),
     );
@@ -124,6 +128,7 @@ void main() {
       're-requested after a consent change', () async {
     final ads = await boot(
       const AdFlowConfig(
+        testMode: false,
         nativeAd: NativeConfig(
           adUnitId: PlatformAdUnitId(android: 'n-a'),
           templateKind: NativeTemplateKind.small,

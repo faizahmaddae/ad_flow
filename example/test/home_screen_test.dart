@@ -25,11 +25,24 @@ void main() {
 
   Future<AdFlow> initAds() async {
     final ads = await AdFlow.initialize(
-      AdFlowConfig.test(),
+      const AdFlowConfig(
+        testMode: true,
+        banner: BannerConfig(adUnitId: PlatformAdUnitId()),
+        interstitial: InterstitialConfig(adUnitId: PlatformAdUnitId()),
+        rewarded: RewardedConfig(adUnitId: PlatformAdUnitId()),
+        rewardedInterstitial: RewardedInterstitialConfig(
+          adUnitId: PlatformAdUnitId(),
+        ),
+        nativeAd: NativeConfig(
+          adUnitId: PlatformAdUnitId(),
+          templateKind: NativeTemplateKind.medium,
+        ),
+        appOpen: AppOpenConfig(adUnitId: PlatformAdUnitId()),
+      ),
       sdk: sdk,
       store: InMemoryKeyValueStore(),
       platform: AdPlatform.android,
-      // test() configures the rewarded interstitial, whose intro is mandatory.
+      // The rewarded interstitial's intro is mandatory.
       rewardedIntroPresenter: (_) async => false,
     );
     await ads.whenReady;

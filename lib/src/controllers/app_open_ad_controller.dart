@@ -7,9 +7,11 @@ import 'full_screen_ad_controller_base.dart';
 /// timestamps every load and [FullScreenAdControllerBase.show]
 /// discards-and-reloads a stale ad instead of showing it).
 ///
-/// Showing is driven by `AppOpenAdManager` on warm foreground returns —
-/// never call [show] from app startup code (policy: no cold-start shows
-/// unless routed through a dedicated splash gate).
+/// Showing is driven by `AppOpenAdManager` (`ads.appOpen`): on warm
+/// foreground returns ([AppOpenConfig.showOnResume]) and, once per process,
+/// from the app's loading screen via `AppOpenAdManager.showAtLaunch`. Do not
+/// call [show] from app startup code yourself — `showAtLaunch` adds the
+/// launch-only rules (earlier consent, one shot, bounded wait).
 class AppOpenAdController extends FullScreenAdControllerBase {
   /// Creates the app open controller. [now] is the injectable clock used
   /// for expiry.
@@ -32,7 +34,8 @@ class AppOpenAdController extends FullScreenAdControllerBase {
 
   final AppOpenConfig _config;
 
-  /// Retires this controller's inventory after a `launchOnly` cold-launch show:
+  /// Retires this controller's inventory after a launch-only cold-launch show
+  /// (`AppOpenConfig.showOnResume: false`):
   /// it stops preloading/reloading an ad that can never be shown again this
   /// process. The `AppOpenAdManager` calls this; apps normally do not. A
   /// currently-showing ad finishes on screen. See

@@ -9,11 +9,13 @@ import 'package:fake_async/fake_async.dart';
 // ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/show.dart';
 
 void main() {
   late FakeAdSdk sdk;
 
   const fullConfig = AdFlowConfig(
+    testMode: false,
     banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
     interstitial: InterstitialConfig(
       adUnitId: PlatformAdUnitId(android: 'i-a'),
@@ -209,6 +211,7 @@ void main() {
       final ads = await AdFlow.initialize(
         // No testDeviceIds/tags/rating → a lost config costs nothing.
         const AdFlowConfig(
+          testMode: false,
           banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
         ),
         sdk: sdk,
@@ -246,7 +249,7 @@ void main() {
       sdk.canRequestAdsResult = false;
 
       final ads = await AdFlow.initialize(
-        const AdFlowConfig(), // no slots: nothing to load
+        const AdFlowConfig(testMode: false), // no slots: nothing to load
         sdk: sdk,
         store: InMemoryKeyValueStore(),
         platform: AdPlatform.android,
@@ -340,7 +343,7 @@ void main() {
       // Show an interstitial and collect revenue.
       final paid = <AdPaidEvent>[];
       ads.onPaidEvent = paid.add;
-      expect(await ads.interstitial.show(), isTrue);
+      expect(await dispatch(ads.interstitial!.show()), isTrue);
       const event = AdPaidEvent(
         adUnitId: 'i-a',
         valueMicros: 5000,
@@ -468,10 +471,11 @@ void main() {
     );
 
     test(
-      'unconfigured slots build no controllers and throw on access',
+      'unconfigured slots build no controllers and read as null (6.0)',
       () async {
         final ads = await boot(
           config: const AdFlowConfig(
+            testMode: false,
             interstitial: InterstitialConfig(
               adUnitId: PlatformAdUnitId(android: 'i-a'),
               cap: FrequencyCap(),
@@ -481,17 +485,10 @@ void main() {
         await Future<void>.delayed(Duration.zero);
 
         expect(sdk.loadLog, ['interstitial:i-a']);
-        expect(
-          () => ads.rewarded,
-          throwsA(
-            isA<AdFlowError>().having(
-              (e) => e.kind,
-              'kind',
-              AdFlowErrorKind.invalidConfig,
-            ),
-          ),
-        );
-        expect(() => ads.appOpen, throwsA(isA<AdFlowError>()));
+        expect(ads.interstitial, isNotNull);
+        expect(ads.rewarded, isNull);
+        expect(ads.rewardedInterstitial, isNull);
+        expect(ads.appOpen, isNull);
         ads.dispose();
       },
     );
@@ -501,6 +498,7 @@ void main() {
       await expectLater(
         AdFlow.initialize(
           const AdFlowConfig(
+            testMode: false,
             rewardedInterstitial: RewardedInterstitialConfig(
               adUnitId: PlatformAdUnitId(android: 'ri-a'),
             ),
@@ -541,42 +539,42 @@ void main() {
       expect(ads.enableAds, returnsNormally);
     });
 
-    test(
-      'production cold-launch latch: works through the facade default and '
-      'is one-shot across reinitialization in the same process (5.1)',
-      () async {
-        resetAppOpenLaunchOpportunity(); // isolate this test
-        const launchConfig = AdFlowConfig(
-          appOpen: AppOpenConfig(
-            adUnitId: PlatformAdUnitId(android: 'ao-a'),
-            cap: FrequencyCap(),
-            triggerMode: AppOpenTriggerMode.launchAndResume,
-          ),
-        );
+    test('production cold-launch latch: works through the facade default and '
+        'is one-shot across reinitialization in the same process', () async {
+      resetAppOpenLaunchOpportunity(); // isolate this test
+      const launchConfig = AdFlowConfig(
+        testMode: false,
+        appOpen: AppOpenConfig(
+          adUnitId: PlatformAdUnitId(android: 'ao-a'),
+          cap: FrequencyCap(),
+        ),
+      );
 
-        final ads1 = await boot(config: launchConfig);
-        await pumpEventQueue(); // let the app-open preload land
-        expect(ads1.appOpenController.isReady, isTrue);
-        expect(
-          await ads1.appOpen.showAtLaunchIfReady(),
-          isTrue,
-          reason: 'a warm ad shows at launch via the process-default latch',
-        );
-        ads1.dispose();
+      final ads1 = await boot(config: launchConfig);
+      await pumpEventQueue(); // let the app-open preload land
+      expect(ads1.appOpen!.controller.isReady, isTrue);
+      final launch = ads1.appOpen!.showAtLaunch();
+      await pumpEventQueue();
+      expect(sdk.appOpens.single.showCalls, 1);
+      sdk.appOpens.single.simulateDismissed();
+      expect(
+        (await launch).shown,
+        isTrue,
+        reason: 'a warm ad shows at launch via the process-default latch',
+      );
+      ads1.dispose();
 
-        // Reinitialize AdFlow in the SAME process — the latch must persist.
-        final ads2 = await boot(config: launchConfig);
-        await pumpEventQueue();
-        expect(ads2.appOpenController.isReady, isTrue);
-        expect(
-          await ads2.appOpen.showAtLaunchIfReady(),
-          isFalse,
-          reason:
-              'the cold-launch moment is spent; reinit gets no second launch',
-        );
-        ads2.dispose();
-      },
-    );
+      // Reinitialize AdFlow in the SAME process — the latch must persist.
+      final ads2 = await boot(config: launchConfig);
+      await pumpEventQueue();
+      expect(ads2.appOpen!.controller.isReady, isTrue);
+      expect(
+        (await ads2.appOpen!.showAtLaunch()).shown,
+        isFalse,
+        reason: 'the cold-launch moment is spent; reinit gets no second launch',
+      );
+      ads2.dispose();
+    });
 
     test('dispose() releases a self-created ConsentGateway but leaves an '
         'injected one usable', () async {
@@ -620,7 +618,7 @@ void main() {
         injectedSdk.dispose();
       });
       final injected = await AdFlow.initialize(
-        const AdFlowConfig(),
+        const AdFlowConfig(testMode: false),
         sdk: injectedSdk,
         consent: injectedConsent,
         store: InMemoryKeyValueStore(),
@@ -635,8 +633,8 @@ void main() {
   });
 
   group('explainer / ATT priming (slice 4)', () {
-    test('end to end: consent primer + form, then ATT primer + prompt '
-        '(ADR-082), then the gate opens and preloads run', () async {
+    test('end to end: GDPR form, then ATT primer + prompt (ADR-082), then '
+        'the gate opens and preloads run', () async {
       final events = <String>[];
       sdk.attStatus = AttStatus.notDetermined;
       sdk.attRequestResult = AttStatus.authorized;
@@ -655,7 +653,6 @@ void main() {
         platform: AdPlatform.android,
         rewardedIntroPresenter: (_) async => true,
         attExplainer: (_) async => events.add('att-primer'),
-        consentExplainer: (_) async => events.add('consent-primer'),
       );
       // initialize() returns before the (background) explainer/consent flow;
       // wait for it, then a microtask for the preloads to land.
@@ -664,7 +661,7 @@ void main() {
 
       // GDPR first, the tracking question last — the ATT-first order got apps
       // rejected under App Store Guideline 5.1.1(iv).
-      expect(events, ['consent-primer', 'form', 'att-primer']);
+      expect(events, ['form', 'att-primer']);
       expect(sdk.requestTrackingAuthorizationCalls, 1);
       expect(sdk.loadAndShowConsentFormCalls, 1);
       // The gate opened → the interstitial preloaded (enforceConsentGate
@@ -699,7 +696,7 @@ void main() {
         });
 
         final ads = await AdFlow.initialize(
-          const AdFlowConfig(),
+          const AdFlowConfig(testMode: false),
           sdk: injectedSdk,
           consent: injectedConsent,
           store: InMemoryKeyValueStore(),
@@ -722,7 +719,7 @@ void main() {
 
       ads.disableAds();
       expect(ads.adsEnabled.value, isFalse);
-      expect(await ads.interstitial.show(), isFalse);
+      expect(await dispatch(ads.interstitial!.show()), isFalse);
 
       final banner = ads.banner();
       await banner.load(width: 320);
@@ -730,7 +727,7 @@ void main() {
       banner.dispose();
 
       ads.enableAds();
-      expect(await ads.interstitial.show(), isTrue);
+      expect(await dispatch(ads.interstitial!.show()), isTrue);
       ads.dispose();
     });
   });
@@ -778,6 +775,7 @@ void main() {
     test('missing slot config throws invalidConfig', () async {
       final ads = await boot(
         config: const AdFlowConfig(
+          testMode: false,
           interstitial: InterstitialConfig(
             adUnitId: PlatformAdUnitId(android: 'i-a'),
             cap: FrequencyCap(),
@@ -796,6 +794,7 @@ void main() {
     () async {
       final ads = await AdFlow.initialize(
         const AdFlowConfig(
+          testMode: false,
           interstitial: InterstitialConfig(
             adUnitId: PlatformAdUnitId(android: 'i-a'),
             cap: FrequencyCap(),
@@ -814,7 +813,7 @@ void main() {
       await ads.whenReady; // background startup (preloads) finishes
       await Future<void>.delayed(Duration.zero);
 
-      expect(await ads.interstitial.show(), isTrue);
+      expect(await dispatch(ads.interstitial!.show()), isTrue);
       // Dismiss it so the coordinator is clear — only the cap remains. The
       // impression is recorded on this dismiss (ADR-040).
       sdk.interstitials.single.simulateShowed();
@@ -822,13 +821,13 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       // An APP-OPEN ad is involuntary: the global 10-minute gap blocks it.
-      expect(ads.appOpenController.isReady, isTrue);
-      expect(await ads.appOpenController.show(), isFalse);
+      expect(ads.appOpen!.controller.isReady, isTrue);
+      expect(await dispatch(ads.appOpen!.controller.show()), isFalse);
 
       // A REWARDED ad is one the user asked for, in exchange for a reward: the
       // global gap must never silently swallow it (ADR-039).
-      expect(ads.rewarded.isReady, isTrue);
-      expect(await ads.rewarded.show(onReward: (_) {}), isTrue);
+      expect(ads.rewarded!.isReady, isTrue);
+      expect(await dispatch(ads.rewarded!.show(onReward: (_) {})), isTrue);
       ads.dispose();
     },
   );

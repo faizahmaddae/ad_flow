@@ -1,12 +1,13 @@
 # ad_flow example
 
-Demonstrates every ad_flow format using **Google's official test ads**
-(`AdFlowConfig.test()`): anchored adaptive banner, interstitial (with
-user-action pacing), rewarded, rewarded interstitial (with the mandatory
-intro/skip screen), native (medium template), app open (warm returns, plus
-the one-shot cold-launch opportunity on the startup screen), the
-privacy-options entry point, the Remove-Ads toggle, paid-event logging and
-the Ad Inspector.
+Demonstrates every ad_flow format — anchored adaptive banner, interstitial
+(with user-action pacing), rewarded, rewarded interstitial (with the mandatory
+intro/skip screen), native (medium template), app open (warm returns, plus the
+cold-launch ad on the startup screen) — and the privacy-options entry point,
+the Remove-Ads toggle, paid-event logging and the Ad Inspector.
+
+The config lists Google's sample ad units where your IDs would go. Debug runs
+serve test ads automatically (no `testMode` needed).
 
 ## Run
 

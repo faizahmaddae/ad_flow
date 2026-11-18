@@ -2,8 +2,11 @@ import 'dart:async';
 
 import '../config/ad_flow_config.dart';
 import '../controllers/app_open_ad_controller.dart';
-import '../policy/full_screen_ad_coordinator.dart';
+import '../core/ad_block_reason.dart';
+import '../core/ad_load_state.dart';
+import '../core/ad_show_result.dart';
 import '../core/callback_guard.dart';
+import '../policy/full_screen_ad_coordinator.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
 import 'launch_latch.dart';
@@ -12,28 +15,22 @@ import 'launch_latch.dart';
 /// through statics fought each other — the facade creates exactly one manager
 /// and nothing else reacts to foreground).
 ///
-/// Two legitimate product moments, selected by [AppOpenConfig.triggerMode]:
+/// Two legitimate product moments:
 ///
 /// - **Resume** — a genuine background→foreground return, driven by the seam's
 ///   foreground events (backed by `AppStateEventNotifier`, the only correct
-///   signal; iOS `inactive` is NOT backgrounding). Shown on every return, with
-///   all policy delegated to the controller and gate: consent, enabled,
-///   frequency caps, coordinator suppression, expiry.
-/// - **Launch** — a real cold process launch, taken explicitly via
-///   [showAtLaunchIfReady] from the app's loading screen. NOT faked from a
-///   lifecycle event (`AppStateEventNotifier` never replays the cold-launch
-///   foreground — the seam calls `startListening()` only once the app is
-///   already foregrounded), and one-shot per process.
-///
-/// The default [AppOpenTriggerMode.resumeOnly] preserves the v5 behaviour. In
-/// all modes [start] preloads one ad so it can be ready for either moment;
-/// `launchOnly` retires its inventory after the single launch so it does not
-/// keep reloading an ad that can never be shown again this process.
+///   signal; iOS `inactive` is NOT backgrounding). On by default
+///   ([AppOpenConfig.showOnResume]); all policy is delegated to the controller
+///   and gate: consent, enabled, frequency caps, coordinator suppression,
+///   expiry.
+/// - **Launch** — a real cold process launch, taken explicitly with
+///   [showAtLaunch] from the app's loading screen. NOT faked from a lifecycle
+///   event (`AppStateEventNotifier` never replays the cold-launch foreground),
+///   and one-shot per process.
 ///
 /// Invariant 3 ("never show on a cold launch by surprise") holds structurally
 /// on the resume path: at a real cold launch nothing is loaded yet, so
-/// `show()` finds no warm ad. The launch path is opt-in and only ever shows an
-/// already-ready ad.
+/// `show()` finds no warm ad. The launch path is opt-in.
 class AppOpenAdManager {
   /// Creates the manager. Call [start] to begin reacting to foreground
   /// returns.
@@ -57,14 +54,6 @@ class AppOpenAdManager {
        _postDismissSuppression = postDismissSuppression,
        _now = now ?? DateTime.now;
 
-  /// The one-shot cold-launch latch — process-scoped ON PURPOSE. The cold
-  /// launch of a process is a single moment, so `showAtLaunchIfReady` may
-  /// succeed at most once per process, and that must hold even across [AdFlow]
-  /// reinitialization (a second `initialize()` builds a new manager but must
-  /// NOT mint a second launch show). The latch lives in the internal
-  /// [LaunchLatch] (a non-exported file) so nothing here adds to the public
-  /// API; tests reset it through `ad_flow_testing.dart`'s
-  /// `resetAppOpenLaunchOpportunity()`.
   final AppOpenAdController _controller;
   final AdSdk _sdk;
   final AppOpenConfig _config;
@@ -75,74 +64,148 @@ class AppOpenAdManager {
   StreamSubscription<AppForegroundEvent>? _sub;
   bool _disposed = false;
 
+  /// The pending launch wait, so [dispose] can end it at once.
+  Completer<void>? _launchWait;
+
+  /// The app-open slot's controller (state, readiness, block reasons).
+  AppOpenAdController get controller => _controller;
+
   /// Whether the manager is currently reacting to foreground events.
   bool get isStarted => _sub != null;
 
   /// Starts listening and warms the first preload. Idempotent.
-  ///
-  /// In every mode this preloads an ad so one can be ready for a launch or a
-  /// resume; whether it SHOWS on a foreground return is decided by
-  /// [AppOpenConfig.triggerMode].
   void start() {
     if (_disposed || _sub != null) return;
     _sub = _sdk.appForegroundEvents.listen(_onForeground);
     unawaited(_controller.load());
   }
 
-  /// Takes the one-shot cold-launch opportunity: shows an ALREADY-ready
-  /// app-open ad, if the mode permits and one is warm, at real process launch.
+  /// Takes the one-shot cold-launch opportunity: shows an app-open ad while
+  /// the app's loading screen is up, and completes when the ad has CLOSED —
+  /// keep the loading screen until then, then enter the app (6.0).
   ///
-  /// Call this from your real loading/startup screen, immediately before
-  /// entering main content — after the loading screen has done its actual work.
-  /// Contract:
+  /// ```dart
+  /// await ads.appOpen?.showAtLaunch();
+  /// navigator.pushReplacement(home);
+  /// ```
   ///
-  /// - It NEVER waits for network, UMP, SDK init, or a load. If no ad is ready
-  ///   right now, it returns `false` immediately.
-  /// - It is one-shot per process launch (surviving [AdFlow] reinitialization):
-  ///   a mid-session or post-reinit call returns `false`. So a `false` here can
-  ///   never turn into a surprise app-open ad after the user is in main content.
-  /// - It is a no-op (`false`) under [AppOpenTriggerMode.resumeOnly].
-  /// - The controller still enforces consent, caps, coordinator, expiry and
-  ///   Remove-Ads; a refusal there also returns `false`.
-  Future<bool> showAtLaunchIfReady() async {
-    if (_disposed) return false;
-    if (_config.triggerMode == AppOpenTriggerMode.resumeOnly) return false;
-    // Consume the one-shot up front — even a not-ready launch spends the
-    // launch moment, so we never show a "launch" ad seconds into the session.
-    if (!LaunchLatch.consume()) return false;
+  /// - Waits up to [maxWait] (3 s by default) for the ad to finish loading —
+  ///   at a real cold launch the first load is usually still in flight, which
+  ///   is why a launch ad that is only shown when "already ready" almost never
+  ///   shows. `Duration.zero` shows only an ad that is already warm. A load
+  ///   that fails (offline, no fill) ends the wait at once: the app enters
+  ///   instead of holding the loading screen on a request that failed (with
+  ///   the default retry timing no retry lands inside 3 s anyway), and the
+  ///   next ad loads for a later warm return. Disposing the manager ends the
+  ///   wait too.
+  /// - Never for a first-time user: when no consent from an earlier launch is
+  ///   on the device it returns at once (`blocked(consentNotGranted)`), so a
+  ///   launch ad never follows the consent form.
+  /// - One-shot per process launch, surviving `AdFlow` reinitialization: a
+  ///   later call returns `blocked(notReady)` at once, so it can never turn
+  ///   into a surprise ad in the middle of the session.
+  /// - The controller still enforces consent, caps, other full-screen ads,
+  ///   expiry and Remove-Ads.
+  ///
+  /// With [AppOpenConfig.showOnResume] off, the slot stops loading after this
+  /// call: a launch-only ad is never shown again in this process.
+  Future<AdShowResult> showAtLaunch({
+    Duration maxWait = const Duration(seconds: 3),
+  }) async {
+    if (_disposed) return const AdShowResult.blocked(AdBlockReason.notReady);
+    // Consume the one-shot up front: even a launch with no ad spends the
+    // launch moment, so no "launch" ad can appear seconds into the session.
+    if (!LaunchLatch.consume()) {
+      return const AdShowResult.blocked(AdBlockReason.notReady);
+    }
+    try {
+      if (!await _hasEarlierConsent()) {
+        return const AdShowResult.blocked(AdBlockReason.consentNotGranted);
+      }
+      if (_disposed) return const AdShowResult.blocked(AdBlockReason.notReady);
+      // Remove-Ads on, or consent declined: no ad can come, so do not hold the
+      // loading screen for it.
+      final refused = _definitelyRefused();
+      if (refused != null) return AdShowResult.blocked(refused);
+      await _waitUntilReady(maxWait);
+      if (_disposed) return const AdShowResult.blocked(AdBlockReason.notReady);
+      final refusedLater = _definitelyRefused();
+      if (refusedLater != null) return AdShowResult.blocked(refusedLater);
+      // show() refuses (and reports) a not-ready ad itself.
+      final result = _controller.show();
+      // Launch-only: the launch is done — stop maintaining inventory. An ad
+      // now on screen finishes normally; its dismiss does not reload.
+      if (!_config.showOnResume) _controller.retire();
+      return await result;
+    } finally {
+      if (!_config.showOnResume) _controller.retire();
+    }
+  }
 
-    final launchOnly = _config.triggerMode == AppOpenTriggerMode.launchOnly;
-    // Only an already-ready ad; never wait for a load.
-    if (!_controller.isReady) {
-      // launchOnly will never show on a resume, and the launch moment is now
-      // spent — retire its inventory so it does not keep reloading an ad that
-      // can never be shown again this process.
-      if (launchOnly) _controller.retire();
+  /// Whether consent from an earlier launch is on the device — the SDK's
+  /// cached answer, read without waiting for this launch's consent flow.
+  Future<bool> _hasEarlierConsent() async {
+    try {
+      return await _sdk.canRequestAds();
+    } catch (_) {
       return false;
     }
-    final shown = await _controller.show();
-    // launchOnly: the single launch is done — stop maintaining inventory. The
-    // ad that is now on screen finishes normally; its dismiss will not reload.
-    if (launchOnly) _controller.retire();
-    return shown;
+  }
+
+  /// The reason the slot's load is refused, when waiting cannot change it:
+  /// ads disabled (Remove-Ads) or consent not granted.
+  AdBlockReason? _definitelyRefused() {
+    final state = _controller.state.value;
+    if (state is! AdBlocked) return null;
+    return switch (state.reason) {
+      AdBlockReason.adsDisabled ||
+      AdBlockReason.consentNotGranted => state.reason,
+      _ => null,
+    };
+  }
+
+  /// Completes when the ad is ready, its load failed, or it is definitely
+  /// refused — or after [maxWait], whichever is first.
+  Future<void> _waitUntilReady(Duration maxWait) {
+    bool settled() =>
+        _controller.isReady ||
+        _controller.state.value is AdFailed ||
+        _definitelyRefused() != null;
+    if (settled() || maxWait <= Duration.zero) return Future<void>.value();
+    final ready = Completer<void>();
+    void check() {
+      if (settled() && !ready.isCompleted) ready.complete();
+    }
+
+    final state = _controller.state;
+    try {
+      state.addListener(check);
+    } catch (_) {
+      // The controller was disposed meanwhile: nothing to wait for.
+      return Future<void>.value();
+    }
+    _launchWait = ready;
+    final timer = Timer(maxWait, () {
+      if (!ready.isCompleted) ready.complete();
+    });
+    return ready.future.whenComplete(() {
+      timer.cancel();
+      if (identical(_launchWait, ready)) _launchWait = null;
+      try {
+        state.removeListener(check);
+      } catch (_) {
+        // The controller was disposed while waiting.
+      }
+    });
   }
 
   Future<void> _onForeground(AppForegroundEvent event) async {
-    // launchOnly never auto-shows on resume, and never RELOADS on resume
-    // either: its inventory is preloaded once (in start) for the launch moment
-    // and retired afterwards. Reloading here would keep requesting ads that can
-    // never be shown this process.
-    if (_config.triggerMode == AppOpenTriggerMode.launchOnly) return;
+    // Launch-only never shows (or reloads) on a resume.
+    if (!_config.showOnResume) return;
     // The user is coming back from a banner/native ad they just clicked: this
     // foreground event is a return FROM AN AD, not a genuine warm return
     // (ADR-042). One-shot — the next return is a normal one.
     if (_coordinator?.consumeViewAdOpened() ?? false) {
-      unawaited(_controller.load());
-      return;
-    }
-    // The app says a blocking banner/native ad currently occupies the screen —
-    // do not stack an app-open ad over it (ADR-042).
-    if (_coordinator?.blockingViewAdVisible ?? false) {
       unawaited(_controller.load());
       return;
     }
@@ -153,14 +216,11 @@ class AppOpenAdManager {
       unawaited(_controller.load());
       return;
     }
-    // NOTE (ADR-043): there is deliberately no "first event is the cold start"
-    // latch here. `AppStateEventNotifier` does not replay the cold-launch
-    // foreground, so the first event we ever receive is a real
-    // background→return. Invariant 3 (never show on a cold launch) is upheld
-    // structurally: at cold launch nothing is loaded yet, so `show()` finds no
-    // warm ad and returns false. A launch-moment show is the separate, explicit
-    // [showAtLaunchIfReady] path. The controller enforces gate, caps,
-    // coordinator and the 4h expiry; a false result also re-warms the next ad.
+    // There is deliberately no "first event is the cold start" latch here
+    // (ADR-043): `AppStateEventNotifier` does not replay the cold-launch
+    // foreground, so the first event received is a real background→return.
+    // The controller enforces gate, caps, coordinator and the 4h expiry; a
+    // refusal also re-warms the next ad.
     await _controller.show();
   }
 
@@ -181,6 +241,9 @@ class AppOpenAdManager {
   /// controller lifecycles).
   void dispose() {
     _disposed = true;
+    // A launch still waiting for its ad returns now, not after maxWait.
+    final wait = _launchWait;
+    if (wait != null && !wait.isCompleted) wait.complete();
     stop();
   }
 }

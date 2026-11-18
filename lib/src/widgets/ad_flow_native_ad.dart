@@ -5,6 +5,7 @@ import '../controllers/native_ad_controller.dart';
 import '../core/ad_block_reason.dart';
 import '../core/ad_load_state.dart';
 import '../facade/ad_flow.dart';
+import 'placement_mint.dart';
 
 /// Drop-in native ad widget.
 ///
@@ -51,6 +52,11 @@ class AdFlowNativeAd extends StatefulWidget {
        );
 
   /// The facade to mint this placement's controller from (recommended path).
+  ///
+  /// Where the slot is not configured for the running platform (no native
+  /// config, or no ad unit ID for this platform) the widget renders nothing,
+  /// like the nullable full-screen getters, and a debug build prints why
+  /// (ADR-085).
   final AdFlow? adFlow;
 
   /// Per-placement override of the global native config ([adFlow] mode).
@@ -80,6 +86,10 @@ class _AdFlowNativeAdState extends State<AdFlowNativeAd> {
   late NativeAdController _controller;
   late bool _ownsController;
 
+  /// The widget-first slot is not configured for this platform: there is no
+  /// controller, and the widget renders nothing (ADR-085).
+  bool _unconfigured = false;
+
   @override
   void initState() {
     super.initState();
@@ -88,12 +98,19 @@ class _AdFlowNativeAdState extends State<AdFlowNativeAd> {
 
   void _adopt() {
     final adFlow = widget.adFlow;
-    if (adFlow != null) {
-      _controller = adFlow.native(widget.config);
-      _ownsController = true;
-    } else {
+    if (adFlow == null) {
       _controller = widget.controller!;
       _ownsController = widget.ownsController;
+      _unconfigured = false;
+    } else {
+      final minted = mintPlacement(
+        () => adFlow.native(widget.config),
+        widgetName: 'AdFlowNativeAd',
+      );
+      _unconfigured = minted == null;
+      _ownsController = minted != null;
+      if (minted == null) return;
+      _controller = minted;
     }
     _controller.load();
   }
@@ -122,6 +139,8 @@ class _AdFlowNativeAdState extends State<AdFlowNativeAd> {
 
   @override
   Widget build(BuildContext context) {
+    // No slot on this platform: no footprint at all.
+    if (_unconfigured) return const SizedBox.shrink();
     // Widget-first mode: listen to the facade's Remove-Ads notifier so the ad
     // collapses SYNCHRONOUSLY the instant disableAds() flips it, without waiting
     // for the asynchronous recheckGate(). Advanced controller mode has no

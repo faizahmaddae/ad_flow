@@ -1,3 +1,51 @@
+# Upgrading 5.x → 6.0.0
+
+Most apps change a few lines — and delete the wrapper code they wrote around
+5.x. Apply in order; `flutter analyze` points at every call site.
+
+| 5.x | 6.0 |
+| --- | --- |
+| `ads.interstitial.show()` → `bool` at dispatch | `ads.interstitial?.show()` → `AdShowResult` when the ad **closes** (`.shown`, `.blockReason`, `.error`, `.reward`) |
+| your "wait for the ad to close" listener + completer | delete it — `await show()` |
+| your cap mirror (`FullScreenPacing` and the like) | `ads.interstitial?.canShow` |
+| `ads.interstitial` (throws if unconfigured) / `ads.interstitialOrNull` | `ads.interstitial` (nullable); same for `rewarded`, `rewardedInterstitial`, `appOpen` |
+| `ads.appOpenController` / `appOpenControllerOrNull` | `ads.appOpen?.controller` |
+| `appOpen.showAtLaunchIfReady()` (+ your own launch wait) | `ads.appOpen?.showAtLaunch(maxWait: …)` — waits, returns when closed |
+| `AppOpenConfig(triggerMode: resumeOnly)` | default — nothing to set |
+| `AppOpenConfig(triggerMode: launchAndResume)` | default + call `showAtLaunch()` |
+| `AppOpenConfig(triggerMode: launchOnly)` | `AppOpenConfig(showOnResume: false)` + call `showAtLaunch()` |
+| `testMode: kDebugMode` (or a flag of yours) | leave `testMode` out — automatic |
+| placeholder IDs so `validate()` passes in debug | real IDs (a missing one fails in debug too), or `PlatformAdUnitId()` with `testMode: true` |
+| `AdFlowConfig.test()` | a normal `AdFlowConfig` (test ads are automatic in debug) |
+| `forwardConsent: …` | set partner flags before `AdFlow.initialize()`; request-time ones in `onConsentChanged` (doc/MEDIATION_SETUP.md) |
+| `requestConfigPolicy: …` | remove (the `auto` behaviour is built in) |
+| `controller.setServerSideVerification(…)` | config-time `ssv` on `RewardedConfig` / `RewardedInterstitialConfig` |
+| `BannerConfig(minRefresh: …)` | remove; set the refresh rate on the ad unit in the AdMob console |
+| `ads.setBlockingViewAdVisible(…)` | remove |
+| `skipConsentPrimerIfAttDenied: …` | remove |
+| `consentExplainer: …` / `consentExplainerContent: …` / `ConsentExplainerScreen` | remove — nothing of yours before the GDPR form; Google's message explains the choice (style it under *Privacy & messaging*). `attExplainer` stays |
+| `AdGate`, `StoredFrequencyCapPolicy`, `FullScreenAdCoordinator`, `RetryPolicy`, `InMemoryKeyValueStore`, `FullScreenAdControllerBase`, seam handles/events (`InterstitialHandle`, `AdShowedEvent`, …) | import `package:ad_flow/ad_flow_testing.dart` (in tests) |
+| `SharedPrefsKeyValueStore()` / `config.toRequestConfig()` | remove: omit `store:` for the default store; the request configuration is internal |
+| your own `FrequencyCapPolicy` / `FullScreenAdController` | add `allowsNow` / `canShow` |
+
+Also delete a custom `ConsentGateway` written only to ask ATT after GDPR (5.5.0
+already does), together with any native channel that read the `IABTCF_*` keys
+for it.
+
+Behaviour changes to check:
+
+- **Debug builds now serve test ads** unless you set `testMode: false`. To
+  check production IDs from a debug build, set `testMode: false` and register
+  the device in `testDeviceIds`.
+- **The app-open slot preloads at startup**, not after the consent flow (loads
+  still wait for consent and request configuration).
+- **A slot configured for one platform has no test ads on the other** in debug
+  either (it already had no ads there in release). There the full-screen
+  getter is null and `AdFlowBanner(adFlow:)` / `AdFlowNativeAd(adFlow:)`
+  render nothing (5.x threw while building), so a platform check around a
+  placement can go.
+- A `BannerConfig` that set `minRefresh` now relies on the console's refresh.
+
 # Upgrading 5.4.x → 5.5.0
 
 No code change is required.

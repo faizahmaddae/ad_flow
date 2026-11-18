@@ -2,6 +2,7 @@ import 'package:ad_flow/ad_flow.dart';
 import 'package:ad_flow/ad_flow_testing.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/show.dart';
 
 /// Async rejection containment through the ACTUAL public callback types
 /// (release gate). Every app-facing callback is declared `void Function(...)`,
@@ -42,6 +43,7 @@ void main() {
   );
 
   const interstitialCfg = AdFlowConfig(
+    testMode: false,
     interstitial: InterstitialConfig(
       adUnitId: PlatformAdUnitId(android: 'i-a'),
     ),
@@ -58,7 +60,7 @@ void main() {
       throw StateError('analytics async bug');
     };
 
-    await ads.interstitial.load();
+    await ads.interstitial!.load();
     await pumpEventQueue();
     sdk.interstitials.last.simulatePaid(
       const AdPaidEvent(
@@ -91,7 +93,7 @@ void main() {
 
     // Force a block: Remove-Ads on, then load.
     ads.disableAds();
-    await ads.interstitial.load();
+    await ads.interstitial!.load();
     await pumpEventQueue();
 
     expect(
@@ -126,17 +128,20 @@ void main() {
   test('an ASYNC-rejecting onReward is contained through show()', () async {
     final ads = await boot(
       const AdFlowConfig(
+        testMode: false,
         rewarded: RewardedConfig(adUnitId: PlatformAdUnitId(android: 'r-a')),
       ),
     );
     await ads.whenReady;
-    await ads.rewarded.load();
+    await ads.rewarded!.load();
     await pumpEventQueue();
-    await ads.rewarded.show(
-      onReward: (reward) async {
-        await Future<void>.delayed(Duration.zero);
-        throw StateError('grant async bug');
-      },
+    await dispatch(
+      ads.rewarded!.show(
+        onReward: (reward) async {
+          await Future<void>.delayed(Duration.zero);
+          throw StateError('grant async bug');
+        },
+      ),
     );
     sdk.rewardeds.last.simulateReward(
       const RewardEarned(amount: 10, type: 'coins'),
@@ -156,7 +161,7 @@ void main() {
     final ads = await boot(interstitialCfg);
     await ads.whenReady;
     ads.onPaidEvent = (event) async => Future<void>.delayed(Duration.zero);
-    await ads.interstitial.load();
+    await ads.interstitial!.load();
     await pumpEventQueue();
     sdk.interstitials.last.simulatePaid(
       const AdPaidEvent(

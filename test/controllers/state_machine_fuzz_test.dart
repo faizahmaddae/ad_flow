@@ -9,6 +9,9 @@ import 'package:flutter_test/flutter_test.dart';
 /// Wraps a cap policy so its `canShow` can be HELD, parking a show in its
 /// pre-dispatch window across ops.
 class _HoldableCaps implements FrequencyCapPolicy {
+  @override
+  bool allowsNow(String slot) => true;
+
   _HoldableCaps(this._inner);
 
   final FrequencyCapPolicy _inner;
@@ -69,7 +72,6 @@ void main() {
             ),
             config: const BannerConfig(
               adUnitId: PlatformAdUnitId(android: 'unit-b'),
-              minRefresh: Duration(seconds: 60),
             ),
             adUnitId: 'unit-b',
             retry: RetryPolicy(const RetryConfig(), random: random.nextDouble),
@@ -203,16 +205,12 @@ void main() {
 
           // The fake enforces legal event ordering (dismiss only after
           // show), so track what is legal to simulate.
-          FakeFullScreenAdHandle? shownAd;
-          void track(Future<bool> show) => unawaited(
-            show.then((shown) {
-              if (shown) {
-                shownAd = sdk.interstitials
-                    .where((h) => !h.disposed)
-                    .firstOrNull;
-              }
-            }),
-          );
+          // Since 6.0 show() completes on the CLOSE, so "dispatched" is read
+          // off the fake: a handle the SDK was asked to show, still live.
+          FakeFullScreenAdHandle? shownAd() => sdk.interstitials
+              .where((h) => h.showCalls > 0 && !h.disposed)
+              .firstOrNull;
+          void track(Future<Object?> show) => unawaited(show);
 
           // An app that shows "as soon as loaded": a state listener that calls
           // show() on AdLoaded — on a seeded coin flip, so some warm ads are
@@ -267,10 +265,9 @@ void main() {
                 enabled = !enabled;
                 unawaited(c.recheckGate());
               case 6:
-                final ad = shownAd;
-                if (ad != null && !ad.disposed && c.state.value is AdShowing) {
+                final ad = shownAd();
+                if (ad != null && c.state.value is AdShowing) {
                   ad.simulateDismissed();
-                  shownAd = null;
                 }
               case 7:
                 final advance = Duration(seconds: 1 + random.nextInt(90));
@@ -302,8 +299,8 @@ void main() {
           sdk.loadHold = null;
           sdk.alwaysLoadError = null;
           async.flushMicrotasks();
-          final ad = shownAd;
-          if (ad != null && !ad.disposed && c.state.value is AdShowing) {
+          final ad = shownAd();
+          if (ad != null && c.state.value is AdShowing) {
             ad.simulateDismissed();
           }
           now = now.add(const Duration(minutes: 10));

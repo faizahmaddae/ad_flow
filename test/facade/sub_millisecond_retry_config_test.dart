@@ -26,6 +26,7 @@ void main() {
       // ignore: discarded_futures
       AdFlow.initialize(
         const AdFlowConfig(
+          testMode: false,
           banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
           retry: RetryConfig(
             baseDelay: Duration(microseconds: 500),

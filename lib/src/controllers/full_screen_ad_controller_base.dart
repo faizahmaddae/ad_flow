@@ -7,6 +7,7 @@ import '../core/ad_block_reason.dart';
 import '../core/ad_controller.dart';
 import '../core/ad_flow_error.dart';
 import '../core/ad_load_state.dart';
+import '../core/ad_show_result.dart';
 import '../core/callback_guard.dart';
 import '../core/load_watchdog.dart';
 import '../policy/ad_gate.dart';
@@ -108,7 +109,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
 
   /// The consent generation the warm ad was REQUESTED under (release gate #2).
   /// A consent mutation bumps `AdGate.consentGeneration`; when it no longer
-  /// matches, the warm ad carries a stale consent/forwarding state and is
+  /// matches, the warm ad carries a stale consent state and is
   /// dropped-and-reloaded — on load completion (the mid-load window) and on
   /// `recheckGate` (the already-warm case). One internal mechanism, no public
   /// surface.
@@ -121,7 +122,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
 
   /// Once retired, this controller stops maintaining inventory: [load] is inert
   /// and the autonomous reloads (dismiss, expiry, retry) become no-ops. Used by
-  /// the app-open manager for `launchOnly` after its single launch, so it does
+  /// the app-open manager for a launch-only slot after its single launch, so it does
   /// not keep requesting an ad that can never be shown again this process
   /// (5.1). Distinct from [dispose]: the controller stays alive and observable.
   bool _retired = false;
@@ -139,26 +140,9 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   @protected
   void onShown() {}
 
-  /// Finalizes the just-installed handle BEFORE [AdLoaded] is published — e.g.
-  /// re-attaching a runtime SSV override captured while the load was in flight
-  /// ([RuntimeSsvController]). Runs while the state is still [AdLoading], so
-  /// the ad is never externally ready/showable carrying a stale payload. A
-  /// throw fails the load CLOSED (the handle is dropped and a retry armed,
-  /// re-dispatching with the latest value). Default: no-op. (5.1 hardening.)
-  @protected
-  Future<void> finalizeLoadedHandle() async {}
-
-  /// Hook invoked right AFTER a load succeeds and [AdLoaded] is published
-  /// (synchronous, post-publish). Retained for backward compatibility — this
-  /// has been a public/overridable hook since 2.2.0, so its semantics are held
-  /// stable. New pre-publish finalization belongs in [finalizeLoadedHandle].
-  /// Default: no-op.
-  @protected
-  void onLoaded() {}
-
   /// Drops the current handle (without showing it) and preloads a fresh
   /// one — for a warm ad that must not be shown: expired, requested under a
-  /// stale consent generation, or left with a failed runtime-SSV attach.
+  /// or stale consent generation.
   ///
   /// A no-op while a load is already in flight (same reasoning as review
   /// finding #4 on `NativeAdController.reload()`): that load is already the
@@ -179,8 +163,8 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   /// SHOWING ad finishes on screen — its dismiss cleans up but does not reload,
   /// because [load] is now inert. Idempotent; safe after [dispose].
   ///
-  /// Used by the app-open manager for `launchOnly` after the single launch (a
-  /// launchOnly ad is never shown again this process). Not a general lifecycle
+  /// Used by the app-open manager for a launch-only slot after the single launch
+  /// (such an ad is never shown again this process). Not a general lifecycle
   /// control — exposed publicly only via `AppOpenAdController.retire`.
   @protected
   void retireInventory() {
@@ -200,11 +184,38 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   /// Whether a loaded ad is warm and ready to show.
   bool get isReady => _state.value is AdLoaded && _handle != null;
 
-  /// The warm handle, for subclasses that must talk to the loaded ad
-  /// directly (e.g. the rewarded formats applying runtime SSV). Null unless
-  /// [isReady].
-  @protected
-  FullScreenAdHandle? get currentHandle => _handle;
+  /// Whether [show] would show an ad right now: one is warm and unexpired, ads
+  /// are enabled, no other full-screen ad is on screen, and the frequency caps
+  /// and pacing allow it (6.0).
+  ///
+  /// A synchronous HINT for UI — enable a "Watch ad" button, or decide whether
+  /// to pause at a natural break for an interstitial. It replaces mirroring
+  /// the caps in app code. [show] re-checks everything (including live
+  /// consent) and remains the only authority.
+  ///
+  /// A warm ad found expired here is replaced (in a microtask): the expiry
+  /// timer runs on a clock that stops while the device sleeps, and an app that
+  /// only calls [show] when this is true would otherwise never trigger the
+  /// replacement [show] performs.
+  @override
+  bool get canShow {
+    if (_disposed || !isReady) return false;
+    if (isExpired) {
+      scheduleMicrotask(_replaceIfExpired);
+      return false;
+    }
+    return _gate.isEnabled &&
+        !_coordinator.isFullScreenAdVisible &&
+        _caps.allowsNow(slot) &&
+        canShowExtra();
+  }
+
+  /// Drops a warm ad that has outlived its maximum age and loads a fresh one.
+  void _replaceIfExpired() {
+    if (_disposed || _state.value is! AdLoaded || !isExpired) return;
+    noteBlocked(AdBlockReason.expired);
+    discardCurrentAd();
+  }
 
   /// Which network filled the warm ad (mediation observability), or null
   /// when nothing is loaded / the SDK reported nothing.
@@ -233,13 +244,16 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   /// the guarantee.
   void _scheduleExpiry() {
     final maxAdAge = _maxAdAge;
-    if (maxAdAge == null) return;
+    final loadedAt = _loadedAt;
+    if (maxAdAge == null || loadedAt == null) return;
+    // The REMAINING age, so a show that held the slot (a long rewarded intro)
+    // can re-arm it on rollback.
+    final remaining = maxAdAge - _now().difference(loadedAt);
     _timer?.cancel();
-    _timer = Timer(maxAdAge, () {
-      if (_disposed || _state.value is! AdLoaded || !isExpired) return;
-      noteBlocked(AdBlockReason.expired);
-      discardCurrentAd();
-    });
+    _timer = Timer(
+      remaining.isNegative ? Duration.zero : remaining,
+      _replaceIfExpired,
+    );
   }
 
   @override
@@ -295,48 +309,10 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         return;
       }
       if (_gate.consentGeneration != requestGeneration) {
-        // Consent mutated while this ad was in flight — it was requested (and
-        // its mediation privacy signal forwarded) under the OLD consent. Drop
-        // it unshown and reload through the re-forwarded gate, so it never
-        // records a stale-consent impression.
+        // Consent mutated while this ad was in flight — it was requested under
+        // the OLD consent. Drop it unshown and reload through the fresh gate,
+        // so it never records a stale-consent impression.
         safeUnawaited(handle.dispose(), debugName: 'handle');
-        _state.value = const AdIdle();
-        unawaited(load());
-        return;
-      }
-      _handle = handle;
-      _contentSub = handle.contentEvents.listen(_onContentEvent);
-      _paidSub = handle.paidEvents.listen(_dispatchPaid);
-      _loadedAt = _now();
-      _loadedGeneration = requestGeneration;
-      // Finalize the installed handle (e.g. re-attach a runtime SSV override
-      // captured while this load was in flight) BEFORE publishing AdLoaded, so
-      // the ad is never externally ready/showable carrying a stale payload
-      // (5.1 hardening). A throw fails the load CLOSED — drop the un-finalized
-      // handle and arm a retry, which re-dispatches with the latest value.
-      try {
-        await finalizeLoadedHandle();
-      } catch (e) {
-        if (_disposed) return;
-        _dropHandle();
-        _state.value = AdFailed(asAdFlowError(e, AdFlowErrorKind.ssv));
-        _scheduleRetry();
-        return;
-      }
-      // dispose() can run during finalization (it already dropped the handle
-      // and disposed the state notifier) — never publish onto a dead graph.
-      if (_disposed) return;
-      // retire() can run during finalization too — drop the installed handle
-      // (idempotent if retire already did) and do not publish AdLoaded.
-      if (_retired) {
-        _dropHandle();
-        return;
-      }
-      if (_gate.consentGeneration != requestGeneration) {
-        // Consent mutated DURING finalization — the ad carries the OLD
-        // consent/forwarding. Drop unshown and reload through the re-forwarded
-        // gate (same rule as the mid-load check above, for the finalize await).
-        _dropHandle();
         _state.value = const AdIdle();
         unawaited(load());
         return;
@@ -345,26 +321,28 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         // disableAds() / graph-dispose landed WHILE this ad was in flight: the
         // gate passed at request time, but ads are no longer enabled.
         // recheckGate cannot drop an AdLoading controller, so drop the
-        // finalized-but-unpublished handle HERE — synchronously, in the same
-        // turn as the AdLoaded write below — so no warm full-screen inventory is
-        // ever retained (or externally reported ready) under Remove-Ads (5.1.2
+        // freshly-loaded handle HERE — synchronously, in the same turn as the
+        // AdLoaded write below — so no warm full-screen inventory is ever
+        // retained (or externally reported ready) under Remove-Ads (5.1.2
         // in-flight-load race). enableAds() re-warms via the gate recheck. A
         // pure bool read: no transient internalError can wrongly drop good
-        // inventory (consent-staleness is the generation checks above).
-        _dropHandle();
+        // inventory (consent-staleness is the generation check above).
+        safeUnawaited(handle.dispose(), debugName: 'handle');
         noteBlocked(AdBlockReason.adsDisabled);
         _state.value = const AdBlocked(AdBlockReason.adsDisabled);
         _scheduleGateRecheck();
         return;
       }
+      _handle = handle;
+      _contentSub = handle.contentEvents.listen(_onContentEvent);
+      _paidSub = handle.paidEvents.listen(_dispatchPaid);
+      _loadedAt = _now();
+      _loadedGeneration = requestGeneration;
       _attempts = 0;
       _gateAttempts = 0;
       _lastBlockReason = null;
       _state.value = const AdLoaded();
       _scheduleExpiry();
-      // Legacy post-publish hook (public since 2.2.0) — runs AFTER AdLoaded, as
-      // it always has. Pre-publish finalization is finalizeLoadedHandle above.
-      onLoaded();
     } catch (e) {
       // Catch EVERYTHING, not just AdFlowError. The seam's contract says it
       // throws AdFlowError, but a real platform channel violates that freely:
@@ -420,7 +398,36 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   }
 
   @override
-  Future<bool> show() => showEngine();
+  Future<AdShowResult> show() => showEngine();
+
+  /// How long [show] waits for the SDK to put a dispatched ad ON SCREEN
+  /// before it completes with `AdShowResult.failed` (kind `timeout`), so an
+  /// ad the SDK never presents cannot hold the app's flow forever. Once the ad
+  /// is on screen there is no bound: [show] completes when the user closes it,
+  /// however long that takes (a user may leave the app mid-video and finish it
+  /// later — the result must still carry the reward). The ad itself is never
+  /// touched: the controller keeps following the SDK's events.
+  static const presentationTimeout = Duration(seconds: 30);
+
+  /// The show in progress — dispatched, waiting for the ad to close.
+  _ShowAttempt? _attempt;
+
+  /// Completes the show in progress, once, with [build]'s result.
+  void _finishShow(AdShowResult Function(_ShowAttempt attempt) build) {
+    final attempt = _attempt;
+    if (attempt == null) return;
+    _attempt = null;
+    attempt.timer?.cancel();
+    if (!attempt.completer.isCompleted) {
+      attempt.completer.complete(build(attempt));
+    }
+  }
+
+  /// Records [reason] and reports it as the result of a refused show.
+  AdShowResult _refused(AdBlockReason reason) {
+    noteBlocked(reason);
+    return AdShowResult.blocked(reason);
+  }
 
   /// The full show engine, shared by every format. [onReward] is forwarded
   /// to the handle for the rewarded formats (their public `show(onReward:)`
@@ -435,21 +442,23 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   /// claim spans the intro, so a warm-return app-open cannot stack over it.
   /// Returning false (the user skipped; report the reason yourself before
   /// returning) or throwing rolls everything back to a warm [AdLoaded].
+  ///
+  /// Completes when the dispatched ad CLOSES, or at once when the show is
+  /// refused or fails (6.0); an ad the SDK never presents completes after
+  /// [presentationTimeout].
   @protected
-  Future<bool> showEngine({
+  Future<AdShowResult> showEngine({
     OnUserEarnedReward? onReward,
     Future<bool> Function()? confirm,
   }) async {
-    if (_disposed) return false;
-    if (_state.value is AdShowing) return false; // never double-show
+    if (_disposed) return const AdShowResult.blocked(AdBlockReason.notReady);
+    if (_state.value is AdShowing) {
+      return const AdShowResult.blocked(AdBlockReason.otherAdShowing);
+    }
     final handle = _handle;
-    // Gate on isReady, not just AdLoaded — a subclass (RuntimeSsvController)
-    // overrides isReady to report "not yet" while a required SSV override is
-    // still settling onto the warm ad. For the base the two are equivalent.
     if (handle == null || !isReady) {
-      noteBlocked(AdBlockReason.notReady);
       unawaited(load()); // warm one up for the next natural break
-      return false;
+      return _refused(AdBlockReason.notReady);
     }
     if (isExpired) {
       // Stale inventory (the proactive timer did not fire — e.g. the app was
@@ -458,7 +467,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       // not count.
       noteBlocked(AdBlockReason.expired);
       discardCurrentAd();
-      return false;
+      return const AdShowResult.blocked(AdBlockReason.expired);
     }
 
     // Atomically check-and-claim the coordinator BEFORE any await — see
@@ -470,8 +479,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     // its own atomic one instead. gate.canLoad + caps.canShow cover the
     // remaining (consent/enabled/frequency-cap) checks.
     if (!_coordinator.tryEnter()) {
-      noteBlocked(AdBlockReason.otherAdShowing);
-      return false;
+      return _refused(AdBlockReason.otherAdShowing);
     }
     _enteredCoordinator = true;
     // Set Showing synchronously, in the same turn as the coordinator
@@ -486,10 +494,20 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     // unawaited_return_in_try_block). The catch then runs the rollback again,
     // which is safe: the state write is a no-op the second time, and exit()
     // runs again only if the first call threw (the flag is cleared after it).
-    Future<bool> rejectAndRollBack() async {
+    Future<AdShowResult> rejectAndRollBack(AdBlockReason reason) async {
       _exitCoordinator();
-      if (!_disposed) _state.value = const AdLoaded();
-      return false;
+      if (_disposed) return AdShowResult.blocked(reason);
+      if (isExpired) {
+        // The ad aged out while this show held the slot (a long rewarded
+        // intro): drop and reload in the same turn as the claim release —
+        // never back to AdLoaded first (ADR-075).
+        discardCurrentAd();
+      } else {
+        _state.value = const AdLoaded();
+        // The expiry timer may have fired (and done nothing) during AdShowing.
+        _scheduleExpiry();
+      }
+      return AdShowResult.blocked(reason);
     }
 
     // A warm ad that must not be shown at all (stale consent, or expired) is
@@ -499,11 +517,15 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     // the doomed handle in between, the discard then dropped it from under
     // that show and started a load, and that show's own discard started a
     // second one, leaking a handle (ADR-075).
-    bool releaseAndDiscard() {
+    AdShowResult releaseAndDiscard(AdBlockReason reason) {
       _exitCoordinator();
       discardCurrentAd();
-      return false;
+      return AdShowResult.blocked(reason);
     }
+
+    // The graph was disposed while this show awaited a check: dispose()
+    // already rolled everything back.
+    const disposedMidShow = AdShowResult.blocked(AdBlockReason.notReady);
 
     // These preconditions run AFTER the coordinator has been claimed and
     // AdShowing written (both must be synchronous — ADR-024), so any throw in
@@ -524,17 +546,17 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       final blocked = await _gate.showBlockReason(slot);
       if (blocked != null) {
         noteBlocked(blocked);
-        return await rejectAndRollBack();
+        return await rejectAndRollBack(blocked);
       }
-      if (_disposed) return false; // dispose() already rolled everything back
+      if (_disposed) return disposedMidShow;
       if (!await _caps.canShow(slot)) {
         noteBlocked(AdBlockReason.frequencyCapped);
-        return await rejectAndRollBack();
+        return await rejectAndRollBack(AdBlockReason.frequencyCapped);
       }
-      if (_disposed) return false;
+      if (_disposed) return disposedMidShow;
       if (!canShowExtra()) {
         noteBlocked(AdBlockReason.userActionPacing);
-        return await rejectAndRollBack();
+        return await rejectAndRollBack(AdBlockReason.userActionPacing);
       }
       // The confirm hook (the rewarded-interstitial intro) runs LAST, with
       // every policy check already passed and the claim held. It is
@@ -542,12 +564,12 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       // the expiry timer cannot discard the handle mid-intro and re-entrant
       // show() calls bail on the AdShowing guard.
       if (confirm != null && !await confirm()) {
-        return await rejectAndRollBack();
+        return await rejectAndRollBack(AdBlockReason.introSkipped);
       }
       // The confirm hook can outlive the graph (the user backgrounds the
       // app on the intro and the screen is popped): dispose() already
       // released the claim and dropped the handle — do not show.
-      if (_disposed) return false;
+      if (_disposed) return disposedMidShow;
       // RE-VALIDATE after the unbounded confirm hook (4.1 audit). The checks
       // above ran BEFORE the intro, which the user may sit on for minutes:
       // Remove-Ads can be bought and the warm ad can age past maxAdAge in
@@ -558,33 +580,19 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       // (mirrors recheckGate), never waste an accepted intro on a blip.
       if (confirm != null) {
         final after = await _gate.showBlockReason(slot);
-        if (_disposed) return false;
+        if (_disposed) return disposedMidShow;
         if (after != null && after != AdBlockReason.internalError) {
           noteBlocked(after);
-          return await rejectAndRollBack();
+          return await rejectAndRollBack(after);
         }
         if (isExpired) {
           noteBlocked(AdBlockReason.expired);
-          return releaseAndDiscard();
+          return releaseAndDiscard(AdBlockReason.expired);
         }
       }
     } catch (_) {
       // Degrade to "don't show", never to "wedged forever".
-      return rejectAndRollBack();
-    }
-
-    OnUserEarnedReward? onRewardOnce;
-    if (onReward != null) {
-      // A reward is granted at most once per ad, even if the SDK misfires —
-      // and the app's grant callback is isolated, so an app bug inside it
-      // cannot corrupt the show flow or become an unhandled platform-callback
-      // error (4.0 audit).
-      var granted = false;
-      onRewardOnce = (reward) {
-        if (granted) return;
-        granted = true;
-        guardedCallback(() => onReward(reward), debugName: 'onReward');
-      };
+      return rejectAndRollBack(AdBlockReason.internalError);
     }
     // FINAL synchronous dispatch boundary (5.2.1). Every check above ran BEFORE
     // one or more awaits (showBlockReason, caps.canShow, and — for the rewarded
@@ -595,7 +603,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     // dispatched despite being revoked or stale. Re-verify only the cheap
     // SYNCHRONOUS facts that can have gone stale (no network/consent flow, no
     // async cap recompute), in the same turn as handle.show() below.
-    if (_disposed) return false; // dispose already rolled everything back
+    if (_disposed) return disposedMidShow;
     if (!_gate.isEnabled) {
       // Ads disabled mid-show: do not dispatch, and do not leave it warm under
       // adsDisabled (mirrors recheckGate, which could not touch AdShowing).
@@ -605,21 +613,64 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       _dropHandle();
       if (!_disposed) _state.value = const AdBlocked(AdBlockReason.adsDisabled);
       _scheduleGateRecheck();
-      return false;
+      return const AdShowResult.blocked(AdBlockReason.adsDisabled);
     }
     if (_loadedGeneration != _gate.consentGeneration) {
-      // Consent mutated mid-show: the warm ad carries stale consent/forwarding.
+      // Consent mutated mid-show: the warm ad carries stale consent.
       // Release the claim, then drop + reload through the fresh gate.
-      return releaseAndDiscard();
+      return releaseAndDiscard(AdBlockReason.notReady);
     }
     if (isExpired) {
       // Aged past maxAdAge mid-show (e.g. a slow cap hydration crossed expiry):
       // discard rather than show a stale ad that may fail or not count.
       noteBlocked(AdBlockReason.expired);
-      return releaseAndDiscard();
+      return releaseAndDiscard(AdBlockReason.expired);
     }
+
+    // Dispatching. The attempt is in place BEFORE handle.show() so content
+    // events that arrive while the dispatch is still awaited are not lost.
+    final attempt = _ShowAttempt();
+    _attempt = attempt;
+    attempt.timer = Timer(presentationTimeout, () {
+      if (!identical(_attempt, attempt) || attempt.showedOnScreen) return;
+      _finishShow(
+        (_) => const AdShowResult.failed(
+          AdFlowError(
+            AdFlowErrorKind.timeout,
+            'The ad was dispatched, but the SDK did not put it on screen.',
+          ),
+        ),
+      );
+    });
+    // A reward is granted at most once per ad, even if the SDK misfires —
+    // and the app's grant callback is isolated, so an app bug inside it
+    // cannot corrupt the show flow or become an unhandled platform-callback
+    // error (4.0 audit). The reward is also kept for the show's result.
+    var granted = false;
+    void onRewardOnce(RewardEarned reward) {
+      if (granted) return;
+      granted = true;
+      attempt.reward = reward;
+      if (onReward != null) {
+        guardedCallback(() => onReward(reward), debugName: 'onReward');
+      }
+    }
+
+    // Not awaited before returning: the result is bounded by
+    // [presentationTimeout] and [dispose] even if the platform call never
+    // replies.
+    unawaited(_dispatch(handle, attempt, onRewardOnce));
+    return attempt.completer.future;
+  }
+
+  /// Hands the ad to the SDK and handles a dispatch that throws.
+  Future<void> _dispatch(
+    FullScreenAdHandle handle,
+    _ShowAttempt attempt,
+    OnUserEarnedReward onReward,
+  ) async {
     try {
-      await handle.show(onUserEarnedReward: onRewardOnce);
+      await handle.show(onUserEarnedReward: onReward);
     } catch (e) {
       // The documented AdSdk.show contract says failures arrive via
       // AdFailedToShowEvent, never a rejected Future — but a real
@@ -627,18 +678,24 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       // and show, channel error, mediation failure). Without this guard
       // the coordinator claim and AdShowing state above are never rolled
       // back, wedging every full-screen format for the rest of the
-      // session (review finding #1).
-      _exitCoordinator();
-      _dropHandle();
-      if (!_disposed) {
-        _state.value = AdFailed(AdFlowError(AdFlowErrorKind.showFailed, '$e'));
-        unawaited(load());
+      // session (review finding #1). Only while this ad is still the
+      // current one: a late throw must not tear down a newer ad.
+      final error = AdFlowError(AdFlowErrorKind.showFailed, '$e');
+      if (identical(_handle, handle)) {
+        _exitCoordinator();
+        _dropHandle();
+        if (!_disposed) {
+          _state.value = AdFailed(error);
+          unawaited(load());
+        }
       }
-      return false;
+      if (identical(_attempt, attempt)) {
+        _finishShow((_) => AdShowResult.failed(error));
+      }
+      return;
     }
     _lastBlockReason = null;
     onShown();
-    return true;
   }
 
   void _onContentEvent(FullScreenAdEvent event) {
@@ -649,6 +706,12 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         // recorded here — it is recorded on dismiss (see below, ADR-040).
         // Coordinator entry already happened synchronously in show().
         _impressionPending = true;
+        final attempt = _attempt;
+        if (attempt != null) {
+          // On screen: from here show() waits for the close, unbounded.
+          attempt.showedOnScreen = true;
+          attempt.timer?.cancel();
+        }
       case AdDismissedEvent():
         // Record the impression HERE, not on AdShowedEvent (ADR-040).
         //
@@ -666,6 +729,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         _exitCoordinator();
         _dropHandle();
         _state.value = const AdIdle();
+        _finishShow((a) => AdShowResult.shown(reward: a.reward));
         unawaited(load());
       case AdFailedToShowEvent(:final error):
         // If the ad had already reached the screen, it still counts.
@@ -673,6 +737,11 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         _exitCoordinator();
         _dropHandle();
         _state.value = AdFailed(error);
+        _finishShow(
+          (a) => a.showedOnScreen
+              ? AdShowResult.shown(reward: a.reward)
+              : AdShowResult.failed(error),
+        );
         unawaited(load()); // AdFailed passes the load guard → AdLoading
       case AdImpressionEvent() || AdClickedEvent():
         break;
@@ -774,6 +843,25 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     _timer = null;
     _exitCoordinator();
     _dropHandle();
+    _finishShow(
+      (a) => a.showedOnScreen
+          ? AdShowResult.shown(reward: a.reward)
+          : const AdShowResult.blocked(AdBlockReason.notReady),
+    );
     _state.dispose();
   }
+}
+
+/// One dispatched show, waiting for its ad to close.
+class _ShowAttempt {
+  final completer = Completer<AdShowResult>();
+
+  /// The SDK reported the ad on screen.
+  bool showedOnScreen = false;
+
+  /// The reward the user earned during this show, if any.
+  RewardEarned? reward;
+
+  /// The [FullScreenAdControllerBase.presentationTimeout] bound.
+  Timer? timer;
 }

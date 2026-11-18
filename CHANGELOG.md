@@ -1,3 +1,95 @@
+## 6.0.0
+
+A **simplification** release, driven by how nine production apps actually use
+ad_flow: the code those apps wrote around it — waiting for an ad to close,
+mirroring frequency caps, waiting for a launch ad — moves into the package,
+and the machinery none of them used goes. **Breaking**; MIGRATION.md has the
+mapping (most apps change a handful of lines and delete their wrappers).
+
+### CHANGED
+
+- **`show()` completes when the ad CLOSES** (all full-screen formats) and
+  returns an `AdShowResult`: `shown` (with `reward` for rewarded formats),
+  `blockReason` (why nothing was shown) or `error`. `onReward` still fires,
+  once. An ad the SDK never puts on screen completes `failed` (kind
+  `timeout`) after 30 seconds; once on screen, `show()` waits for the close however long it takes.
+- **Slot getters are nullable** — `ads.interstitial?.show()`; null means the
+  slot is not configured for this platform. The `…OrNull` getters and
+  `appOpenController` are gone (`ads.appOpen?.controller`).
+- **Test ads are automatic.** `AdFlowConfig.testMode` is `bool?`; null (the
+  default) serves Google's test ads in debug builds and your IDs in release.
+  Test ads stand in only on platforms the slot has IDs for (debug and release
+  agree on which slots exist). With `testMode: true` a slot may leave its IDs
+  out (`PlatformAdUnitId()`).
+- **`AdFlowBanner(adFlow:)` / `AdFlowNativeAd(adFlow:)` render nothing where
+  their slot is not configured** — no slot config, or no ID for the running
+  platform — the way the full-screen getters return null there. 5.x threw
+  while building: a red screen in debug, a grey box in release. A debug build
+  prints why. `ads.banner()` / `ads.native()` still throw `invalidConfig`,
+  and a per-placement `config:` gets the same checks as the global one: an
+  ID-less (`PlatformAdUnitId()`) or empty ID is refused unless `testMode:
+  true`, in debug as in release.
+- **App open:** `showAtLaunch({maxWait = 3 s})` replaces
+  `showAtLaunchIfReady()` — it waits (bounded) for the first load, returns at
+  once when no consent is stored yet or ads are disabled, stops waiting when
+  the load fails (offline, no fill), and completes when the ad closes. The slot now preloads at startup. `AppOpenTriggerMode` /
+  `triggerMode` → `AppOpenConfig.showOnResume` (default true).
+- **`package:ad_flow/ad_flow.dart` exports only what app code uses** — 68
+  types (5.x: 105). Moved to `package:ad_flow/ad_flow_testing.dart`: `AdGate`,
+  `FrequencyCapPolicy`, `StoredFrequencyCapPolicy`, `FullScreenAdCoordinator`,
+  `RetryPolicy`, `InMemoryKeyValueStore`, `FullScreenAdControllerBase`,
+  `BannerHeightMemory`, and the seam's handles, events and load specs
+  (`InterstitialHandle`, `BannerHandle`, `AdShowedEvent`, `BannerLoadSpec`,
+  …). `AdSdk` itself stays, as the `sdk:` injection type. Internal now:
+  `SharedPrefsKeyValueStore` (the default store) and
+  `AdFlowConfig.toRequestConfig()`. None of the nine apps on ad_flow used
+  these outside tests.
+- An expired warm full-screen ad is replaced as soon as `canShow` sees it,
+  and a show refused after holding the slot past the ad's age (a long rewarded
+  intro) drops it — before, only `show()` or the expiry timer replaced it, and
+  that timer does not run while the device sleeps.
+
+### ADDED
+
+- `AdShowResult`.
+- `FullScreenAdController.canShow` — synchronous "would `show()` show an ad
+  now?" (warm, unexpired, enabled, nothing else on screen, caps and pacing).
+- `AdFlowConfig.usesTestAds`, `AppOpenAdManager.controller`,
+  `FrequencyCapPolicy.allowsNow`, `FakeFullScreenAdHandle.showHold`.
+
+### FOR IMPLEMENTERS
+
+If you implement or construct these yourself (custom test doubles, a custom
+cap policy): `FullScreenAdController` gained `canShow`; `FrequencyCapPolicy`
+gained `allowsNow`; `AdGate` lost `settleConsentForwarding:`;
+`FullScreenAdCoordinator` lost `blockingViewAdVisible`. Implementing `AdSdk`
+or building a controller by hand needs `package:ad_flow/ad_flow_testing.dart`
+for the handle, event and load-spec types.
+
+### REMOVED
+
+- `AdFlowConfig.test()` — build a normal config; test ads are automatic.
+- `forwardConsent`, `MediationConsentFailurePolicy`,
+  `AdFlowConfig.mediationConsentPolicy`, `AdBlockReason.consentNotForwarded`.
+- `RequestConfigFailurePolicy` / `AdFlowConfig.requestConfigPolicy`: loads wait
+  for the request configuration exactly when it carries policy-critical
+  fields (the former `auto`).
+- Runtime SSV: `setServerSideVerification` and the rewarded handles'
+  `updateServerSideVerification` (config-time `ssv` stays).
+- Client-side banner refresh: `BannerConfig.minRefresh`,
+  `BannerAdController.minRefreshFloor` and `.revision` (AdMob refreshes
+  banners server-side).
+- `AdFlow.setBlockingViewAdVisible`.
+- `FullScreenAdControllerBase.onLoaded()` / `finalizeLoadedHandle()` /
+  `currentHandle`.
+- `skipConsentPrimerIfAttDenied` (deprecated in 5.5.0).
+- **The consent primer** before the GDPR form: `consentExplainer`,
+  `consentExplainerContent`, `ConsentExplainerScreen`,
+  `ConsentExplainerContent`, `ConsentExplainerPresenter`. With ATT after the
+  GDPR flow (5.5.0), an EU user on iOS met four privacy screens in a row, and
+  an App Store reviewer read primer + prompts as asking twice; Google's message
+  already explains the choice. The ATT primer (`attExplainer`) stays.
+
 ## 5.5.0
 
 An **App Store compliance** release: the consent flow now asks Apple's
