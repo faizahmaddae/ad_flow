@@ -7,9 +7,11 @@ and 6.0.0 is [REVIEW_2026-11.md](REVIEW_2026-11.md).
 
 ## Current phase
 
-**Phase 34 — 6.0.0, the simplification release (2026-11-18)** — implemented on
-branch `claude/ad-flow-v6` (stacked on `claude/ads-package-review-a0fe65`,
-5.5.0, PR #19). Not released: no v6 PR yet, no tag. ADR-083.
+**Phase 34 — 6.0.0, the simplification release (2026-11-18)** — **shipped and
+published** (ADR-083…087). 5.5.0: PR #19 squash-merged as `8416e87`, tag
+`v5.5.0`, on pub.dev. 6.0.0: PR #20 squash-merged as `51015be`, tag `v6.0.0`,
+on pub.dev (latest). Both via the tag-triggered `publish.yml`, after main's own
+CI on each merge commit was green (ci, pana, example-build, example-build-ios).
 
 Done (one commit each, tree green after each):
 
@@ -128,12 +130,11 @@ Done (one commit each, tree green after each):
 
 ## Next (ordered)
 
-1. Faiz: merge PR #19 (5.5.0) and tag `v5.5.0` — the App Store fix.
-2. Rebase `claude/ad-flow-v6` onto main after #19 merges
-   (`git rebase --onto origin/main <last 5.5.0 commit>`), open the 6.0.0 PR.
-3. Device check left: the client-driven `attExplainer` primer with a real
+1. Device check left: the client-driven `attExplainer` primer with a real
    app ID that has no console IDFA message (iOS item 16, Android item 17).
-4. Migrate the nine apps (one session per app, in its own repo), deleting their
+2. Apps still on `^5.x` get the ATT-order fix with a plain `pub upgrade`
+   (5.5.0); 6.0 needs the migration below.
+3. Migrate the nine apps (one session per app, in its own repo), deleting their
    wrappers: wait-for-close adapters, `FullScreenPacing`, `PrivacyOptionsMirror`,
    nahjal's `ConsentThenAttGateway` + TCF channel, launch-wait code, debug
    placeholder IDs, and the `consentExplainer` argument (novels, jadval,
