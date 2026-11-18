@@ -40,9 +40,9 @@ Behaviour changes to check:
   still wait for consent and request configuration).
 - **A slot configured for one platform has no test ads on the other** in debug
   either (it already had no ads there in release). There the full-screen
-  getter is null, and `ads.banner()` / `AdFlowBanner(adFlow: ads)` throw
-  `invalidConfig` — so place a banner only on platforms its slot has an ID
-  for.
+  getter is null and `AdFlowBanner(adFlow:)` / `AdFlowNativeAd(adFlow:)`
+  render nothing (5.x threw while building), so a platform check around a
+  placement can go.
 - A `BannerConfig` that set `minRefresh` now relies on the console's refresh.
 
 # Upgrading 5.4.x → 5.5.0

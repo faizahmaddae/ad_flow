@@ -65,15 +65,18 @@ Done (one commit each, tree green after each):
     audits) moved to `archive/`. The review's plan now carries a status line
     per phase.
 
+14. Placements without a slot render nothing (ADR-085, Faiz left the call to
+    Claude): `AdFlowBanner(adFlow:)` / `AdFlowNativeAd(adFlow:)` collapse to
+    `SizedBox.shrink()` where their slot has no config or no ID for the
+    platform (debug prints why) instead of throwing in `initState`.
+
 ## Next (ordered)
 
 1. Faiz: merge PR #19 (5.5.0) and tag `v5.5.0` — the App Store fix.
 2. Rebase `claude/ad-flow-v6` onto main after #19 merges
    (`git rebase --onto origin/main <last 5.5.0 commit>`), open the 6.0.0 PR.
-3. Faiz decides before 6.0 ships: (a) should `AdFlowBanner(adFlow:)` /
-   `AdFlowNativeAd(adFlow:)` render nothing instead of throwing on a platform
-   their slot has no ID for (recommended: yes, with a debug report)? (b) keep or
-   drop the consent primer (review open decision 4; four apps pass it)?
+3. Faiz decides before 6.0 ships: keep or drop the consent primer (review
+   open decision 4; four apps pass it)?
 4. Device check of the example on Android + iOS (show-and-wait, launch ad,
    ATT order) — not done yet; unit tests only.
 5. Migrate the nine apps (one session per app, in its own repo), deleting their

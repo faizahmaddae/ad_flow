@@ -20,10 +20,13 @@ mapping (most apps change a handful of lines and delete their wrappers).
 - **Test ads are automatic.** `AdFlowConfig.testMode` is `bool?`; null (the
   default) serves Google's test ads in debug builds and your IDs in release.
   Test ads stand in only on platforms the slot has IDs for (debug and release
-  agree on which slots exist): on the other platform the full-screen getter is
-  null, and `ads.banner()` / `AdFlowBanner(adFlow: ads)` throw `invalidConfig`
-  in debug too, as they always did in release. With `testMode: true` a slot
-  may leave its IDs out (`PlatformAdUnitId()`).
+  agree on which slots exist). With `testMode: true` a slot may leave its IDs
+  out (`PlatformAdUnitId()`).
+- **`AdFlowBanner(adFlow:)` / `AdFlowNativeAd(adFlow:)` render nothing where
+  their slot is not configured** — no slot config, or no ID for the running
+  platform — the way the full-screen getters return null there. 5.x threw
+  while building: a red screen in debug, a grey box in release. A debug build
+  prints why. `ads.banner()` / `ads.native()` still throw `invalidConfig`.
 - **App open:** `showAtLaunch({maxWait = 3 s})` replaces
   `showAtLaunchIfReady()` — it waits (bounded) for the first load, returns at
   once when no consent is stored yet or ads are disabled, and completes when

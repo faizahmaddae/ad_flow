@@ -8,6 +8,7 @@ import '../controllers/banner_ad_controller.dart';
 import '../core/ad_block_reason.dart';
 import '../core/ad_load_state.dart';
 import '../facade/ad_flow.dart';
+import 'placement_mint.dart';
 
 /// Drop-in banner widget.
 ///
@@ -59,9 +60,10 @@ class AdFlowBanner extends StatefulWidget {
 
   /// The facade to mint this placement's controller from (recommended path).
   ///
-  /// The slot needs an ad unit ID for the running platform: on a platform it
-  /// has none for, [AdFlow.banner] throws an `AdFlowError` (`invalidConfig`)
-  /// when the widget mounts, so only place the banner where it is configured.
+  /// Where the slot is not configured for the running platform (no banner
+  /// config, or no ad unit ID for this platform) the widget renders nothing,
+  /// like the nullable full-screen getters, and a debug build prints why —
+  /// shared layouts need no platform check (ADR-085).
   final AdFlow? adFlow;
 
   /// Per-placement override of the global banner config ([adFlow] mode).
@@ -145,6 +147,10 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
   bool _loadRequested = false;
   int? _requestedWidth;
 
+  /// The widget-first slot is not configured for this platform: there is no
+  /// controller, and the widget renders nothing (ADR-085).
+  bool _unconfigured = false;
+
   @override
   void initState() {
     super.initState();
@@ -152,16 +158,22 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
   }
 
   void _adopt() {
-    final adFlow = widget.adFlow;
-    if (adFlow != null) {
-      _controller = adFlow.banner(widget.config);
-      _ownsController = true;
-    } else {
-      _controller = widget.controller!;
-      _ownsController = widget.ownsController;
-    }
     _loadRequested = false;
     _requestedWidth = null;
+    final adFlow = widget.adFlow;
+    if (adFlow == null) {
+      _controller = widget.controller!;
+      _ownsController = widget.ownsController;
+      _unconfigured = false;
+      return;
+    }
+    final minted = mintPlacement(
+      () => adFlow.banner(widget.config),
+      widgetName: 'AdFlowBanner',
+    );
+    _unconfigured = minted == null;
+    _ownsController = minted != null;
+    if (minted != null) _controller = minted;
   }
 
   @override
@@ -201,6 +213,8 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
 
   @override
   Widget build(BuildContext context) {
+    // No slot on this platform: no footprint at all, safe-area inset included.
+    if (_unconfigured) return const SizedBox.shrink();
     // In widget-first mode, listen to the facade's Remove-Ads notifier so the
     // banner collapses SYNCHRONOUSLY the instant disableAds() flips it — before
     // the asynchronous controller recheckGate() has run. In advanced

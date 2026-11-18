@@ -887,8 +887,8 @@ class AdFlow {
   /// global banner config for this placement.
   ///
   /// Throws an [AdFlowError] (`invalidConfig`) when there is no banner config
-  /// or the slot has no ad unit ID for this platform — the same in debug and
-  /// release builds, so a missing ID shows up during development.
+  /// or the slot has no ad unit ID for this platform. `AdFlowBanner(adFlow:)`
+  /// renders nothing in that case instead (ADR-085).
   BannerAdController banner([BannerConfig? override]) {
     final config = override ?? _config.banner;
     if (config == null) {
@@ -941,7 +941,8 @@ class AdFlow {
   /// the global native config for this placement.
   ///
   /// Throws an [AdFlowError] (`invalidConfig`) when there is no native config
-  /// or the slot has no ad unit ID for this platform.
+  /// or the slot has no ad unit ID for this platform. `AdFlowNativeAd(adFlow:)`
+  /// renders nothing in that case instead (ADR-085).
   NativeAdController native([NativeConfig? override]) {
     final config = override ?? _config.nativeAd;
     if (config == null) {

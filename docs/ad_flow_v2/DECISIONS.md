@@ -135,3 +135,31 @@ to the main library needs an app that uses it; otherwise it goes in
 `FakeAdSdk`), so semver applies to it too. `BannerAdController.handle` /
 `NativeAdController.handle` still return seam types (the widgets need them);
 no app uses them.
+
+## ADR-085 — A placement whose slot is not configured renders nothing · accepted (2026-11-18)
+
+**Context.** Since 6.0 a slot may exist on one platform only: its full-screen
+getter is null elsewhere. `AdFlowBanner(adFlow:)` / `AdFlowNativeAd(adFlow:)`
+instead called `ads.banner()` / `ads.native()` in `initState`, which throw
+`AdFlowError(invalidConfig)` without a config or an ID for the platform — a red
+screen in debug and a grey error box in release, in front of users. Faiz left
+the call to Claude.
+
+**Decision.** In `adFlow` mode both widgets mint through
+`mintPlacement()` (`lib/src/widgets/placement_mint.dart`): an
+`invalidConfig` error means "no slot here", the widget renders
+`SizedBox.shrink()` (safe-area inset included) and a debug build
+`debugPrint`s the reason once per mount. A later config that has an ID
+mounts and loads; losing it drops the owned controller. The controller
+factories still throw — a direct call is a programming error.
+Guarded by `test/widgets/unconfigured_placement_test.dart` (4, neuter-checked).
+
+**Rejected.** `FlutterError.reportError` for the missing ID: it fails app
+widget tests and floods crash reporting for an intentional one-platform slot.
+A nullable `banner()` / `native()`: the `…OrNull` shape ADR-083 removed, and
+the widget path is the recommended one. Asserting in debug: debug and release
+would differ again (ADR-083 addendum).
+
+**Consequences.** A forgotten ID shows as an empty slot plus one debug log
+line, not a crash. Other `AdFlowError`s still propagate.
+
