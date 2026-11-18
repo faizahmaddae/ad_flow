@@ -15,6 +15,7 @@ void main() {
   late FakeAdSdk sdk;
 
   const fullConfig = AdFlowConfig(
+    testMode: false,
     banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
     interstitial: InterstitialConfig(
       adUnitId: PlatformAdUnitId(android: 'i-a'),
@@ -210,6 +211,7 @@ void main() {
       final ads = await AdFlow.initialize(
         // No testDeviceIds/tags/rating → a lost config costs nothing.
         const AdFlowConfig(
+          testMode: false,
           banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
         ),
         sdk: sdk,
@@ -247,7 +249,7 @@ void main() {
       sdk.canRequestAdsResult = false;
 
       final ads = await AdFlow.initialize(
-        const AdFlowConfig(), // no slots: nothing to load
+        const AdFlowConfig(testMode: false), // no slots: nothing to load
         sdk: sdk,
         store: InMemoryKeyValueStore(),
         platform: AdPlatform.android,
@@ -473,6 +475,7 @@ void main() {
       () async {
         final ads = await boot(
           config: const AdFlowConfig(
+            testMode: false,
             interstitial: InterstitialConfig(
               adUnitId: PlatformAdUnitId(android: 'i-a'),
               cap: FrequencyCap(),
@@ -495,6 +498,7 @@ void main() {
       await expectLater(
         AdFlow.initialize(
           const AdFlowConfig(
+            testMode: false,
             rewardedInterstitial: RewardedInterstitialConfig(
               adUnitId: PlatformAdUnitId(android: 'ri-a'),
             ),
@@ -539,6 +543,7 @@ void main() {
         'is one-shot across reinitialization in the same process', () async {
       resetAppOpenLaunchOpportunity(); // isolate this test
       const launchConfig = AdFlowConfig(
+        testMode: false,
         appOpen: AppOpenConfig(
           adUnitId: PlatformAdUnitId(android: 'ao-a'),
           cap: FrequencyCap(),
@@ -613,7 +618,7 @@ void main() {
         injectedSdk.dispose();
       });
       final injected = await AdFlow.initialize(
-        const AdFlowConfig(),
+        const AdFlowConfig(testMode: false),
         sdk: injectedSdk,
         consent: injectedConsent,
         store: InMemoryKeyValueStore(),
@@ -692,7 +697,7 @@ void main() {
         });
 
         final ads = await AdFlow.initialize(
-          const AdFlowConfig(),
+          const AdFlowConfig(testMode: false),
           sdk: injectedSdk,
           consent: injectedConsent,
           store: InMemoryKeyValueStore(),
@@ -771,6 +776,7 @@ void main() {
     test('missing slot config throws invalidConfig', () async {
       final ads = await boot(
         config: const AdFlowConfig(
+          testMode: false,
           interstitial: InterstitialConfig(
             adUnitId: PlatformAdUnitId(android: 'i-a'),
             cap: FrequencyCap(),
@@ -789,6 +795,7 @@ void main() {
     () async {
       final ads = await AdFlow.initialize(
         const AdFlowConfig(
+          testMode: false,
           interstitial: InterstitialConfig(
             adUnitId: PlatformAdUnitId(android: 'i-a'),
             cap: FrequencyCap(),

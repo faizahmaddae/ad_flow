@@ -471,6 +471,7 @@ void main() {
         'unrepresentable', (tester) async {
       final ads = await AdFlow.initialize(
         const AdFlowConfig(
+          testMode: false,
           banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
         ),
         sdk: sdk,
@@ -504,6 +505,7 @@ void main() {
     ) async {
       final ads = await AdFlow.initialize(
         const AdFlowConfig(
+          testMode: false,
           banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
         ),
         sdk: sdk,
@@ -570,6 +572,7 @@ void main() {
     Future<AdFlow> initBannerAdFlow() async {
       final ads = await AdFlow.initialize(
         const AdFlowConfig(
+          testMode: false,
           banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
         ),
         sdk: sdk,
@@ -976,6 +979,7 @@ void main() {
         'banner paints nothing at all', (tester) async {
       final ads = await AdFlow.initialize(
         const AdFlowConfig(
+          testMode: false,
           banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
         ),
         sdk: sdk,

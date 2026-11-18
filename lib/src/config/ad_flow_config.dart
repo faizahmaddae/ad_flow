@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../core/ad_flow_error.dart';
 import '../seam/ad_sdk_types.dart';
 import 'ad_platform.dart';
@@ -471,7 +473,7 @@ class AppOpenConfig {
 // exists for one — and the first warm return shows by default.
 
 /// Google's official sample ad unit IDs (safe to click; used by
-/// [AdFlowConfig.test] and whenever [AdFlowConfig.testMode] is on).
+/// whenever [AdFlowConfig.usesTestAds]).
 abstract final class TestAdUnitIds {
   /// Sample banner IDs — the ADAPTIVE units, matching the default
   /// [BannerKind.anchoredAdaptive]. Prefer [forBannerKind] over reading this
@@ -556,7 +558,7 @@ class AdFlowConfig {
       minGap: Duration(seconds: 15),
     ),
     this.retry = const RetryConfig(),
-    this.testMode = false,
+    this.testMode,
     this.testDeviceIds = const [],
     this.maxAdContentRating,
     this.tagForUnderAgeOfConsent,
@@ -577,6 +579,9 @@ class AdFlowConfig {
     }
 
     void checkUnitId(PlatformAdUnitId id, String slot) {
+      // While test ads are on the configured IDs are never requested, so a
+      // slot may leave them out (6.0).
+      if (usesTestAds) return;
       check(
         id.android != null || id.ios != null,
         '$slot.adUnitId has no platform IDs — configure android and/or ios, '
@@ -678,32 +683,6 @@ class AdFlowConfig {
     }
   }
 
-  /// A configuration that serves Google's official test ads for every
-  /// format. Use during development; never ship it.
-  factory AdFlowConfig.test({
-    FrequencyCap? globalFrequencyCap,
-    RetryConfig? retry,
-  }) => AdFlowConfig(
-    banner: const BannerConfig(adUnitId: TestAdUnitIds.banner),
-    interstitial: const InterstitialConfig(
-      adUnitId: TestAdUnitIds.interstitial,
-    ),
-    rewarded: const RewardedConfig(adUnitId: TestAdUnitIds.rewarded),
-    rewardedInterstitial: const RewardedInterstitialConfig(
-      adUnitId: TestAdUnitIds.rewardedInterstitial,
-    ),
-    nativeAd: const NativeConfig(
-      adUnitId: TestAdUnitIds.native,
-      templateKind: NativeTemplateKind.medium,
-    ),
-    appOpen: const AppOpenConfig(adUnitId: TestAdUnitIds.appOpen),
-    globalFrequencyCap:
-        globalFrequencyCap ??
-        const FrequencyCap(maxPerSession: 100, minGap: Duration(seconds: 15)),
-    retry: retry ?? const RetryConfig(),
-    testMode: true,
-  );
-
   /// Banner slot config, or null to disable banners.
   final BannerConfig? banner;
 
@@ -728,10 +707,23 @@ class AdFlowConfig {
   /// Load-retry tuning shared by all slots.
   final RetryConfig retry;
 
-  /// When true, every slot serves Google's sample test IDs regardless of
-  /// the configured IDs. **Explicit flag — never derived from resolved IDs**
-  /// (v1's derivation produced false positives, ADR-012).
-  final bool testMode;
+  /// Whether every slot serves Google's sample test ads instead of the
+  /// configured IDs.
+  ///
+  /// **Null (the default) = automatic (6.0): test ads in debug builds, your
+  /// IDs in release and profile builds.** A debug run that requests live ads
+  /// puts impressions — and the developer's own clicks — on real inventory,
+  /// which AdMob treats as invalid traffic. `true` forces test ads; `false`
+  /// forces your IDs (to check them from a debug build, register the device
+  /// in [testDeviceIds] so it receives test ads with them).
+  ///
+  /// While test ads are on, a slot needs no IDs at all
+  /// (`PlatformAdUnitId()`): the sample unit is used.
+  final bool? testMode;
+
+  /// Whether this configuration serves Google's sample test ads: [testMode],
+  /// or — when that is null — whether this is a debug build.
+  bool get usesTestAds => testMode ?? kDebugMode;
 
   /// Devices that always receive test ads (with real IDs).
   final List<String> testDeviceIds;
@@ -756,9 +748,9 @@ class AdFlowConfig {
       testDeviceIds.isNotEmpty;
 
   /// The banner ad unit ID to actually request for [platform]
-  /// (the test ID when [testMode] is on), or null if the slot is off.
+  /// (the test ID when [usesTestAds]), or null if the slot is off.
   ///
-  /// [kind] selects the matching sample unit while [testMode] is on — Google
+  /// [kind] selects the matching sample unit while [usesTestAds] — Google
   /// publishes a different one per banner format, and asking the fixed-size
   /// unit for an adaptive slot yields a creative that cannot fill it. Defaults
   /// to this config's own banner kind; pass the per-placement kind when a
@@ -804,7 +796,7 @@ class AdFlowConfig {
   );
 
   /// Test-mode substitution: a configured slot resolves to the sample ID
-  /// while [testMode] is on. An unconfigured slot stays null — it never
+  /// while [usesTestAds]. An unconfigured slot stays null — it never
   /// loads, so it must not resolve to anything (v1 bug, ADR-012).
   String? _effective(
     PlatformAdUnitId? configured,
@@ -812,6 +804,6 @@ class AdFlowConfig {
     AdPlatform platform,
   ) {
     if (configured == null) return null;
-    return (testMode ? testIds : configured).resolve(platform);
+    return (usesTestAds ? testIds : configured).resolve(platform);
   }
 }

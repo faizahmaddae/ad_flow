@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// a slow or intermittent connection sees ANY ads at all.
 void main() {
   const config = AdFlowConfig(
+    testMode: false,
     banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
     interstitial: InterstitialConfig(
       adUnitId: PlatformAdUnitId(android: 'i-a'),

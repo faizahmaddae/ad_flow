@@ -142,6 +142,7 @@ void main() {
   ) async {
     final ads = await AdFlow.initialize(
       const AdFlowConfig(
+        testMode: false,
         nativeAd: NativeConfig(
           adUnitId: PlatformAdUnitId(android: 'n-a'),
           templateKind: NativeTemplateKind.medium,

@@ -45,6 +45,7 @@ void main() {
   Future<AdFlow> boot() async {
     final ads = await AdFlow.initialize(
       const AdFlowConfig(
+        testMode: false,
         banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
       ),
       sdk: sdk,

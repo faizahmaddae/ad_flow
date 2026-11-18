@@ -18,6 +18,7 @@ void main() {
   late FakeAdSdk sdk;
 
   const bannerConfig = AdFlowConfig(
+    testMode: false,
     banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
   );
 

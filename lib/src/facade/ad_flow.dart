@@ -907,7 +907,7 @@ class AdFlow {
     // creative that cannot fill it — issue #15), so resolve from the
     // override's kind, not the global config's.
     final adUnitId =
-        (_config.testMode
+        (_config.usesTestAds
                 ? TestAdUnitIds.forBannerKind(config.kind)
                 : config.adUnitId)
             .resolve(_platform);
@@ -951,8 +951,10 @@ class AdFlow {
         'AdFlowConfig.nativeAd.',
       );
     }
-    final adUnitId = (_config.testMode ? TestAdUnitIds.native : config.adUnitId)
-        .resolve(_platform);
+    final adUnitId =
+        (_config.usesTestAds ? TestAdUnitIds.native : config.adUnitId).resolve(
+          _platform,
+        );
     if (adUnitId == null) {
       throw AdFlowError(
         AdFlowErrorKind.invalidConfig,

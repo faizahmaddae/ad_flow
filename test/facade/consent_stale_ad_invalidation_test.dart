@@ -33,6 +33,7 @@ void main() {
       'DROPPED and reloaded after a privacy-options change', () async {
     final ads = await boot(
       const AdFlowConfig(
+        testMode: false,
         interstitial: InterstitialConfig(
           adUnitId: PlatformAdUnitId(android: 'i-a'),
         ),
@@ -67,6 +68,7 @@ void main() {
       'impression already fired', () async {
     final ads = await boot(
       const AdFlowConfig(
+        testMode: false,
         interstitial: InterstitialConfig(
           adUnitId: PlatformAdUnitId(android: 'i-a'),
         ),
@@ -96,6 +98,7 @@ void main() {
       'after a consent change', () async {
     final ads = await boot(
       const AdFlowConfig(
+        testMode: false,
         banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
       ),
     );
@@ -125,6 +128,7 @@ void main() {
       're-requested after a consent change', () async {
     final ads = await boot(
       const AdFlowConfig(
+        testMode: false,
         nativeAd: NativeConfig(
           adUnitId: PlatformAdUnitId(android: 'n-a'),
           templateKind: NativeTemplateKind.small,

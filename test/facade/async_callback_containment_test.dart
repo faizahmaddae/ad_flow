@@ -43,6 +43,7 @@ void main() {
   );
 
   const interstitialCfg = AdFlowConfig(
+    testMode: false,
     interstitial: InterstitialConfig(
       adUnitId: PlatformAdUnitId(android: 'i-a'),
     ),
@@ -127,6 +128,7 @@ void main() {
   test('an ASYNC-rejecting onReward is contained through show()', () async {
     final ads = await boot(
       const AdFlowConfig(
+        testMode: false,
         rewarded: RewardedConfig(adUnitId: PlatformAdUnitId(android: 'r-a')),
       ),
     );

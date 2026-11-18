@@ -14,11 +14,13 @@ void main() {
   late FakeAdSdk sdk;
 
   const sensitiveConfig = AdFlowConfig(
+    testMode: false,
     banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
     tagForChildDirectedTreatment: true,
   );
 
   const vacuousConfig = AdFlowConfig(
+    testMode: false,
     banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
   );
 
@@ -98,6 +100,7 @@ void main() {
       const request = AdRequestOptions(keywords: ['games']);
       final ads = await AdFlow.initialize(
         const AdFlowConfig(
+          testMode: false,
           banner: BannerConfig(
             adUnitId: PlatformAdUnitId(android: 'b-a'),
             request: request,
@@ -143,6 +146,7 @@ void main() {
 
       final ads = await AdFlow.initialize(
         const AdFlowConfig(
+          testMode: false,
           banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
         ),
         sdk: sdk,

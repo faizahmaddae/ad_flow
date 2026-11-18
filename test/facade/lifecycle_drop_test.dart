@@ -19,6 +19,7 @@ void main() {
   late FakeAdSdk sdk;
 
   const config = AdFlowConfig(
+    testMode: false,
     banner: BannerConfig(adUnitId: PlatformAdUnitId(android: 'b-a')),
     interstitial: InterstitialConfig(
       adUnitId: PlatformAdUnitId(android: 'i-a'),

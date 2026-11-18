@@ -15,6 +15,7 @@ import '../support/show.dart';
 /// reactors fighting — reintroduced through the back door.
 void main() {
   const config = AdFlowConfig(
+    testMode: false,
     interstitial: InterstitialConfig(
       adUnitId: PlatformAdUnitId(android: 'i-a'),
     ),

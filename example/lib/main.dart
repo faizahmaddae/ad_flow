@@ -65,6 +65,25 @@ Future<void> main() async {
   runApp(ExampleApp(ads: ads));
 }
 
+/// Every format, with Google's sample ad units standing in for your own.
+///
+/// Put your real `ca-app-pub-…/…` IDs here. Test ads need no switch: while
+/// `testMode` is left out, debug builds serve Google's test ads automatically
+/// and release builds serve the IDs below.
+const _config = AdFlowConfig(
+  banner: BannerConfig(adUnitId: TestAdUnitIds.banner),
+  interstitial: InterstitialConfig(adUnitId: TestAdUnitIds.interstitial),
+  rewarded: RewardedConfig(adUnitId: TestAdUnitIds.rewarded),
+  rewardedInterstitial: RewardedInterstitialConfig(
+    adUnitId: TestAdUnitIds.rewardedInterstitial,
+  ),
+  nativeAd: NativeConfig(
+    adUnitId: TestAdUnitIds.native,
+    templateKind: NativeTemplateKind.medium,
+  ),
+  appOpen: AppOpenConfig(adUnitId: TestAdUnitIds.appOpen),
+);
+
 /// SIMPLE mode — the minimal drop-in. UMP drives the whole consent flow (and
 /// iOS ATT if you set the console IDFA message); no client-side priming.
 ///
@@ -74,9 +93,7 @@ Future<void> main() async {
 /// the presenter too.
 Future<AdFlow> _initSimple() {
   return AdFlow.initialize(
-    // Google sample ads everywhere. Replace with your production config:
-    //   AdFlowConfig(banner: BannerConfig(adUnitId: PlatformAdUnitId(...)), ...)
-    AdFlowConfig.test(),
+    _config,
     rewardedIntroPresenter: RewardedIntroScreen.presenter(navigatorKey),
   );
 }
@@ -94,7 +111,7 @@ Future<AdFlow> _initSimple() {
 ///   console.
 Future<AdFlow> _initWithExplainer() {
   return AdFlow.initialize(
-    AdFlowConfig.test(),
+    _config,
     rewardedIntroPresenter: RewardedIntroScreen.presenter(navigatorKey),
     attExplainer: AttExplainerScreen.presenter(navigatorKey),
     consentExplainer: ConsentExplainerScreen.presenter(navigatorKey),
