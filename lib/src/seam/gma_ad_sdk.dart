@@ -945,10 +945,6 @@ class _GmaRewardedHandle extends _GmaFullScreenHandle<gma.RewardedAd>
   @override
   Future<void> show({OnUserEarnedReward? onUserEarnedReward}) =>
       _ad.show(onUserEarnedReward: wrapReward(onUserEarnedReward));
-
-  @override
-  Future<void> updateServerSideVerification(ServerSideVerification ssv) =>
-      _updateSsv(() => _ad.setServerSideOptions(toGmaSsvOptions(ssv)));
 }
 
 class _GmaRewardedInterstitialHandle
@@ -961,24 +957,6 @@ class _GmaRewardedInterstitialHandle
   @override
   Future<void> show({OnUserEarnedReward? onUserEarnedReward}) =>
       _ad.show(onUserEarnedReward: wrapReward(onUserEarnedReward));
-
-  @override
-  Future<void> updateServerSideVerification(ServerSideVerification ssv) =>
-      _updateSsv(() => _ad.setServerSideOptions(toGmaSsvOptions(ssv)));
-}
-
-/// Normalizes an SSV attach failure for a RUNTIME update. Load-time attach is
-/// NOT silent either — [_attachSsvThenComplete] FAILS the load closed rather
-/// than serve an ad whose configured SSV could not attach (the controller then
-/// reloads). Here the ad is already warm, so failure is surfaced the other way:
-/// it is rethrown to the caller, who is about to grant a high-value reward on
-/// the strength of this payload.
-Future<void> _updateSsv(Future<void> Function() call) async {
-  try {
-    await call();
-  } catch (e) {
-    throw asAdFlowError(e, AdFlowErrorKind.unknown);
-  }
 }
 
 class _GmaAppOpenHandle extends _GmaFullScreenHandle<gma.AppOpenAd>

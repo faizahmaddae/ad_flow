@@ -6,7 +6,6 @@ import '../core/ad_load_state.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
 import 'full_screen_ad_controller_base.dart';
-import 'runtime_ssv.dart';
 
 /// Presents the mandatory intro screen for a rewarded interstitial;
 /// resolves to whether the user chose to continue (false = skipped).
@@ -20,8 +19,7 @@ typedef RewardedIntroPresenter =
 /// via the injected [RewardedIntroPresenter]; the ad plays only if the
 /// user did not skip. This ordering is enforced by construction — there is
 /// no code path to the ad that bypasses the intro.
-class RewardedInterstitialAdController extends FullScreenAdControllerBase
-    with RuntimeSsvController {
+class RewardedInterstitialAdController extends FullScreenAdControllerBase {
   /// Creates the rewarded interstitial controller.
   ///
   /// [showIntro] presents the intro screen; the widgets layer provides
@@ -49,24 +47,8 @@ class RewardedInterstitialAdController extends FullScreenAdControllerBase
   final RewardedIntroPresenter _showIntro;
 
   @override
-  ServerSideVerification? get configuredSsv => _config.ssv;
-
-  @override
-  Future<void> attachSsv(
-    FullScreenAdHandle handle,
-    ServerSideVerification ssv,
-  ) async {
-    if (handle is RewardedInterstitialHandle) {
-      await handle.updateServerSideVerification(ssv);
-    }
-  }
-
-  @override
-  Future<FullScreenAdHandle> loadHandle() => sdk.loadRewardedInterstitial(
-    adUnitId,
-    _config.request,
-    ssv: effectiveSsv,
-  );
+  Future<FullScreenAdHandle> loadHandle() =>
+      sdk.loadRewardedInterstitial(adUnitId, _config.request, ssv: _config.ssv);
 
   /// Shows the mandatory intro, then the ad — as ONE atomic reservation
   /// (4.0 audit).

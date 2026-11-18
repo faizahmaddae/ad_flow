@@ -124,8 +124,7 @@ class FakeAdSdk implements AdSdk {
 
   /// Called with each newly-created full-screen handle, right after it is
   /// added to its list, before [loadRewarded] et al. return. Lets a test
-  /// configure the not-yet-visible handle — e.g. arm its [FakeFullScreenAdHandle.ssvUpdateHold]
-  /// to hold the runtime-SSV re-attach that finalizes a load in flight.
+  /// configure the not-yet-visible handle.
   void Function(FakeFullScreenAdHandle handle)? onFullScreenHandleCreated;
 
   /// If set, [requestConsentInfoUpdate] throws this.
@@ -493,26 +492,6 @@ class FakeFullScreenAdHandle
 
   @override
   AdResponseSummary? get response => responseSummary;
-
-  /// SSV payloads applied via [updateServerSideVerification], in order.
-  final List<ServerSideVerification> ssvUpdates = [];
-
-  /// If set, [updateServerSideVerification] throws this.
-  Object? ssvUpdateError;
-
-  /// If set, [updateServerSideVerification] awaits this before recording —
-  /// leave it incomplete to hold an attach in flight (e.g. to dispose the
-  /// controller mid-attach and prove no crash / no stale install).
-  Completer<void>? ssvUpdateHold;
-
-  @override
-  Future<void> updateServerSideVerification(ServerSideVerification ssv) async {
-    final hold = ssvUpdateHold;
-    if (hold != null) await hold.future;
-    final error = ssvUpdateError;
-    if (error != null) throw error;
-    ssvUpdates.add(ssv);
-  }
 
   @override
   Stream<FullScreenAdEvent> get contentEvents => _content.stream;

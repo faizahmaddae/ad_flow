@@ -108,7 +108,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
 
   /// The consent generation the warm ad was REQUESTED under (release gate #2).
   /// A consent mutation bumps `AdGate.consentGeneration`; when it no longer
-  /// matches, the warm ad carries a stale consent/forwarding state and is
+  /// matches, the warm ad carries a stale consent state and is
   /// dropped-and-reloaded — on load completion (the mid-load window) and on
   /// `recheckGate` (the already-warm case). One internal mechanism, no public
   /// surface.
@@ -138,23 +138,6 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
   /// Hook invoked right after a show is dispatched.
   @protected
   void onShown() {}
-
-  /// Finalizes the just-installed handle BEFORE [AdLoaded] is published — e.g.
-  /// re-attaching a runtime SSV override captured while the load was in flight
-  /// ([RuntimeSsvController]). Runs while the state is still [AdLoading], so
-  /// the ad is never externally ready/showable carrying a stale payload. A
-  /// throw fails the load CLOSED (the handle is dropped and a retry armed,
-  /// re-dispatching with the latest value). Default: no-op. (5.1 hardening.)
-  @protected
-  Future<void> finalizeLoadedHandle() async {}
-
-  /// Hook invoked right AFTER a load succeeds and [AdLoaded] is published
-  /// (synchronous, post-publish). Retained for backward compatibility — this
-  /// has been a public/overridable hook since 2.2.0, so its semantics are held
-  /// stable. New pre-publish finalization belongs in [finalizeLoadedHandle].
-  /// Default: no-op.
-  @protected
-  void onLoaded() {}
 
   /// Drops the current handle (without showing it) and preloads a fresh
   /// one — for a warm ad that must not be shown: expired, requested under a
@@ -199,12 +182,6 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
 
   /// Whether a loaded ad is warm and ready to show.
   bool get isReady => _state.value is AdLoaded && _handle != null;
-
-  /// The warm handle, for subclasses that must talk to the loaded ad
-  /// directly (e.g. the rewarded formats applying runtime SSV). Null unless
-  /// [isReady].
-  @protected
-  FullScreenAdHandle? get currentHandle => _handle;
 
   /// Which network filled the warm ad (mediation observability), or null
   /// when nothing is loaded / the SDK reported nothing.
@@ -295,48 +272,10 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         return;
       }
       if (_gate.consentGeneration != requestGeneration) {
-        // Consent mutated while this ad was in flight — it was requested (and
-        // its mediation privacy signal forwarded) under the OLD consent. Drop
-        // it unshown and reload through the re-forwarded gate, so it never
-        // records a stale-consent impression.
+        // Consent mutated while this ad was in flight — it was requested under
+        // the OLD consent. Drop it unshown and reload through the fresh gate,
+        // so it never records a stale-consent impression.
         safeUnawaited(handle.dispose(), debugName: 'handle');
-        _state.value = const AdIdle();
-        unawaited(load());
-        return;
-      }
-      _handle = handle;
-      _contentSub = handle.contentEvents.listen(_onContentEvent);
-      _paidSub = handle.paidEvents.listen(_dispatchPaid);
-      _loadedAt = _now();
-      _loadedGeneration = requestGeneration;
-      // Finalize the installed handle (e.g. re-attach a runtime SSV override
-      // captured while this load was in flight) BEFORE publishing AdLoaded, so
-      // the ad is never externally ready/showable carrying a stale payload
-      // (5.1 hardening). A throw fails the load CLOSED — drop the un-finalized
-      // handle and arm a retry, which re-dispatches with the latest value.
-      try {
-        await finalizeLoadedHandle();
-      } catch (e) {
-        if (_disposed) return;
-        _dropHandle();
-        _state.value = AdFailed(asAdFlowError(e, AdFlowErrorKind.ssv));
-        _scheduleRetry();
-        return;
-      }
-      // dispose() can run during finalization (it already dropped the handle
-      // and disposed the state notifier) — never publish onto a dead graph.
-      if (_disposed) return;
-      // retire() can run during finalization too — drop the installed handle
-      // (idempotent if retire already did) and do not publish AdLoaded.
-      if (_retired) {
-        _dropHandle();
-        return;
-      }
-      if (_gate.consentGeneration != requestGeneration) {
-        // Consent mutated DURING finalization — the ad carries the OLD
-        // consent/forwarding. Drop unshown and reload through the re-forwarded
-        // gate (same rule as the mid-load check above, for the finalize await).
-        _dropHandle();
         _state.value = const AdIdle();
         unawaited(load());
         return;
@@ -345,26 +284,28 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
         // disableAds() / graph-dispose landed WHILE this ad was in flight: the
         // gate passed at request time, but ads are no longer enabled.
         // recheckGate cannot drop an AdLoading controller, so drop the
-        // finalized-but-unpublished handle HERE — synchronously, in the same
-        // turn as the AdLoaded write below — so no warm full-screen inventory is
-        // ever retained (or externally reported ready) under Remove-Ads (5.1.2
+        // freshly-loaded handle HERE — synchronously, in the same turn as the
+        // AdLoaded write below — so no warm full-screen inventory is ever
+        // retained (or externally reported ready) under Remove-Ads (5.1.2
         // in-flight-load race). enableAds() re-warms via the gate recheck. A
         // pure bool read: no transient internalError can wrongly drop good
-        // inventory (consent-staleness is the generation checks above).
-        _dropHandle();
+        // inventory (consent-staleness is the generation check above).
+        safeUnawaited(handle.dispose(), debugName: 'handle');
         noteBlocked(AdBlockReason.adsDisabled);
         _state.value = const AdBlocked(AdBlockReason.adsDisabled);
         _scheduleGateRecheck();
         return;
       }
+      _handle = handle;
+      _contentSub = handle.contentEvents.listen(_onContentEvent);
+      _paidSub = handle.paidEvents.listen(_dispatchPaid);
+      _loadedAt = _now();
+      _loadedGeneration = requestGeneration;
       _attempts = 0;
       _gateAttempts = 0;
       _lastBlockReason = null;
       _state.value = const AdLoaded();
       _scheduleExpiry();
-      // Legacy post-publish hook (public since 2.2.0) — runs AFTER AdLoaded, as
-      // it always has. Pre-publish finalization is finalizeLoadedHandle above.
-      onLoaded();
     } catch (e) {
       // Catch EVERYTHING, not just AdFlowError. The seam's contract says it
       // throws AdFlowError, but a real platform channel violates that freely:
@@ -443,9 +384,6 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
     if (_disposed) return false;
     if (_state.value is AdShowing) return false; // never double-show
     final handle = _handle;
-    // Gate on isReady, not just AdLoaded — a subclass (RuntimeSsvController)
-    // overrides isReady to report "not yet" while a required SSV override is
-    // still settling onto the warm ad. For the base the two are equivalent.
     if (handle == null || !isReady) {
       noteBlocked(AdBlockReason.notReady);
       unawaited(load()); // warm one up for the next natural break
@@ -608,7 +546,7 @@ abstract class FullScreenAdControllerBase implements FullScreenAdController {
       return false;
     }
     if (_loadedGeneration != _gate.consentGeneration) {
-      // Consent mutated mid-show: the warm ad carries stale consent/forwarding.
+      // Consent mutated mid-show: the warm ad carries stale consent.
       // Release the claim, then drop + reload through the fresh gate.
       return releaseAndDiscard();
     }
