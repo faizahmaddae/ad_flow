@@ -192,47 +192,4 @@ void main() {
       ads!.dispose();
     });
   });
-
-  test('the fast path does NOT bypass the fail-closed forwardConsent barrier: '
-      'a mediation-capable load still waits for forwarding', () {
-    fakeAsync((async) {
-      sdk.canRequestAdsResult = true; // cached consent true
-      final forwarded = Completer<void>(); // forwarding held (in flight)
-      AdFlow? ads;
-      unawaited(
-        AdFlow.initialize(
-          bannerConfig,
-          sdk: sdk,
-          store: InMemoryKeyValueStore(),
-          platform: AdPlatform.android,
-          forwardConsent: () => forwarded.future,
-        ).then((f) => ads = f),
-      );
-      async.flushMicrotasks();
-
-      final banner = ads!.banner();
-      unawaited(banner.load(width: 320));
-      // Past the 15s forward bound: the load must be BLOCKED on forwarding, not
-      // served from cached consent.
-      async.elapse(const Duration(seconds: 16));
-      async.flushMicrotasks();
-
-      expect(
-        sdk.bannerSpecs,
-        isEmpty,
-        reason:
-            'cached consent must NOT let a mediation request skip the '
-            'fail-closed forwarding barrier',
-      );
-      expect(banner.lastBlockReason, AdBlockReason.consentNotForwarded);
-
-      // Forwarding completes → the load proceeds.
-      forwarded.complete();
-      async.elapse(const Duration(seconds: 1));
-      async.flushMicrotasks();
-      expect(sdk.bannerSpecs, hasLength(1));
-      banner.dispose();
-      ads!.dispose();
-    });
-  });
 }

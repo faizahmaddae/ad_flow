@@ -162,65 +162,6 @@ class RewardIntroContent {
   final String skipLabel;
 }
 
-/// What happens to ad loading when the SDK request configuration
-/// (`updateRequestConfiguration`: test devices, COPPA/under-age tags, max
-/// content rating) could not be applied — it failed, timed out, or SDK init
-/// never completed (4.0 audit).
-///
-/// Never blocks app UI either way: this only decides whether ad REQUESTS may
-/// go out unconfigured. The apply is retried in the background regardless,
-/// and blocked slots recover the moment it succeeds.
-enum RequestConfigFailurePolicy {
-  /// Fail-closed exactly when it matters (the default): loads wait for the
-  /// configuration iff it carries policy-critical fields
-  /// ([AdFlowConfig.requestConfigIsPolicySensitive] — child-directed /
-  /// under-age tags, a content rating, or test device IDs). A config with
-  /// none of those set loses nothing by loading without it, so it fails
-  /// open.
-  auto,
-
-  /// Always load even if the configuration was never applied. Only sensible
-  /// when every field is best-effort for you — a child-directed app must
-  /// NOT choose this.
-  failOpen,
-
-  /// Never load until the configuration has been applied, even when it
-  /// carries no policy-critical fields.
-  failClosed,
-}
-
-/// What happens to **mediation-capable** ad serving when the consent
-/// forwarding barrier ([AdFlow.initialize]'s `forwardConsent`) could not be
-/// completed — the forwarder failed or timed out (release gate).
-///
-/// This only takes effect when the publisher has OPTED IN by supplying
-/// `forwardConsent`. It never blocks app UI — only whether an ad REQUEST
-/// (which any configured mediation adapter may fill) goes out, and whether
-/// the Google Mobile Ads SDK is INITIALIZED, before the required per-network
-/// privacy signal is in place. (Mediation adapters read their privacy flags
-/// while the GMA SDK initializes — verified against Google's Android/iOS
-/// docs — so ad_flow runs `forwardConsent` BEFORE `MobileAds.initialize()`.)
-enum MediationConsentFailurePolicy {
-  /// The default. Do NOT let mediation adapters initialize or a
-  /// mediation-capable ad request go out before consent has been forwarded:
-  /// `forwardConsent` runs before the GMA SDK is initialized, and if it fails
-  /// the SDK is not initialized and loads are blocked
-  /// ([AdBlockReason.consentNotForwarded]) while the forwarder is retried in
-  /// the background — everything recovers the moment forwarding succeeds.
-  /// Quietly initializing adapters or requesting anyway is the exact policy
-  /// risk this exists to prevent.
-  failClosed,
-
-  /// **Revenue-first and unmistakably unsafe.** Initialize the GMA SDK and
-  /// serve ads even if consent was never forwarded. A partner SDK may then
-  /// initialize (and be requested) without its required GDPR / US-state / age
-  /// signal. Only choose this if every mediation network you use reads the IAB
-  /// TCF/GPP strings itself (so `forwardConsent` is a belt-and-suspenders
-  /// convenience, not a requirement). The `unsafe` prefix is deliberate — it
-  /// makes this impossible to select by accident or reach for without noticing.
-  unsafeFailOpen,
-}
-
 /// How a banner slot is sized.
 enum BannerKind {
   /// Anchored adaptive (the recommended, revenue-optimized default).
@@ -663,8 +604,6 @@ class AdFlowConfig {
     this.maxAdContentRating,
     this.tagForUnderAgeOfConsent,
     this.tagForChildDirectedTreatment,
-    this.requestConfigPolicy = RequestConfigFailurePolicy.auto,
-    this.mediationConsentPolicy = MediationConsentFailurePolicy.failClosed,
   });
 
   /// Validates the configuration, throwing an
@@ -857,23 +796,10 @@ class AdFlowConfig {
   /// COPPA tag; null = unspecified.
   final bool? tagForChildDirectedTreatment;
 
-  /// What happens to ad loading when the request configuration could not be
-  /// applied — see [RequestConfigFailurePolicy]. Default: [RequestConfigFailurePolicy.auto].
-  final RequestConfigFailurePolicy requestConfigPolicy;
-
-  /// What happens to mediation-capable serving when consent forwarding
-  /// (`forwardConsent`) could not be completed — see
-  /// [MediationConsentFailurePolicy]. Default:
-  /// [MediationConsentFailurePolicy.failClosed] (do not initialize the GMA SDK
-  /// or serve a mediation request without the forwarded privacy signal;
-  /// retry). Only takes effect when the publisher supplies `forwardConsent`;
-  /// non-adopters are unaffected.
-  final MediationConsentFailurePolicy mediationConsentPolicy;
-
   /// Whether this configuration carries fields whose silent loss is a policy
   /// or invalid-traffic risk: child-directed / under-age tags, a maximum
-  /// content rating, or registered test devices. Drives
-  /// [RequestConfigFailurePolicy.auto].
+  /// content rating, or registered test devices. When it does, no ad is
+  /// requested until the request configuration has been applied.
   bool get requestConfigIsPolicySensitive =>
       tagForChildDirectedTreatment != null ||
       tagForUnderAgeOfConsent != null ||
