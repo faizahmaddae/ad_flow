@@ -248,18 +248,11 @@ class _AdFlowBannerState extends State<AdFlowBanner> {
           }
         }
         return ListenableBuilder(
-          // Both state and revision, not just `state`: a client-side refresh
-          // swap (ADR-041) goes AdLoaded → AdLoaded, which does not notify, so
-          // a widget listening only to `state` would keep rendering the old,
-          // disposed handle. Plus adsEnabled (widget-first mode) so Remove-Ads
+          // The state, plus adsEnabled (widget-first mode) so Remove-Ads
           // collapses the box on the same frame it is toggled.
           // Listenable.merge tolerates a null entry, so adsEnabled (absent in
           // advanced controller mode) is passed straight through.
-          listenable: Listenable.merge([
-            _controller.state,
-            _controller.revision,
-            adsEnabled,
-          ]),
+          listenable: Listenable.merge([_controller.state, adsEnabled]),
           builder: (context, _) {
             final state = _controller.state.value;
             // Remove-Ads must reclaim ALL layout space: a disabled banner has a

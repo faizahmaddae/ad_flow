@@ -69,7 +69,6 @@ void main() {
             ),
             config: const BannerConfig(
               adUnitId: PlatformAdUnitId(android: 'unit-b'),
-              minRefresh: Duration(seconds: 60),
             ),
             adUnitId: 'unit-b',
             retry: RetryPolicy(const RetryConfig(), random: random.nextDouble),

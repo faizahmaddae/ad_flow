@@ -143,31 +143,4 @@ void main() {
       c.dispose();
     },
   );
-
-  test('item 4b: no app-open while the app declares a blocking view ad on '
-      'screen (ADR-042)', () async {
-    final c = controller();
-    final m = manager(c);
-    await boot(m);
-
-    coordinator.blockingViewAdVisible = true;
-    sdk.emitAppForeground();
-    await Future<void>.delayed(Duration.zero);
-
-    expect(
-      sdk.appOpens.single.showCalls,
-      0,
-      reason:
-          'an app-open ad must not cover content that is already showing '
-          'an ad — the app knows its own layout, so it tells us',
-    );
-
-    coordinator.blockingViewAdVisible = false;
-    sdk.emitAppForeground();
-    await Future<void>.delayed(Duration.zero);
-    expect(sdk.appOpens.single.showCalls, 1);
-
-    m.dispose();
-    c.dispose();
-  });
 }

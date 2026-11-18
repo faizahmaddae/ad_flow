@@ -140,12 +140,6 @@ class AppOpenAdManager {
       unawaited(_controller.load());
       return;
     }
-    // The app says a blocking banner/native ad currently occupies the screen —
-    // do not stack an app-open ad over it (ADR-042).
-    if (_coordinator?.blockingViewAdVisible ?? false) {
-      unawaited(_controller.load());
-      return;
-    }
     if (_withinPostDismissSuppression()) {
       // Another full-screen ad (of any format) just closed — never stack
       // an app-open ad right behind it (review finding #7). Still keep

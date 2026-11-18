@@ -184,7 +184,6 @@ class BannerConfig {
     this.fixedSize = FixedBannerSize.banner,
     this.maxInlineHeight,
     this.collapsible,
-    this.minRefresh,
     this.request = const AdRequestOptions(),
   });
 
@@ -221,25 +220,6 @@ class BannerConfig {
   /// only; auto-refresh does not re-request collapsible ads).
   final CollapsiblePlacement? collapsible;
 
-  /// Opt-in **client-side** refresh interval. **Null (the default) means no
-  /// client-side refresh at all** — no timer runs (ADR-041).
-  ///
-  /// Leave this null unless you know you need it. AdMob already refreshes
-  /// banner ad units **server-side**, configured per ad unit in the AdMob
-  /// console and **on by default**. A client-side timer on top of that is a
-  /// second, unsynchronised refresh loop for the same placement: up to 2x the
-  /// ad requests, for no extra revenue. Configure the refresh rate in the
-  /// console instead.
-  ///
-  /// Set it only when the console refresh is deliberately off and you want the
-  /// client to drive it. Values below 30s are clamped by the banner controller
-  /// (Duration comparisons are not allowed in const asserts, so this cannot be
-  /// a constructor assert); AdMob's own guidance is 60s or more.
-  ///
-  /// When set, a refresh never blanks the slot: the current ad keeps rendering
-  /// until its replacement has actually loaded (ADR-041).
-  final Duration? minRefresh;
-
   // Value equality (3.0): the widget-first ad widgets compare configs in
   // didUpdateWidget to decide whether to re-mint their controller — identity
   // comparison would re-mint (and re-request an ad!) on every rebuild that
@@ -254,7 +234,6 @@ class BannerConfig {
       other.fixedSize == fixedSize &&
       other.maxInlineHeight == maxInlineHeight &&
       other.collapsible == collapsible &&
-      other.minRefresh == minRefresh &&
       other.request == request;
 
   @override
@@ -265,7 +244,6 @@ class BannerConfig {
     fixedSize,
     maxInlineHeight,
     collapsible,
-    minRefresh,
     request,
   );
 }
@@ -660,10 +638,6 @@ class AdFlowConfig {
       check(
         banner.maxInlineHeight == null || banner.maxInlineHeight! > 0,
         'banner.maxInlineHeight must be positive.',
-      );
-      check(
-        banner.minRefresh == null || banner.minRefresh! > Duration.zero,
-        'banner.minRefresh must be positive (or null to disable).',
       );
     }
     final interstitial = this.interstitial;

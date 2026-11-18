@@ -12,7 +12,6 @@ import 'package:ad_flow/src/policy/retry_policy.dart';
 import 'package:ad_flow/src/seam/ad_sdk_types.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
 import 'package:ad_flow/src/widgets/ad_flow_banner.dart';
-import 'package:fake_async/fake_async.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -156,29 +155,6 @@ void main() {
             'be a guess (ADR-070)',
       );
       inline.dispose();
-    });
-
-    test('a client-side refresh that swaps in a different size updates it', () {
-      fakeAsync((async) {
-        final memory = BannerHeightMemory();
-        sdk.bannerSize = const AdDimensions(width: 400, height: 133);
-        final c = controller(
-          memory: memory,
-          config: const BannerConfig(
-            adUnitId: PlatformAdUnitId(android: 'unit-b'),
-            minRefresh: Duration(seconds: 60),
-          ),
-        );
-        unawaited(c.load(width: 400));
-        async.flushMicrotasks();
-        expect(memory.heightFor(400), 133);
-
-        sdk.bannerSize = const AdDimensions(width: 400, height: 120);
-        async.elapse(const Duration(seconds: 61));
-        expect(sdk.banners, hasLength(2), reason: 'the refresh swapped');
-        expect(memory.heightFor(400), 120);
-        c.dispose();
-      });
     });
   });
 

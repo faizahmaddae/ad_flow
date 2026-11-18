@@ -237,7 +237,6 @@ void main() {
       expect(banner.kind, BannerKind.anchoredAdaptive);
       // The client-side refresh is OFF by default (ADR-041): AdMob already
       // auto-refreshes banner ad units server-side, from the console.
-      expect(banner.minRefresh, isNull);
 
       const interstitial = InterstitialConfig(
         adUnitId: PlatformAdUnitId(android: 'a'),
