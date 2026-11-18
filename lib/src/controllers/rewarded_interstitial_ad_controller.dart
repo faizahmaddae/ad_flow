@@ -3,6 +3,7 @@ import 'dart:async';
 import '../config/ad_flow_config.dart';
 import '../core/ad_block_reason.dart';
 import '../core/ad_load_state.dart';
+import '../core/ad_show_result.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
 import 'full_screen_ad_controller_base.dart';
@@ -64,16 +65,18 @@ class RewardedInterstitialAdController extends FullScreenAdControllerBase {
   /// reward, verify Google's SSV callback on your server and grant from one
   /// place only (see [OnUserEarnedReward] / [ServerSideVerification]).
   @override
-  Future<bool> show({OnUserEarnedReward? onReward}) async {
+  Future<AdShowResult> show({OnUserEarnedReward? onReward}) async {
     // Re-entrant show while the sequence (intro or ad) is on screen: the
     // engine's AdShowing guard would reject anyway, but bail here so the
     // notReady branch below cannot misreport it.
-    if (state.value is AdShowing) return false;
+    if (state.value is AdShowing) {
+      return const AdShowResult.blocked(AdBlockReason.otherAdShowing);
+    }
     // Only bother the user with the intro when an ad is actually warm.
     if (!isReady) {
       noteBlocked(AdBlockReason.notReady);
       unawaited(load());
-      return false;
+      return const AdShowResult.blocked(AdBlockReason.notReady);
     }
     return showEngine(onReward: onReward, confirm: _presentIntro);
   }

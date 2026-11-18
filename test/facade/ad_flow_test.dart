@@ -9,6 +9,7 @@ import 'package:fake_async/fake_async.dart';
 // ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/show.dart';
 
 void main() {
   late FakeAdSdk sdk;
@@ -340,7 +341,7 @@ void main() {
       // Show an interstitial and collect revenue.
       final paid = <AdPaidEvent>[];
       ads.onPaidEvent = paid.add;
-      expect(await ads.interstitial.show(), isTrue);
+      expect(await dispatch(ads.interstitial.show()), isTrue);
       const event = AdPaidEvent(
         adUnitId: 'i-a',
         valueMicros: 5000,
@@ -541,42 +542,41 @@ void main() {
       expect(ads.enableAds, returnsNormally);
     });
 
-    test(
-      'production cold-launch latch: works through the facade default and '
-      'is one-shot across reinitialization in the same process (5.1)',
-      () async {
-        resetAppOpenLaunchOpportunity(); // isolate this test
-        const launchConfig = AdFlowConfig(
-          appOpen: AppOpenConfig(
-            adUnitId: PlatformAdUnitId(android: 'ao-a'),
-            cap: FrequencyCap(),
-            triggerMode: AppOpenTriggerMode.launchAndResume,
-          ),
-        );
+    test('production cold-launch latch: works through the facade default and '
+        'is one-shot across reinitialization in the same process', () async {
+      resetAppOpenLaunchOpportunity(); // isolate this test
+      const launchConfig = AdFlowConfig(
+        appOpen: AppOpenConfig(
+          adUnitId: PlatformAdUnitId(android: 'ao-a'),
+          cap: FrequencyCap(),
+        ),
+      );
 
-        final ads1 = await boot(config: launchConfig);
-        await pumpEventQueue(); // let the app-open preload land
-        expect(ads1.appOpenController.isReady, isTrue);
-        expect(
-          await ads1.appOpen.showAtLaunchIfReady(),
-          isTrue,
-          reason: 'a warm ad shows at launch via the process-default latch',
-        );
-        ads1.dispose();
+      final ads1 = await boot(config: launchConfig);
+      await pumpEventQueue(); // let the app-open preload land
+      expect(ads1.appOpenController.isReady, isTrue);
+      final launch = ads1.appOpen.showAtLaunch();
+      await pumpEventQueue();
+      expect(sdk.appOpens.single.showCalls, 1);
+      sdk.appOpens.single.simulateDismissed();
+      expect(
+        (await launch).shown,
+        isTrue,
+        reason: 'a warm ad shows at launch via the process-default latch',
+      );
+      ads1.dispose();
 
-        // Reinitialize AdFlow in the SAME process — the latch must persist.
-        final ads2 = await boot(config: launchConfig);
-        await pumpEventQueue();
-        expect(ads2.appOpenController.isReady, isTrue);
-        expect(
-          await ads2.appOpen.showAtLaunchIfReady(),
-          isFalse,
-          reason:
-              'the cold-launch moment is spent; reinit gets no second launch',
-        );
-        ads2.dispose();
-      },
-    );
+      // Reinitialize AdFlow in the SAME process — the latch must persist.
+      final ads2 = await boot(config: launchConfig);
+      await pumpEventQueue();
+      expect(ads2.appOpenController.isReady, isTrue);
+      expect(
+        (await ads2.appOpen.showAtLaunch()).shown,
+        isFalse,
+        reason: 'the cold-launch moment is spent; reinit gets no second launch',
+      );
+      ads2.dispose();
+    });
 
     test('dispose() releases a self-created ConsentGateway but leaves an '
         'injected one usable', () async {
@@ -722,7 +722,7 @@ void main() {
 
       ads.disableAds();
       expect(ads.adsEnabled.value, isFalse);
-      expect(await ads.interstitial.show(), isFalse);
+      expect(await dispatch(ads.interstitial.show()), isFalse);
 
       final banner = ads.banner();
       await banner.load(width: 320);
@@ -730,7 +730,7 @@ void main() {
       banner.dispose();
 
       ads.enableAds();
-      expect(await ads.interstitial.show(), isTrue);
+      expect(await dispatch(ads.interstitial.show()), isTrue);
       ads.dispose();
     });
   });
@@ -814,7 +814,7 @@ void main() {
       await ads.whenReady; // background startup (preloads) finishes
       await Future<void>.delayed(Duration.zero);
 
-      expect(await ads.interstitial.show(), isTrue);
+      expect(await dispatch(ads.interstitial.show()), isTrue);
       // Dismiss it so the coordinator is clear — only the cap remains. The
       // impression is recorded on this dismiss (ADR-040).
       sdk.interstitials.single.simulateShowed();
@@ -823,12 +823,12 @@ void main() {
 
       // An APP-OPEN ad is involuntary: the global 10-minute gap blocks it.
       expect(ads.appOpenController.isReady, isTrue);
-      expect(await ads.appOpenController.show(), isFalse);
+      expect(await dispatch(ads.appOpenController.show()), isFalse);
 
       // A REWARDED ad is one the user asked for, in exchange for a reward: the
       // global gap must never silently swallow it (ADR-039).
       expect(ads.rewarded.isReady, isTrue);
-      expect(await ads.rewarded.show(onReward: (_) {}), isTrue);
+      expect(await dispatch(ads.rewarded.show(onReward: (_) {})), isTrue);
       ads.dispose();
     },
   );

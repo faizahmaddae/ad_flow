@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:ad_flow/ad_flow.dart';
 import 'package:ad_flow/ad_flow_testing.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/show.dart';
 
 /// After a consent / privacy-options mutation, an ad ALREADY loaded under the
 /// previous consent is privacy-stale: showing/rendering it makes no new ad
@@ -75,7 +76,7 @@ void main() {
     await ads.interstitial.load();
     await pumpEventQueue();
     final showing = sdk.interstitials.single;
-    await ads.interstitial.show();
+    await dispatch(ads.interstitial.show());
     showing.simulateShowed();
     expect(ads.interstitial.state.value, isA<AdShowing>());
 

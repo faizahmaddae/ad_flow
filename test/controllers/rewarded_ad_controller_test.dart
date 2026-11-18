@@ -9,6 +9,7 @@ import 'package:ad_flow/src/policy/key_value_store.dart';
 import 'package:ad_flow/src/seam/ad_sdk_types.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/show.dart';
 
 void main() {
   late FakeAdSdk sdk;
@@ -107,7 +108,7 @@ void main() {
     await c.load();
 
     final rewards = <RewardEarned>[];
-    await c.show(onReward: rewards.add);
+    await dispatch(c.show(onReward: rewards.add));
 
     final handle = sdk.rewardeds.single;
     handle.simulateReward(const RewardEarned(amount: 10, type: 'coins'));
@@ -121,7 +122,7 @@ void main() {
   test('dismiss preloads the next rewarded ad', () async {
     final c = controller();
     await c.load();
-    await c.show(onReward: (_) {});
+    await dispatch(c.show(onReward: (_) {}));
     sdk.rewardeds.single.simulateDismissed();
     await Future<void>.delayed(Duration.zero);
 

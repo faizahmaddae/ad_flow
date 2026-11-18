@@ -49,9 +49,9 @@ abstract interface class RewardedInterstitialHandle
 
 /// A loaded app open ad.
 ///
-/// Policy: shown on a warm return by default (`resumeOnly`), with opt-in
-/// `launchOnly` / `launchAndResume` trigger modes — see
-/// `AppOpenConfig.triggerMode` and `AppOpenAdManager`. A loaded ad expires 4
+/// Policy: shown on a warm return by default (`AppOpenConfig.showOnResume`),
+/// and at cold launch only when the app asks (`AppOpenAdManager.showAtLaunch`).
+/// A loaded ad expires 4
 /// hours after load — the owner tracks load time and discards stale handles.
 abstract interface class AppOpenHandle implements FullScreenAdHandle {}
 

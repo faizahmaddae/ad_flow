@@ -2,6 +2,7 @@ import 'package:ad_flow/ad_flow.dart';
 import 'package:ad_flow/ad_flow_testing.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/show.dart';
 
 /// Async rejection containment through the ACTUAL public callback types
 /// (release gate). Every app-facing callback is declared `void Function(...)`,
@@ -132,11 +133,13 @@ void main() {
     await ads.whenReady;
     await ads.rewarded.load();
     await pumpEventQueue();
-    await ads.rewarded.show(
-      onReward: (reward) async {
-        await Future<void>.delayed(Duration.zero);
-        throw StateError('grant async bug');
-      },
+    await dispatch(
+      ads.rewarded.show(
+        onReward: (reward) async {
+          await Future<void>.delayed(Duration.zero);
+          throw StateError('grant async bug');
+        },
+      ),
     );
     sdk.rewardeds.last.simulateReward(
       const RewardEarned(amount: 10, type: 'coins'),

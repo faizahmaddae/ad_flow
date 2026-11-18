@@ -766,7 +766,16 @@ class AdFlow {
     // (ADR-028/032).
     _consentDebug = debug;
     final consent = _runConsent(debug);
-    await _initializeAndConfigure();
+    // Kicks init synchronously (so `_initInFlight` is set before any load
+    // reaches the gate), then awaits it below.
+    final init = _initializeAndConfigure();
+    // The app-open slot preloads AT ONCE, not after consent: its launch moment
+    // (`showAtLaunch`, while the loading screen is up) is only seconds long.
+    // Safe — every load still waits for init + request configuration and for
+    // consent (a returning user's cached consent opens the gate early, a first
+    // install's flow is joined).
+    _appOpen?.start();
+    await init;
 
     // Gate ad loads on consent.
     final canRequestAds = await consent;
@@ -776,10 +785,8 @@ class AdFlow {
     // preloads on a torn-down graph.
     if (_disposed) return canRequestAds;
 
-    // The manager and controllers gate every load themselves, so starting
-    // them with a closed gate (or before init completes) is safe — they simply
-    // stay idle / blocked until the gate opens.
-    _appOpen?.start();
+    // The controllers gate every load themselves, so starting them with a
+    // closed gate is safe — they simply stay idle / blocked until it opens.
     unawaited(_interstitial?.load());
     unawaited(_rewarded?.load());
     unawaited(_rewardedInterstitial?.load());

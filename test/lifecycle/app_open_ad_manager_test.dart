@@ -9,6 +9,7 @@ import 'package:ad_flow/src/policy/full_screen_ad_coordinator.dart';
 import 'package:ad_flow/src/policy/key_value_store.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/show.dart';
 
 void main() {
   late FakeAdSdk sdk;
@@ -92,7 +93,7 @@ void main() {
       now = now.add(const Duration(hours: 4));
       expect(c.isExpired, isTrue);
 
-      final shown = await c.show();
+      final shown = await dispatch(c.show());
       await settle();
 
       expect(shown, isFalse);
@@ -108,7 +109,7 @@ void main() {
       final c = controller();
       await c.load();
       now = now.add(const Duration(hours: 3, minutes: 59));
-      expect(await c.show(), isTrue);
+      expect(await dispatch(c.show()), isTrue);
       c.dispose();
     });
   });

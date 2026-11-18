@@ -65,11 +65,6 @@ Future<void> main() async {
   runApp(ExampleApp(ads: ads));
 }
 
-/// SIMPLE mode's app-open config is `resumeOnly` (the default). This example
-/// opts into `launchAndResume` so it can also demonstrate the cold-launch
-/// opportunity below. Both helpers request it via `AdFlowConfig.test`.
-const _appOpenTriggerMode = AppOpenTriggerMode.launchAndResume;
-
 /// SIMPLE mode — the minimal drop-in. UMP drives the whole consent flow (and
 /// iOS ATT if you set the console IDFA message); no client-side priming.
 ///
@@ -81,7 +76,7 @@ Future<AdFlow> _initSimple() {
   return AdFlow.initialize(
     // Google sample ads everywhere. Replace with your production config:
     //   AdFlowConfig(banner: BannerConfig(adUnitId: PlatformAdUnitId(...)), ...)
-    AdFlowConfig.test(appOpenTriggerMode: _appOpenTriggerMode),
+    AdFlowConfig.test(),
     rewardedIntroPresenter: RewardedIntroScreen.presenter(navigatorKey),
   );
 }
@@ -99,7 +94,7 @@ Future<AdFlow> _initSimple() {
 ///   console.
 Future<AdFlow> _initWithExplainer() {
   return AdFlow.initialize(
-    AdFlowConfig.test(appOpenTriggerMode: _appOpenTriggerMode),
+    AdFlowConfig.test(),
     rewardedIntroPresenter: RewardedIntroScreen.presenter(navigatorKey),
     attExplainer: AttExplainerScreen.presenter(navigatorKey),
     consentExplainer: ConsentExplainerScreen.presenter(navigatorKey),
@@ -131,11 +126,9 @@ class ExampleApp extends StatelessWidget {
 ///
 /// It renders its own UI immediately (never a blank/blocked first frame), does
 /// the app's genuine startup work, then — right before entering main content —
-/// calls [AppOpenAdManager.showAtLaunchIfReady]. That call NEVER waits for a
-/// load: if an ad is not already warm at this instant (the usual case at a true
-/// cold launch, since consent + the first load have not finished yet) it
-/// returns false immediately and we proceed. So this screen exists to do work,
-/// not to wait for an ad.
+/// calls [AppOpenAdManager.showAtLaunch]. That call waits a few seconds at most
+/// for the app-open ad to load (never on a first launch, before consent), shows
+/// it, and completes when the user closes it; then we enter the app.
 class StartupScreen extends StatefulWidget {
   const StartupScreen({required this.ads, super.key});
 
@@ -161,9 +154,9 @@ class _StartupScreenState extends State<StartupScreen> {
     if (!mounted) return;
 
     // Immediately before entering main content: take the cold-launch
-    // opportunity. Shows an already-ready ad (and awaits its dismissal); if
-    // none is ready it returns false at once. One-shot per process launch.
-    await widget.ads.appOpenOrNull?.showAtLaunchIfReady();
+    // opportunity. Waits up to 3 s for the ad, shows it and completes when it
+    // closes — or at once when there is none. One-shot per process launch.
+    await widget.ads.appOpenOrNull?.showAtLaunch();
     if (!mounted) return;
 
     Navigator.of(context).pushReplacement(
@@ -257,8 +250,8 @@ class _HomeScreenState extends State<HomeScreen> {
           _StateTile(
             title: 'App open',
             subtitle:
-                'launchAndResume: shows on the first warm return, and at cold '
-                'launch via the startup screen when an ad is already ready.',
+                'Shows on a warm return, and at cold launch from the startup '
+                'screen (waits up to 3 s for the ad).',
             state: ads.appOpenController.state,
           ),
           // Remove-Ads hides the WHOLE decorated Card — title, padding and

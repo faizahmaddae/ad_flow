@@ -1,5 +1,5 @@
 /// Process-scoped one-shot cold-launch latch backing
-/// `AppOpenAdManager.showAtLaunchIfReady`.
+/// `AppOpenAdManager.showAtLaunch`.
 ///
 /// INTERNAL — this file is deliberately NOT exported from
 /// `package:ad_flow/ad_flow.dart`, so none of these members are part of the

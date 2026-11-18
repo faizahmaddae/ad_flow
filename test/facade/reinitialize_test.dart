@@ -2,6 +2,7 @@ import 'package:ad_flow/ad_flow.dart';
 import 'package:ad_flow/ad_flow_testing.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/show.dart';
 
 /// `AdFlow.initialize()` is idempotent (ADR-044).
 ///
@@ -83,7 +84,7 @@ void main() {
     await first.whenReady;
     await pumpEventQueue();
     // Show + dismiss an interstitial: its minGap timestamp persists.
-    await first.interstitial.show();
+    await dispatch(first.interstitial.show());
     sdk.interstitials.last.simulateDismissed();
     await pumpEventQueue();
 
@@ -97,7 +98,7 @@ void main() {
     await pumpEventQueue();
 
     expect(
-      await second.interstitial.show(),
+      await dispatch(second.interstitial.show()),
       isFalse,
       reason:
           'the 30s default minGap from the impression recorded under the '

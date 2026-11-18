@@ -1,6 +1,7 @@
 import 'package:ad_flow/ad_flow.dart';
 import 'package:ad_flow/ad_flow_testing.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/show.dart';
 
 /// Two rules about WHAT the frequency caps mean — as opposed to how they are
 /// computed (covered by `test/policy/frequency_cap_policy_test.dart`).
@@ -66,7 +67,7 @@ void main() {
         // 15s gap is now running.
         final i = interstitial();
         await i.load();
-        expect(await i.show(), isTrue);
+        expect(await dispatch(i.show()), isTrue);
         sdk.interstitials.single.simulateShowed();
         sdk.interstitials.single.simulateDismissed();
 
@@ -76,7 +77,7 @@ void main() {
         await r.load();
 
         expect(
-          await r.show(onReward: (_) {}),
+          await dispatch(r.show(onReward: (_) {})),
           isTrue,
           reason:
               'the user ASKED for this ad and is owed a reward for it — the '
@@ -92,7 +93,7 @@ void main() {
         'and the intro is never presented for a capped one (4.0)', () async {
       final i = interstitial();
       await i.load();
-      expect(await i.show(), isTrue);
+      expect(await dispatch(i.show()), isTrue);
       sdk.interstitials.single.simulateShowed();
       sdk.interstitials.single.simulateDismissed();
 
@@ -115,7 +116,7 @@ void main() {
       await ri.load();
 
       expect(
-        await ri.show(onReward: (_) {}),
+        await dispatch(ri.show(onReward: (_) {})),
         isFalse,
         reason:
             'the intro appears at an app-chosen transition the user did not '
@@ -134,7 +135,7 @@ void main() {
     test('an INTERSTITIAL is still blocked by the same global gap', () async {
       final r = rewarded();
       await r.load();
-      expect(await r.show(onReward: (_) {}), isTrue);
+      expect(await dispatch(r.show(onReward: (_) {})), isTrue);
       sdk.rewardeds.single.simulateShowed();
       sdk.rewardeds.single.simulateDismissed();
 
@@ -143,7 +144,7 @@ void main() {
       await i.load();
 
       expect(
-        await i.show(),
+        await dispatch(i.show()),
         isFalse,
         reason:
             "a rewarded impression still COUNTS globally: the user just "
@@ -159,7 +160,7 @@ void main() {
     test('an interstitial cannot fire the moment a long ad closes', () async {
       final r = rewarded();
       await r.load();
-      expect(await r.show(onReward: (_) {}), isTrue);
+      expect(await dispatch(r.show(onReward: (_) {})), isTrue);
       sdk.rewardeds.single.simulateShowed();
 
       // A rewarded ad is long: the user watches for 30s — longer than the 15s
@@ -171,7 +172,7 @@ void main() {
       await i.load();
 
       expect(
-        await i.show(),
+        await dispatch(i.show()),
         isFalse,
         reason:
             'measured from the SHOW timestamp the gap has "elapsed" while '
@@ -182,7 +183,7 @@ void main() {
 
       // 15s after the dismiss it is allowed again.
       now = now.add(const Duration(seconds: 16));
-      expect(await i.show(), isTrue);
+      expect(await dispatch(i.show()), isTrue);
 
       i.dispose();
       r.dispose();

@@ -92,7 +92,7 @@ void main() {
       // Dart timer never ran) — only the show-time check can catch this.
       now = now.add(const Duration(hours: 2));
       var shown = true;
-      c.show().then((v) => shown = v);
+      c.show().then((v) => shown = v.shown);
       async.flushMicrotasks();
 
       expect(shown, isFalse);
@@ -117,10 +117,12 @@ void main() {
       async.flushMicrotasks();
 
       expect(sdk.interstitials, hasLength(1));
-      var shown = false;
-      c.show().then((v) => shown = v);
+      // Pending = dispatched, waiting for the ad to close (6.0).
+      var shown = true;
+      c.show().then((v) => shown = v.shown);
       async.flushMicrotasks();
       expect(shown, isTrue);
+      expect(sdk.interstitials.last.showCalls, 1);
       c.dispose();
     });
   });
@@ -135,10 +137,12 @@ void main() {
       async.elapse(const Duration(minutes: 30));
       async.flushMicrotasks();
 
-      var shown = false;
-      c.show().then((v) => shown = v);
+      // Pending = dispatched, waiting for the ad to close (6.0).
+      var shown = true;
+      c.show().then((v) => shown = v.shown);
       async.flushMicrotasks();
       expect(shown, isTrue);
+      expect(sdk.interstitials.last.showCalls, 1);
       c.dispose();
     });
   });

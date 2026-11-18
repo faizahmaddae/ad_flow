@@ -25,6 +25,7 @@ export 'src/core/ad_block_reason.dart';
 export 'src/core/ad_controller.dart';
 export 'src/core/ad_flow_error.dart';
 export 'src/core/ad_load_state.dart';
+export 'src/core/ad_show_result.dart';
 export 'src/facade/ad_flow.dart';
 export 'src/lifecycle/app_open_ad_manager.dart';
 export 'src/policy/ad_gate.dart';

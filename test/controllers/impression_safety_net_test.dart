@@ -1,6 +1,7 @@
 import 'package:ad_flow/ad_flow.dart';
 import 'package:ad_flow/ad_flow_testing.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/show.dart';
 
 /// The ADR-040 impression safety net: an ad that REACHED THE SCREEN counts,
 /// even when its dismiss event never arrives — otherwise the cap
@@ -48,7 +49,9 @@ void main() {
     () async {
       final c = controller();
       await c.load();
-      await c.show(); // AdShowedEvent auto-emitted: impression pending
+      await dispatch(
+        c.show(),
+      ); // AdShowedEvent auto-emitted: impression pending
       await pumpEventQueue();
 
       c.dispose(); // teardown before any dismiss event
@@ -69,7 +72,7 @@ void main() {
     () async {
       final c = controller();
       await c.load();
-      await c.show();
+      await dispatch(c.show());
       await pumpEventQueue();
 
       // The SDK reports a show failure after the creative had already been on

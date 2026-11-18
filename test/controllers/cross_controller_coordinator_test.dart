@@ -8,6 +8,7 @@ import 'package:ad_flow/src/policy/full_screen_ad_coordinator.dart';
 import 'package:ad_flow/src/policy/key_value_store.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/show.dart';
 
 /// Regression coverage for a cross-controller race: two independently
 /// gated FullScreenAdControllerBase instances sharing one coordinator
@@ -62,7 +63,7 @@ void main() {
       // foreground-triggered app-open ad firing at once.
       final f1 = interstitial.show();
       final f2 = appOpen.show();
-      final results = await Future.wait([f1, f2]);
+      final results = await Future.wait([dispatch(f1), dispatch(f2)]);
 
       expect(results.where((r) => r).length, 1); // exactly one shown
       final showingCount = [

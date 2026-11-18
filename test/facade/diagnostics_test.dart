@@ -1,6 +1,7 @@
 import 'package:ad_flow/ad_flow.dart';
 import 'package:ad_flow/ad_flow_testing.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/show.dart';
 
 /// "Why aren't my ads loading?" must be answerable (ADR-045).
 ///
@@ -81,14 +82,14 @@ void main() {
     final log = <(String, AdBlockReason)>[];
     final ads = await boot(log: log);
 
-    expect(await ads.interstitial.show(), isTrue);
+    expect(await dispatch(ads.interstitial.show()), isTrue);
     sdk.interstitials.single.simulateShowed();
     sdk.interstitials.single.simulateDismissed();
     await Future<void>.delayed(Duration.zero);
     await Future<void>.delayed(Duration.zero);
 
     // A second show, well inside the 5-minute cap.
-    expect(await ads.interstitial.show(), isFalse);
+    expect(await dispatch(ads.interstitial.show()), isFalse);
 
     expect(ads.interstitial.lastBlockReason, AdBlockReason.frequencyCapped);
     expect(log, contains(('interstitial', AdBlockReason.frequencyCapped)));
@@ -104,7 +105,7 @@ void main() {
     );
     final ads = await boot();
 
-    expect(await ads.interstitial.show(), isFalse);
+    expect(await dispatch(ads.interstitial.show()), isFalse);
     expect(ads.interstitial.lastBlockReason, AdBlockReason.notReady);
 
     // show() kicks a warm-up load; let it finish failing before asking again,

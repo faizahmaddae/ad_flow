@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'ad_load_state.dart';
+import 'ad_show_result.dart';
 
 /// Common surface of every ad controller.
 abstract interface class AdController {
@@ -39,13 +40,15 @@ abstract interface class AdController {
 /// interstitial, app open).
 abstract interface class FullScreenAdController implements AdController {
   /// Checks the gate, shows the warm ad, records the impression and
-  /// preloads the next one on dismissal. Returns whether an ad was
-  /// actually shown.
+  /// preloads the next one on dismissal.
   ///
-  /// 3.0: the reward callback lives only on the rewarded formats
+  /// Completes when the ad has CLOSED (6.0) — code after `await show()` runs
+  /// once the user is back in the app — or at once when nothing was shown.
+  /// The [AdShowResult] says which, and why.
+  ///
+  /// The reward callback lives only on the rewarded formats
   /// (`RewardedAdController.show(onReward:)` /
-  /// `RewardedInterstitialAdController.show(onReward:)`) — it was silently
-  /// ignored by interstitial and app-open, which is exactly the kind of
-  /// API lie this interface no longer tells.
-  Future<bool> show();
+  /// `RewardedInterstitialAdController.show(onReward:)`); their result also
+  /// carries the reward.
+  Future<AdShowResult> show();
 }

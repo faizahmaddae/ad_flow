@@ -9,6 +9,7 @@ import 'package:ad_flow/src/policy/key_value_store.dart';
 import 'package:ad_flow/src/seam/ad_sdk_types.dart';
 import 'package:ad_flow/src/seam/fake_ad_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/show.dart';
 
 void main() {
   late FakeAdSdk sdk;
@@ -72,7 +73,7 @@ void main() {
     final c = controller();
     await c.load();
 
-    final shown = await c.show(onReward: (_) {});
+    final shown = await dispatch(c.show(onReward: (_) {}));
 
     expect(shown, isTrue);
     expect(introsShown, hasLength(1));
@@ -86,7 +87,7 @@ void main() {
     final c = controller();
     await c.load();
 
-    final shown = await c.show(onReward: (_) {});
+    final shown = await dispatch(c.show(onReward: (_) {}));
 
     expect(shown, isFalse);
     expect(introsShown, hasLength(1));
@@ -97,7 +98,7 @@ void main() {
 
   test('no warm ad: intro is NOT shown, preload starts instead', () async {
     final c = controller();
-    expect(await c.show(onReward: (_) {}), isFalse);
+    expect(await dispatch(c.show(onReward: (_) {})), isFalse);
     await Future<void>.delayed(Duration.zero);
 
     expect(introsShown, isEmpty); // never bother the user without an ad
@@ -127,11 +128,11 @@ void main() {
 
     final first = c.show(onReward: (_) {});
     await Future<void>.delayed(Duration.zero);
-    final second = await c.show(onReward: (_) {});
+    final second = await dispatch(c.show(onReward: (_) {}));
     introGate.complete(true);
 
     expect(second, isFalse);
-    expect(await first, isTrue);
+    expect(await dispatch(first), isTrue);
     expect(introsShown, hasLength(1));
     expect(sdk.rewardedInterstitials.single.showCalls, 1);
     c.dispose();
@@ -162,7 +163,7 @@ void main() {
     c.dispose(); // e.g. the hosting screen was popped mid-intro
     introGate.complete(true); // user taps "watch" after the screen is gone
 
-    expect(await shown, isFalse);
+    expect((await shown).shown, isFalse);
     expect(handle.showCalls, 0);
   });
 
@@ -182,7 +183,7 @@ void main() {
 
       final c = controller();
       await c.load();
-      final shown = await c.show(onReward: (_) {});
+      final shown = await dispatch(c.show(onReward: (_) {}));
 
       expect(shown, isFalse);
       expect(
@@ -226,7 +227,7 @@ void main() {
       expect(coordinator.tryEnter(), isFalse);
 
       introGate.complete(true);
-      expect(await pending, isTrue);
+      expect(await dispatch(pending), isTrue);
       expect(coordinator.isFullScreenAdVisible, isTrue); // now the ad itself
       c.dispose();
     });
@@ -249,7 +250,7 @@ void main() {
         await c.load();
         final handle = sdk.rewardedInterstitials.single;
 
-        final shown = await c.show(onReward: (_) {});
+        final shown = await dispatch(c.show(onReward: (_) {}));
 
         expect(shown, isFalse);
         expect(handle.showCalls, 0, reason: 'policy: no intro, no ad');
@@ -263,7 +264,7 @@ void main() {
       introAnswer = false;
       final c = controller();
       await c.load();
-      expect(await c.show(onReward: (_) {}), isFalse);
+      expect(await dispatch(c.show(onReward: (_) {})), isFalse);
       expect(coordinator.isFullScreenAdVisible, isFalse);
       expect(c.isReady, isTrue);
       c.dispose();
@@ -295,7 +296,7 @@ void main() {
         await c.load();
         final handle = sdk.rewardedInterstitials.single;
 
-        final shown = await c.show(onReward: (_) {});
+        final shown = await dispatch(c.show(onReward: (_) {}));
 
         expect(shown, isFalse);
         expect(
@@ -333,7 +334,7 @@ void main() {
       await c.load();
       final handle = sdk.rewardedInterstitials.single;
 
-      final shown = await c.show(onReward: (_) {});
+      final shown = await dispatch(c.show(onReward: (_) {}));
 
       expect(shown, isFalse);
       expect(
@@ -360,7 +361,7 @@ void main() {
     await c.load();
 
     final rewards = <RewardEarned>[];
-    await c.show(onReward: rewards.add);
+    await dispatch(c.show(onReward: rewards.add));
     final handle = sdk.rewardedInterstitials.single;
     handle.simulateReward(const RewardEarned(amount: 50, type: 'coins'));
     handle.simulateReward(const RewardEarned(amount: 50, type: 'coins'));

@@ -1,4 +1,5 @@
 import '../config/ad_flow_config.dart';
+import '../core/ad_show_result.dart';
 import '../seam/ad_sdk.dart';
 import '../seam/ad_sdk_types.dart';
 import 'full_screen_ad_controller_base.dart';
@@ -36,7 +37,7 @@ class RewardedAdController extends FullScreenAdControllerBase {
   /// reward, verify Google's SSV callback on your server and grant from one
   /// place only (see [OnUserEarnedReward] / [ServerSideVerification]).
   @override
-  Future<bool> show({OnUserEarnedReward? onReward}) =>
+  Future<AdShowResult> show({OnUserEarnedReward? onReward}) =>
       showEngine(onReward: onReward);
 
   @override
